@@ -1,21 +1,28 @@
 #!/bin/sh
 # socat-reforged-ctl — start/stop/restart the socat forward engine.
 #
-#  restart : kill the long-running loop; procd respawns it and it re-reads
-#            /etc/config/socat. (~3s gap, keeps the procd service registered)
-#  stop    : remove the procd service (procd would otherwise keep the loop
-#            alive and respawn workers), then kill any leftovers.
+# The engine runs as a procd service. We prefer our own "socat-reforged"
+# init; if it is missing we fall back to a legacy "socat" init (e.g. from a
+# custom socat build) so the buttons keep working during a migration.
+#
+#  restart : kill all workers, then reconcile brings them back (~1s gap).
+#  stop    : unregister the procd service (procd would otherwise respawn the
+#            loop and its workers), then kill any leftovers.
 #  start   : (re-)register and start the procd service.
+SERVICE=socat-reforged
+[ -x /etc/init.d/socat-reforged ] || SERVICE=socat
+
 case "$1" in
 	start)
-		/etc/init.d/socat start >/dev/null 2>&1
+		/etc/init.d/$SERVICE start >/dev/null 2>&1
 		;;
 	stop)
-		ubus call service delete '{"name":"socat"}' >/dev/null 2>&1
-		for p in $(/usr/bin/pgrep -f '/etc/socat-boot.sh' 2>/dev/null); do
+		ubus call service delete '{"name":"'"$SERVICE"'"}' >/dev/null 2>&1
+		for p in $(/usr/bin/pgrep -f '/etc/socat-boot.sh$' 2>/dev/null); do
 			kill -9 "$p" 2>/dev/null
 		done
 		killall -KILL socat 2>/dev/null
+		rm -f /var/run/socat-reforged.hb 2>/dev/null
 		;;
 	restart)
 		# hard restart: drop all workers, then reconcile brings them back

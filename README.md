@@ -55,6 +55,10 @@ drop-in replacement with a modern, ucode-native view.
   in 25.10+). No `luci-compat` needed.
 * `socat` (pulled automatically as a dependency; it is architecture-specific and
   comes from your distribution's feeds).
+* **The forwarding engine is included.** The package ships `/etc/socat-boot.sh`
+  and its own procd service `/etc/init.d/socat-reforged` — no separate engine is
+  needed. On install it stops and removes any legacy init that runs the same
+  engine (e.g. from a custom socat build) so only one loop can ever run.
 * A `firewall4`/`nftables` system for the automatic WAN rule (everything else works
   without it; the firewall sync simply no-ops).
 * BusyBox userland (standard on OpenWrt) for `sh`, `sort`, `grep`, `tr`, `sed`,
@@ -64,19 +68,28 @@ drop-in replacement with a modern, ucode-native view.
 
 ### 1. Manual install (any architecture)
 
-The package is pure shell + JavaScript + JSON — **architecture-independent**. If
-you can copy files to your router you can install it, no compilation:
+The package is shell + JavaScript + JSON + ucode — **architecture-independent**.
+If you can copy files to your router you can install it, no compilation:
 
 ```sh
 # on the router (adjust the source dir)
 tar -xzf luci-app-socat-reforged-<ver>.tar.gz
 cd luci-app-socat-reforged-<ver>
-sh install.sh            # installs the UI + ACL + firewall trigger
-sh install.sh --with-engine   # also (re)install /etc/socat-boot.sh
+sh install.sh
 ```
 
-`install.sh` is idempotent, backs up before touching the engine, and is safe to
-re-run. It does **not** touch anything outside this app.
+`install.sh` installs the UI, the rpcd backend, the **engine** and its **procd
+service**, creates `/etc/config/socat` if missing, and migrates off a legacy
+engine init. It is idempotent, backs up before touching the engine, and never
+overwrites your existing `/etc/config/socat`.
+
+The engine is managed as the procd service **`socat-reforged`**:
+
+```sh
+/etc/init.d/socat-reforged enable     # start at boot
+/etc/init.d/socat-reforged start
+/etc/init.d/socat-reforged stop
+```
 
 ### 2. Build from source (feed / package)
 
@@ -112,13 +125,13 @@ per-architecture and is resolved from your own feeds.
 ## Repository layout
 
 The package follows the LuCI buildroot convention (`luci.mk` installs `root/`
-into `/`, `htdocs/` into `/www`); the engine lives outside the package because
-`install.sh --with-engine` manages it explicitly:
+into `/`, `htdocs/` into `/www`); the engine and its service are part of the
+package:
 
 ```
-root/…   -> /      (menu, ACL, ucitrack, libexec helpers, rpcd/ucode backend)
+root/…   -> /      (menu, ACL, ucitrack, engine + init, libexec helpers,
+                    rpcd/ucode backend)
 htdocs/… -> /www   (the LuCI view)
-engine/socat-boot.sh   (the forwarding engine; installed by install.sh --with-engine)
 ```
 
 ## Configuration (UCI: `/etc/config/socat`)

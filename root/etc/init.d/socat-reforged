@@ -1,0 +1,23 @@
+#!/bin/sh /etc/rc.common
+# procd service for the socat-reforged forwarding engine.
+#
+# This is the app's own service (name "socat-reforged") so it never collides
+# with an unrelated /etc/init.d/socat shipped by a socat build. The engine
+# reconciles /etc/config/socat against the running workers on every cycle.
+USE_PROCD=1
+START=99
+STOP=10
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /bin/sh /etc/socat-boot.sh
+	procd_set_param respawn 3600 5 5
+	procd_close_instance
+}
+
+stop_service() {
+	killall socat 2>/dev/null
+	sleep 1
+	killall -9 socat 2>/dev/null
+	rm -f /var/run/socat-reforged.hb 2>/dev/null
+}
