@@ -1,4 +1,4 @@
-# luci-app-socat-reforged v1.0.2  (self-upstream)
+# luci-app-socat-reforged v1.0.3  (self-upstream)
 # OpenWrt 25.x ucode-native LuCI for the custom socat forwarding engine.
 # A ground-up rewrite ("reforged") of the classic Lua/CBI socat page, which
 # cannot run on 25.x (no /usr/lib/lua tree). Distinct name to avoid clashing
@@ -7,7 +7,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-socat-reforged
-PKG_VERSION:=1.0.2
+PKG_VERSION:=1.0.3
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=busybin <65460344+busybin@users.noreply.github.com>

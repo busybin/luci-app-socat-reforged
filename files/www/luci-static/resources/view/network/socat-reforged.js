@@ -462,9 +462,9 @@ return view.extend({
 			document.addEventListener('click', function(ev) {
 				if (!ev.target || !ev.target.closest)
 					return;
-				if (ev.target.closest('button.cbi-button-apply'))
+				if (ev.target.closest('.cbi-button-apply'))
 					window.setTimeout(function() { self.buildSnapshot(); self.checkDirty(); }, 1500);
-				else if (ev.target.closest('button.cbi-button-save, button.cbi-button-reset'))
+				else if (ev.target.closest('.cbi-button-save, .cbi-button-reset'))
 					window.setTimeout(function() { self.checkDirty(); }, 1500);
 			}, true);
 			/* intercept in-app navigation while dirty */
