@@ -15,7 +15,7 @@ PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
 
 LUCI_TITLE:=LuCI support for Socat (Reforged, custom engine)
-LUCI_DEPENDS:=+luci-base +socat
+LUCI_DEPENDS:=+luci-base +socat +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci
 LUCI_PKGARCH:=all
 
 # The package ships the engine (/etc/socat-boot.sh) and its procd service

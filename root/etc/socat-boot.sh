@@ -315,6 +315,29 @@ if [ "$1" = "restart-rule" ]; then
     exit 0
 fi
 
+# Singleton guard: only ONE engine loop may run. If a competing init (e.g. a
+# socat build that ships /etc/init.d/socat running this same script) starts a
+# second loop, it blocks here until the active loop exits — so two loops can
+# never reconcile at once. The lock self-heals if the holder died uncleanly.
+acquire_loop_lock() {
+    local lockdir=/var/run/socat-reforged.engine.lock lp warned=0
+    while true; do
+        if mkdir "$lockdir" 2>/dev/null; then
+            echo $$ > "$lockdir/pid"
+            return 0
+        fi
+        lp=$(cat "$lockdir/pid" 2>/dev/null)
+        if [ -n "$lp" ] && kill -0 "$lp" 2>/dev/null && grep -q 'socat-boot.sh' /proc/$lp/cmdline 2>/dev/null; then
+            [ "$warned" = 0 ] && { log "another engine loop (pid $lp) is active; idling this one"; warned=1; }
+            sleep 30
+            continue
+        fi
+        log "clearing stale engine lock (holder '$lp' gone)"
+        rm -rf "$lockdir"
+    done
+}
+acquire_loop_lock
+
 CHECK_COUNTER=0
 
 while true; do
