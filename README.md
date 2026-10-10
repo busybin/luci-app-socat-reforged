@@ -45,7 +45,10 @@ drop-in replacement with a modern, ucode-native view.
 * **Reach the target through a proxy** (SOCKS4a / HTTP CONNECT) per rule.
 * **Standalone / self-healing**: the engine loop reconciles against the running
   workers every cycle (and on demand), fixes the WAN IPv6 default route, re-checks
-  the WG DNAT rule and exercises the hardware watchdog.
+  the WG DNAT rule and exercises the hardware watchdog. A **single-instance lock**
+  guarantees only ever *one* engine loop reconciles — even if a competing init
+  (e.g. a socat build shipping its own init for this engine) is present, the extra
+  loop just idles, and the lock self-heals if the holder dies uncleanly.
 * **Theme-aware** UI (uses the LuCI CSS variables, so light and dark themes both
   look right).
 
