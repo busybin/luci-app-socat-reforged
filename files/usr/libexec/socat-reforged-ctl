@@ -1,0 +1,32 @@
+#!/bin/sh
+# socat-reforged-ctl — start/stop/restart the socat forward engine.
+#
+#  restart : kill the long-running loop; procd respawns it and it re-reads
+#            /etc/config/socat. (~3s gap, keeps the procd service registered)
+#  stop    : remove the procd service (procd would otherwise keep the loop
+#            alive and respawn workers), then kill any leftovers.
+#  start   : (re-)register and start the procd service.
+case "$1" in
+	start)
+		/etc/init.d/socat start >/dev/null 2>&1
+		;;
+	stop)
+		ubus call service delete '{"name":"socat"}' >/dev/null 2>&1
+		for p in $(/usr/bin/pgrep -f '/etc/socat-boot.sh' 2>/dev/null); do
+			kill -9 "$p" 2>/dev/null
+		done
+		killall -KILL socat 2>/dev/null
+		;;
+	restart)
+		# hard restart: drop all workers, then reconcile brings them back
+		killall -TERM socat 2>/dev/null
+		sleep 1
+		killall -KILL socat 2>/dev/null
+		/etc/socat-boot.sh reconcile >/dev/null 2>&1
+		;;
+	*)
+		echo "usage: $0 start|stop|restart" >&2
+		exit 1
+		;;
+esac
+exit 0

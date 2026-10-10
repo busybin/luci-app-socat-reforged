@@ -1,0 +1,96 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+  release:
+    types: [ published ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # OpenWrt 24.10 (opkg, .ipk) — JS LuCI
+          - name: 24.10-x86_64
+            base: releases
+            ver: "24.10.4"
+            target: x86/64
+            ext: ipk
+          - name: 24.10-aarch64
+            base: releases
+            ver: "24.10.4"
+            target: armsr/armv8
+            ext: ipk
+          - name: 24.10-mips
+            base: releases
+            ver: "24.10.4"
+            target: ath79/generic
+            ext: ipk
+          # OpenWrt snapshot (apk, .apk) — ucode-only LuCI (25.x line)
+          - name: snapshot-x86_64
+            base: snapshots
+            ver: SNAPSHOT
+            target: x86/64
+            ext: apk
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pkg
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential file wget rsync unzip zstd \
+            libncurses-dev libssl-dev python3
+
+      - name: Download and unpack SDK
+        env:
+          BASE: ${{ matrix.base }}
+          VER: ${{ matrix.ver }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -e
+          if [ "$BASE" = "snapshots" ]; then
+            DIR="https://downloads.openwrt.org/snapshots/targets/$TARGET/"
+          else
+            DIR="https://downloads.openwrt.org/releases/$VER/targets/$TARGET/"
+          fi
+          FILE=$(wget -qO- "$DIR" | grep -oE 'openwrt-sdk-[^"]+Linux-x86_64\.tar\.zst' | head -n1)
+          echo "Using SDK: $DIR$FILE"
+          wget -qO sdk.tar.zst "$DIR$FILE"
+          mkdir -p sdk
+          tar --zstd -xf sdk.tar.zst -C sdk --strip-components=1
+
+      - name: Build
+        run: |
+          set -e
+          cd sdk
+          mkdir -p package/luci-app-socat-reforged
+          cp -a ../pkg/. package/luci-app-socat-reforged/
+          rm -rf package/luci-app-socat-reforged/.git package/luci-app-socat-reforged/.github
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          make defconfig
+          make package/luci-app-socat-reforged/compile V=s -j"$(nproc)"
+
+      - name: Collect packages
+        run: |
+          mkdir -p out
+          find sdk/bin/packages -name "luci-app-socat-reforged_*.${{ matrix.ext }}" -exec cp {} out/ \;
+          ls -la out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error

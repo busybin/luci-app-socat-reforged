@@ -1,0 +1,16 @@
+# editor / os
+*~
+.DS_Store
+*.swp
+
+# build artifacts
+*.ipk
+*.apk
+bin/
+build_dir/
+staging_dir/
+tmp/
+dl/
+
+# my local packaging scratch (not for the repo)
+/luci-app-socat-reforged-*.tar.gz

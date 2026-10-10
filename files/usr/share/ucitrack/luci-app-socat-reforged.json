@@ -1,0 +1,4 @@
+{
+	"config": "socat",
+	"exec": "/usr/libexec/socat-reforged-reload"
+}
