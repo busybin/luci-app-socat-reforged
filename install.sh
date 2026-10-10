@@ -1,7 +1,7 @@
 #!/bin/sh
 # luci-app-socat-reforged installer V2 — idempotent, network-safe.
-# Deploys the LuCI UI + ACL + config-change trigger; removes stale files
-# from the old package name (luci-app-socat / luci_socat / luci_socat_reforged).
+# Deploys the LuCI UI + rpcd backend + ACL + config-change trigger; removes
+# stale files from the old package name (luci-app-socat / luci_socat / ...).
 # The forwarding ENGINE (/etc/socat-boot.sh) is only touched with
 # --with-engine, and then the running loop is killed so procd respawns it
 # from the new file (a plain "/etc/init.d/socat restart" does NOT reload a
@@ -31,13 +31,14 @@ rm -f /usr/share/luci/menu.d/luci-app-socat.json \
       /etc/rc.d/S99luci_socat_reforged \
       /etc/rc.d/K10luci_socat_reforged 2>/dev/null || true
 
-# --- new files ---
-inst files/usr/share/luci/menu.d/luci-app-socat-reforged.json /usr/share/luci/menu.d/luci-app-socat-reforged.json 644
-inst files/www/luci-static/resources/view/network/socat-reforged.js /www/luci-static/resources/view/network/socat-reforged.js 644
-inst files/usr/share/ucitrack/luci-app-socat-reforged.json /usr/share/ucitrack/luci-app-socat-reforged.json 644
-inst files/usr/share/rpcd/acl.d/luci-app-socat-reforged.json /usr/share/rpcd/acl.d/luci-app-socat-reforged.json 644
-inst files/usr/libexec/socat-reforged-reload /usr/libexec/socat-reforged-reload 755
-inst files/usr/libexec/socat-reforged-ctl /usr/libexec/socat-reforged-ctl 755
+# --- new files (mirrors the package layout: root/ -> /, htdocs/ -> /www) ---
+inst root/usr/share/luci/menu.d/luci-app-socat-reforged.json /usr/share/luci/menu.d/luci-app-socat-reforged.json 644
+inst htdocs/luci-static/resources/view/network/socat-reforged.js /www/luci-static/resources/view/network/socat-reforged.js 644
+inst root/usr/share/ucitrack/luci-app-socat-reforged.json /usr/share/ucitrack/luci-app-socat-reforged.json 644
+inst root/usr/share/rpcd/acl.d/luci-app-socat-reforged.json /usr/share/rpcd/acl.d/luci-app-socat-reforged.json 644
+inst root/usr/share/rpcd/ucode/luci.socat-reforged.uc /usr/share/rpcd/ucode/luci.socat-reforged.uc 644
+inst root/usr/libexec/socat-reforged-reload /usr/libexec/socat-reforged-reload 755
+inst root/usr/libexec/socat-reforged-ctl /usr/libexec/socat-reforged-ctl 755
 
 # Re-register procd config triggers so Save&Apply works without a reboot.
 /etc/init.d/ucitrack restart >/dev/null 2>&1 || true
@@ -45,7 +46,7 @@ inst files/usr/libexec/socat-reforged-ctl /usr/libexec/socat-reforged-ctl 755
 if [ "$WITH_ENGINE" = "1" ]; then
   TS=$(date +%Y%m%d-%H%M%S)
   cp -p /etc/socat-boot.sh "/etc/socat-boot.sh.bak.$TS"
-  cp "$HERE/files/opt/socat-engine/socat-boot.sh" /etc/socat-boot.sh
+  cp "$HERE/engine/socat-boot.sh" /etc/socat-boot.sh
   chmod 755 /etc/socat-boot.sh
   sh -n /etc/socat-boot.sh && echo "engine syntax OK (backup: $TS)"
   for p in $(pgrep -f '/etc/socat-boot.sh$' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
