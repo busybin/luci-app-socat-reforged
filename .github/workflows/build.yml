@@ -86,8 +86,9 @@ jobs:
       - name: Collect packages
         run: |
           mkdir -p out
-          find sdk/bin/packages -name "luci-app-socat-reforged_*.${{ matrix.ext }}" -exec cp {} out/ \;
+          find sdk/bin/packages -name "luci-app-socat-reforged*.${{ matrix.ext }}" -exec cp -v {} out/ \;
           ls -la out/
+          test -n "$(ls -A out)" || { echo "no package produced; dumping tree:"; find sdk/bin/packages -maxdepth 2 -type d; find sdk/bin/packages -type f | head; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
