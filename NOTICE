@@ -1,0 +1,28 @@
+luci-app-socat-reforged
+Copyright (C) 2026 busybin
+
+This package is an independent, from-scratch reimplementation ("reforged")
+of a socat port-forward manager for the modern (ucode/JavaScript) LuCI, which
+is required from OpenWrt 24.10 onward and is the only option from 25.10 (the
+classic Lua/CBI userspace and luci-compat are gone there).
+
+No source code was copied from the projects below; only the general idea of a
+socat forwarding UI and the configuration field names (a functional interface)
+are shared. They are credited here in the spirit of the original work.
+
+Prior art / inspiration
+-----------------------
+* luci-app-socat (original) - Lienol
+    https://github.com/Lienol/openwrt-package
+* luci-app-socat - chenmozhijin (GPL-3.0)
+    https://github.com/chenmozhijin/luci-app-socat
+    Its configuration schema and the "open firewall port" convenience informed
+    our design.
+* luci-app-socatg - big-tooth (MIT)
+    https://github.com/big-tooth/luci-app-socatg
+
+Runtime dependency (installed by your distribution, not bundled here)
+---------------------------------------------------------------------
+* socat - https://www.dest-unreach.org/socat/ (GPL-2.0)
+  Provides the actual relay; this package only generates and supervises the
+  socat command lines and keeps a dedicated WAN-accept firewall rule in sync.

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Triggered by procd on /etc/config/socat change (via the ucitrack exec handler).
+# Performs a per-rule reconcile: only socat workers whose config actually
+# changed are restarted; the rest keep running.
+/etc/socat-boot.sh reconcile >/dev/null 2>&1

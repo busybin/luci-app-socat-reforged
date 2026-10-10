@@ -1,0 +1,20 @@
+{
+	"luci-app-socat-reforged": {
+		"description": "Grant access to Socat Reforged (custom UCI socat forwarding page)",
+		"read": {
+			"file": {
+				"/bin/netstat": [ "exec" ],
+				"/bin/sh": [ "exec" ],
+				"/usr/libexec/socat-reforged-reload": [ "exec" ],
+				"/usr/libexec/socat-reforged-ctl": [ "exec" ]
+			},
+			"uci": [ "socat" ],
+			"ubus": {
+				"file": [ "read", "list" ]
+			}
+		},
+		"write": {
+			"uci": [ "socat" ]
+		}
+	}
+}
