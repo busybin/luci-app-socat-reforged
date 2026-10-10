@@ -1,5 +1,5 @@
 #!/bin/sh
-# luci-app-socat-reforged installer V1 — idempotent, network-safe.
+# luci-app-socat-reforged installer V2 — idempotent, network-safe.
 # Deploys the LuCI UI + ACL + config-change trigger; removes stale files
 # from the old package name (luci-app-socat / luci_socat / luci_socat_reforged).
 # The forwarding ENGINE (/etc/socat-boot.sh) is only touched with
