@@ -100,5 +100,6 @@ jobs:
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" out/* --clobber
+          gh release upload "${{ github.event.release.tag_name }}" out/* --clobber --repo "${{ github.repository }}"
