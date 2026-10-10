@@ -277,10 +277,41 @@ pet_watchdog() {
     fi
 }
 
+# Publish a tiny heartbeat (uptime seconds + socat worker count) so the LuCI
+# backend can report engine health without spawning processes on every poll.
+heartbeat() {
+    echo "$(cut -d. -f1 /proc/uptime 2>/dev/null) $(/usr/bin/pgrep socat 2>/dev/null | wc -l)" \
+        > /var/run/socat-reforged.hb 2>/dev/null
+}
+
 # One-shot entry point for the config-change trigger / ctl (fast, per-rule).
 if [ "$1" = "reconcile" ]; then
     reconcile
     sync_firewall
+    heartbeat
+    exit 0
+fi
+
+# Restart exactly one rule (used by the LuCI "Restart rule" button): kill the
+# worker(s) whose command line matches the section's desired listeners, then
+# let reconcile respawn just those.
+if [ "$1" = "restart-rule" ]; then
+    _sec="$2"
+    _des=/tmp/socat-rule-desired.$$
+    emit_section "$_sec" "$(get_ipv6)" > "$_des" 2>/dev/null
+    if [ -s "$_des" ]; then
+        for p in $(/usr/bin/pgrep socat 2>/dev/null); do
+            c=$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | sed 's/[[:space:]]*$//')
+            case "$c" in *LISTEN:*) ;; *) continue;; esac
+            grep -Fxq "$c" "$_des" && { kill "$p" 2>/dev/null; log "restart-rule $_sec: killed pid $p"; }
+        done
+        sleep 1
+    else
+        log "restart-rule $_sec: nothing to restart"
+    fi
+    rm -f "$_des"
+    reconcile
+    heartbeat
     exit 0
 fi
 
@@ -316,5 +347,6 @@ while true; do
         log "HEALTH: mem=${MEM_PCT}% socat=$SOCAT_NUM ipv6=$IPV6_SHORT uptime=$UPTIME"
     fi
 
+    heartbeat
     sleep 15
 done

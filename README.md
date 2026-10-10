@@ -12,16 +12,31 @@ drop-in replacement with a modern, ucode-native view.
 
 ## Features
 
-* **Modern LuCI view** (`form.GridSection`, no Lua runtime): editable port-forward
-  table with live listener status.
-* **Engine status card**: running/stopped, `listening / total`, worker count, and
+* **Modern LuCI view** (`form.GridSection`, no Lua runtime): an editable
+  port-forward table with live listener status, a **search box** and
+  **status filters** (all / listening / down / disabled), and a friendly
+  empty state.
+* **rpcd / ucode backend** (ubus object `luci.socat-reforged`): the page does
+  **not** shell out from the browser. One RPC returns the whole state
+  (engine, every rule, active connection counts) and the actions run
+  server-side — faster, no `netstat`/`ps` parsing, and the ACL grants only
+  the exact methods.
+* **Engine status card**: running/stopped (+ *last reconcile* age),
+  `listening / total`, **live connection count**, worker count, and
   **Start / Stop / Restart** buttons.
-* **Per-rule reload** — `Save & Apply` restarts **only the rule(s) you changed**,
-  not every forward (a diff/reconcile engine, not a blunt restart).
-* **Live status** per rule (`● listening` / `○ down` / `○ disabled`), refreshed
-  automatically; **inline enable checkbox** that applies on `Save & Apply`.
-* **Unsaved-changes guard**: red banner + a save/discard dialog when you leave the
-  page with pending edits (banner clears the moment you revert a value).
+* **Per-rule reload** — `Save & Apply` restarts **only the rule(s) you changed**
+  (a diff/reconcile engine, not a blunt restart); a **Restart this rule**
+  button does the same for a single rule on demand.
+* **Live status per rule** (`● listening` / `○ down` / `○ disabled`) plus the
+  active connection count, refreshed automatically; **inline enable checkbox**
+  that applies on `Save & Apply`.
+* **Reachability test** per rule (dials the configured target — optionally via
+  the configured proxy) and **Clone** to duplicate a rule.
+* **Import / export** all rules as JSON.
+* **Port-conflict detection**: two enabled rules sharing a `proto:port` are
+  flagged in the table and in a warning banner.
+* **Unsaved-changes guard**: red banner + a save/discard dialog when you leave
+  the page with pending edits (banner clears the moment you revert a value).
 * **Automatic WAN firewall** (`firewall_accept`, on by default): keeps a dedicated
   `socat-reforged` accept rule in sync with your rules, validated before reload and
   persisted in `/etc/config/firewall`.
@@ -31,6 +46,8 @@ drop-in replacement with a modern, ucode-native view.
 * **Standalone / self-healing**: the engine loop reconciles against the running
   workers every cycle (and on demand), fixes the WAN IPv6 default route, re-checks
   the WG DNAT rule and exercises the hardware watchdog.
+* **Theme-aware** UI (uses the LuCI CSS variables, so light and dark themes both
+  look right).
 
 ## Requirements
 
@@ -91,6 +108,18 @@ per-architecture and is resolved from your own feeds.
   any target's SDK produces the same `_all` package. If you use CI, a single matrix
   entry is enough; extra entries only validate more targets.
 * **Manual install needs no compilation at all** — ideal for tiny/exotic devices.
+
+## Repository layout
+
+The package follows the LuCI buildroot convention (`luci.mk` installs `root/`
+into `/`, `htdocs/` into `/www`); the engine lives outside the package because
+`install.sh --with-engine` manages it explicitly:
+
+```
+root/…   -> /      (menu, ACL, ucitrack, libexec helpers, rpcd/ucode backend)
+htdocs/… -> /www   (the LuCI view)
+engine/socat-boot.sh   (the forwarding engine; installed by install.sh --with-engine)
+```
 
 ## Configuration (UCI: `/etc/config/socat`)
 
