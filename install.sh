@@ -1,5 +1,5 @@
 #!/bin/sh
-# luci-app-socat-reforged installer — unreleased 2026-10 work (next: V3).
+# luci-app-socat-reforged installer — V3 (2026-10).
 # Idempotent, network-safe.
 #
 # Self-contained: installs the LuCI UI + rpcd backend + ACL + the forwarding

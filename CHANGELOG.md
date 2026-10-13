@@ -3,7 +3,9 @@
 `V<integer>` releases (see Releases). `main` carries unreleased work on top of
 the last tag; version numbers only change when a release is requested.
 
-## Unreleased (third round: listener identity, duplicate listeners, diagnostics — 2026-10-13)
+## V3 (2026-10-13)
+
+### Listener identity, duplicate listeners, diagnostics
 
 Follow-up audit after observing "the engine process exits and comes back" and
 rules that silently stop forwarding.
@@ -40,7 +42,7 @@ rules that silently stop forwarding.
 * **Packaging/tests.** The installer keeps only the 5 most recent engine
   backups; the router checks remove every test section on exit (even on failure).
 
-## Unreleased (will ship as V3)
+### Engine and packaging rewrite
 
 Engine and packaging rewrite of V2, driven by a full code audit (2026-10-13):
 
@@ -85,7 +87,7 @@ Engine and packaging rewrite of V2, driven by a full code audit (2026-10-13):
   `/tmp/luci-indexcache` and the file form of `/tmp/luci-modulecache`); CI
   reduced from 4 SDK downloads to the 2 that produce distinct artifacts.
 
-## Unreleased (second portability round, 2026-10-13)
+### Second portability round
 
 * **Firewall zones are detected, not assumed.** The accept rules go into the
   zone(s) that actually cover the WAN device — named or anonymous, DHCP or PPPoE,
