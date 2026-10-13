@@ -7,8 +7,7 @@
 			"path": "network/socat-reforged"
 		},
 		"depends": {
-			"acl": [ "luci-app-socat-reforged" ],
-			"uci": { "socat": true }
+			"acl": [ "luci-app-socat-reforged" ]
 		}
 	}
 }

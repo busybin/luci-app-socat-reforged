@@ -80,9 +80,32 @@ drop-in replacement with a modern, ucode-native view.
 | `wg_dnat_guard` | `0` | If you configured a 51820 DNAT rule, reload the firewall when it disappears from nftables. Never touches connection tracking. |
 | `debug` | `0` | Log a `HEALTH` line every minute (memory, worker count, IPv6, uptime). |
 
-Runtime state lives in `/var/run/socat-reforged/` (`desired`, `state`, `fw.sig`,
+Runtime state lives in `/var/run/socat-reforged/` (`desired`, `state`, `fw.sig`, `fw.zones`,
 `err/<kind>-<port>.log`, `ratelog/`), the heartbeat in `/var/run/socat-reforged.hb`.
 `socat-boot.sh status` prints a human-readable summary.
+
+## What the engine works out for itself
+
+Nothing about your WAN is hard-coded — all of it is discovered each cycle, so
+the package behaves the same on any OpenWrt layout:
+
+| what | how it is detected |
+| --- | --- |
+| WAN device | the device carrying the default IPv4 route (falling back to IPv6) — `eth0`, `eth0.2`, `pppoe-wan`, `wwan0`, `wlan0`, … |
+| WAN IPv6 address | the global address of that device (falling back to any global, non-link-local, non-ULA address) |
+| **no IPv6** | IPv6 listeners are simply omitted; every IPv4 forward still runs (this is logged once, not every 30s) |
+| firewall zone(s) | the `firewall` zone(s) whose `network`/`device` list covers that device (named *or* anonymous zones, multi-WAN gets one rule per zone) |
+| unknown firewall layout | the engine refuses to guess: it logs once and leaves your firewall alone instead of writing a rule into a non-existent zone |
+| socat binary | `/usr/bin/socat`, else `command -v socat` |
+| fw4 | only when `/sbin/fw4` exists; otherwise the firewall sync is a no-op |
+
+The generated accept rules use fw4's default `family`, so both the IPv4 and the
+IPv6 side of a zone are covered by the same rule.
+
+Verified against these layouts: DHCP on `eth0.2` (default zone), PPPoE on
+`pppoe-wan`, a renamed zone (`ext`), a device-only zone, multi-WAN (two zones
+for the same device), a router with no IPv6 at all, and a layout that cannot be
+mapped to a zone (no rules written, one warning).
 
 ## How it works (short version)
 

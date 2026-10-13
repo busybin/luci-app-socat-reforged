@@ -28,7 +28,7 @@ function unq(v,  p) {
 # mawk, gawk and BusyBox awk, and a whitelist can never admit a metacharacter.
 function warn(sid, msg) { print sid "\t" msg > warnf }
 function ok_host(v)  { return (v ~ /^[A-Za-z0-9._:-]+$/) }
-function ok_name(v)  { return (v ~ /^[A-Za-z0-9_]+$/) }
+function ok_name(v)  { return (v ~ /^[A-Za-z0-9_.-]+$/) }
 function ok_flag(v)  { return (v == "" || v == "0" || v == "1") }
 function ipport(v)   { return (v ~ /^[0-9]+$/ && v + 0 >= 1 && v + 0 <= 65535) }
 
@@ -58,13 +58,23 @@ BEGIN {
 		next
 	lhs = substr(rest, 1, eq - 1)
 	val = unq(substr(rest, eq + 1))
-	dot = index(lhs, ".")
-	if (dot == 0) {                       # socat.<sec>=config
-		if (val == "config")
-			secs[++nsec] = lhs
+	# a section declaration is "socat.<name>=config" - the name may contain
+	# dots, so decide on the value, not on the shape of the name.
+	if (val == "config") {
+		secs[++nsec] = lhs
 		next
 	}
-	V[substr(lhs, 1, dot - 1), substr(lhs, dot + 1)] = val
+	# option line: split on the LAST dot (option names never contain one)
+	dot = 0
+	for (i = length(lhs); i > 0; i--)
+		if (substr(lhs, i, 1) == ".") { dot = i; break }
+	if (dot == 0)
+		next
+	sec = substr(lhs, 1, dot - 1)
+	optname = substr(lhs, dot + 1)
+	if (optname !~ /^[a-z][a-z0-9_]*$/)
+		next
+	V[sec, optname] = val
 }
 
 END {

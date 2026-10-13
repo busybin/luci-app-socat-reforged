@@ -53,6 +53,7 @@ ERRDIR=$RUNDIR/err
 RATELOG=$RUNDIR/ratelog
 HB=/var/run/socat-reforged.hb
 GPROG=/usr/libexec/socat-reforged-gen.awk
+ZONES_AWK=/usr/libexec/socat-reforged-zones.awk
 CFG=/etc/config/socat
 
 TAB=$(printf '\t')
@@ -65,6 +66,7 @@ FULL_EVERY=8         # cycles between unconditional full passes (~2 min)
 MEM_EVERY=4          # cycles between memory checks (~1 min)
 FW_EVERY=8           # cycles between firewall rule-existence checks
 V6_EVERY=8           # cycles between IPv6 address refresh (~2 min)
+FW_MAX_ZONES=4       # multi-WAN: how many zones get their own accept rule
 MEM_WARN=20          # warn below this % of MemTotal
 MEM_CRIT=10          # restart socat below this % of MemTotal
 MEM_FLOOR_KB=4096    # ... or below this absolute amount, whichever comes first
@@ -75,6 +77,8 @@ MEM_FAILS=0
 MEM_LAST_ACTION=-99
 IPV6=""
 V6DEV=""
+WAN_DEV=""
+WAN_ZONES=""
 SCAN=""               # "pid<TAB>argv-key<TAB>marked" per line, children included
 LISTENERS=""         # listeners only
 RUN=""               # "pid key pid key ..." (keys never contain spaces)
@@ -86,11 +90,12 @@ LIST_COUNT=0
 SOCAT_BIN=/usr/bin/socat
 [ -x "$SOCAT_BIN" ] || SOCAT_BIN=$(command -v socat 2>/dev/null || echo /usr/bin/socat)
 AWK_BIN=awk
+LOGGER=$(command -v logger 2>/dev/null || echo logger)
 
 # ---------------------------------------------------------------- logging ---
 
 log() {
-	logger -t "$LOG_TAG" "$1"
+	"$LOGGER" -t "$LOG_TAG" "$1"
 }
 
 # zero-fork "seconds since boot"
@@ -165,7 +170,7 @@ flush_warnings() {
 	[ -s "$WARNF" ] || return 0
 	while IFS="$TAB" read -r sec msg; do
 		[ -n "$sec" ] || continue
-		key="gen-$(printf '%s' "$sec" | tr -c 'A-Za-z0-9_' '_')"
+		key="gen-$(printf '%s' "$sec" | tr -c 'A-Za-z0-9_.-' '_')"
 		log_rate "$key" 900 "WARN [$sec] $msg"
 	done < "$WARNF"
 	: > "$WARNF"
@@ -475,11 +480,20 @@ fw_ports() { # $FWF -> $FW_TCP / $FW_UDP (raw, unsorted; zero forks)
 
 sync_firewall() {
 	[ -x /sbin/fw4 ] || return 0
-	local TCP UDP raw_sig stored now p
+	local TCP UDP raw_sig stored now p z sfx nzones zone
 	fw_ports
-	raw_sig="tcp:$FW_TCP udp:$FW_UDP"
+	load_wan_zones
+	raw_sig="zones:${WAN_ZONES:-none} tcp:$FW_TCP udp:$FW_UDP"
 	stored=""
 	[ -f "$FWSIG" ] && read -r stored < "$FWSIG" 2>/dev/null
+
+	# without a known WAN zone we must not guess: a rule in the wrong zone
+	# either does nothing or fails `fw4 check` (which we would then undo
+	# every FW_RETRY seconds).
+	if [ -z "$WAN_ZONES" ]; then
+		log_rate "nozone" 3600 "WARN: no firewall zone found for WAN device '${WAN_DEV:-?}'; not managing the firewall (check your zone/network config)"
+		return 0
+	fi
 
 	# happy path: already applied (and our rules still exist)
 	if [ "$stored" = "ok $raw_sig" ]; then
@@ -504,35 +518,57 @@ sync_firewall() {
 
 	TCP=$(printf '%s\n' $FW_TCP | sort -n -u | agg_ports)
 	UDP=$(printf '%s\n' $FW_UDP | sort -n -u | agg_ports)
-	sig="tcp:$TCP udp:$UDP"
 
-	uci -q delete firewall.socat_reforged_tcp
-	uci -q delete firewall.socat_reforged_udp
-	if [ -n "$TCP" ]; then
-		uci set firewall.socat_reforged_tcp=rule
-		uci set firewall.socat_reforged_tcp.name='socat-reforged (tcp)'
-		uci set firewall.socat_reforged_tcp.src='wan'
-		uci set firewall.socat_reforged_tcp.proto='tcp'
-		uci set firewall.socat_reforged_tcp.target='ACCEPT'
-		for p in $TCP; do uci add_list firewall.socat_reforged_tcp.dest_port="$p"; done
-	fi
-	if [ -n "$UDP" ]; then
-		uci set firewall.socat_reforged_udp=rule
-		uci set firewall.socat_reforged_udp.name='socat-reforged (udp)'
-		uci set firewall.socat_reforged_udp.src='wan'
-		uci set firewall.socat_reforged_udp.proto='udp'
-		uci set firewall.socat_reforged_udp.target='ACCEPT'
-		for p in $UDP; do uci add_list firewall.socat_reforged_udp.dest_port="$p"; done
-	fi
+	# drop everything we may have created before (up to $FW_MAX_ZONES zones)
+	z=0
+	while [ $z -lt "$FW_MAX_ZONES" ]; do
+		z=$((z + 1))
+		sfx=""
+		[ "$z" -gt 1 ] && sfx="_$z"
+		uci -q delete "firewall.socat_reforged_tcp$sfx"
+		uci -q delete "firewall.socat_reforged_udp$sfx"
+	done
+
+	# one rule per (zone, proto).  fw4 rules default to family "any", so both
+	# the IPv4 and the IPv6 side of a zone are covered by these.
+	nzones=0
+	for zone in $WAN_ZONES; do
+		nzones=$((nzones + 1))
+		[ "$nzones" -le "$FW_MAX_ZONES" ] || break
+		sfx=""
+		[ "$nzones" -gt 1 ] && sfx="_$nzones"
+		if [ -n "$TCP" ]; then
+			uci set "firewall.socat_reforged_tcp$sfx=rule"
+			uci set "firewall.socat_reforged_tcp$sfx.name=socat-reforged (tcp)"
+			uci set "firewall.socat_reforged_tcp$sfx.src=$zone"
+			uci set "firewall.socat_reforged_tcp$sfx.proto=tcp"
+			uci set "firewall.socat_reforged_tcp$sfx.target=ACCEPT"
+			for p in $TCP; do uci add_list "firewall.socat_reforged_tcp$sfx.dest_port=$p"; done
+		fi
+		if [ -n "$UDP" ]; then
+			uci set "firewall.socat_reforged_udp$sfx=rule"
+			uci set "firewall.socat_reforged_udp$sfx.name=socat-reforged (udp)"
+			uci set "firewall.socat_reforged_udp$sfx.src=$zone"
+			uci set "firewall.socat_reforged_udp$sfx.proto=udp"
+			uci set "firewall.socat_reforged_udp$sfx.target=ACCEPT"
+			for p in $UDP; do uci add_list "firewall.socat_reforged_udp$sfx.dest_port=$p"; done
+		fi
+	done
 	uci commit firewall
 
 	if /sbin/fw4 check >/dev/null 2>&1; then
 		/etc/init.d/firewall reload >/dev/null 2>&1
 		echo "ok $raw_sig" > "$FWSIG"
-		log "firewall synced: tcp[$TCP] udp[$UDP]"
+		log "firewall synced: zones[$WAN_ZONES] tcp[$TCP] udp[$UDP]"
 	else
-		uci -q delete firewall.socat_reforged_tcp
-		uci -q delete firewall.socat_reforged_udp
+		z=0
+		while [ $z -lt "$FW_MAX_ZONES" ]; do
+			z=$((z + 1))
+			sfx=""
+			[ "$z" -gt 1 ] && sfx="_$z"
+			uci -q delete "firewall.socat_reforged_tcp$sfx"
+			uci -q delete "firewall.socat_reforged_udp$sfx"
+		done
 		uci commit firewall
 		echo "fail $raw_sig $now" > "$FWSIG"
 		log "WARN: fw4 check failed, removed socat-reforged rules (retry in $((FW_RETRY / 60)) min)"
@@ -551,6 +587,48 @@ get_v6dev() {
 		if [ "$1" = "dev" ]; then V6DEV="$2"; return 0; fi
 		shift
 	done
+}
+
+# Device that carries the default IPv4 route (falling back to IPv6) - this is
+# what "WAN" means on the box, whatever it is called.
+get_wandev() {
+	local line
+	WAN_DEV=""
+	line=$(ip route show default 2>/dev/null | head -1)
+	if [ -z "$line" ]; then
+		line=$(ip -6 route show default 2>/dev/null | head -1)
+	fi
+	[ -n "$line" ] || return 0
+	set -- $line
+	while [ $# -ge 2 ]; do
+		if [ "$1" = "dev" ]; then WAN_DEV="$2"; return 0; fi
+		shift
+	done
+}
+
+# Firewall zones covering the WAN device.  Refreshed every FW_EVERY cycles and
+# cached in $RUNDIR/fw.zones; the result is part of the firewall signature, so
+# a zone rename triggers a rebuild.
+refresh_wan_zones() {
+	local out
+	[ -f "$ZONES_AWK" ] || return 1
+	[ -n "$WAN_DEV" ] || return 1
+	out=$( { uci show network 2>/dev/null; echo "%FIREWALL%"; uci show firewall 2>/dev/null; } \
+		| "$AWK_BIN" -v dev="$WAN_DEV" -f "$ZONES_AWK" 2>/dev/null )
+	printf '%s\n' "$out" | awk 'NF && !seen[$0]++' > "$RUNDIR/fw.zones"
+	return 0
+}
+
+# Read the cached zone list into $WAN_ZONES ("wan" / "wan vpn" / ... ).
+load_wan_zones() {
+	local z
+	WAN_ZONES=""
+	[ -f "$RUNDIR/fw.zones" ] || return 0
+	while read -r z; do
+		[ -n "$z" ] || continue
+		WAN_ZONES="$WAN_ZONES $z"
+	done < "$RUNDIR/fw.zones"
+	WAN_ZONES=${WAN_ZONES# }
 }
 
 # Preferred: the global address of the device holding the default v6 route.
@@ -704,6 +782,8 @@ init_once() {
 	mkrun
 	CYCLE=0
 	get_ipv6
+	get_wandev
+	refresh_wan_zones
 }
 
 if [ "$1" = "reconcile" ]; then
@@ -716,7 +796,7 @@ fi
 
 if [ "$1" = "restart-rule" ]; then
 	_sec="$2"
-	case "$_sec" in ''|*[!A-Za-z0-9_]*) log "restart-rule: bad section id '$2'"; exit 1 ;; esac
+	case "$_sec" in ''|*[!A-Za-z0-9_.-]*) log "restart-rule: bad section id '$2'"; exit 1 ;; esac
 	init_once
 	gen_desired || exit 1
 	flush_warnings
@@ -804,11 +884,18 @@ while true; do
 	if [ $((CYCLE % V6_EVERY)) -eq 1 ] || [ -z "$IPV6" ]; then
 		get_ipv6
 	fi
+	if [ $((CYCLE % V6_EVERY)) -eq 1 ] || [ -z "$WAN_DEV" ]; then
+		get_wandev
+	fi
 	if [ $((CYCLE % V6_EVERY)) -eq 3 ]; then
 		fix_ipv6_route
 	fi
 	if [ $((CYCLE % FW_EVERY)) -eq 3 ]; then
 		check_wg_dnat
+	fi
+	# firewall zones are only re-detected when something may have changed
+	if [ $((CYCLE % FW_EVERY)) -eq 2 ] || [ ! -f "$RUNDIR/fw.zones" ]; then
+		refresh_wan_zones
 	fi
 
 	reconcile
