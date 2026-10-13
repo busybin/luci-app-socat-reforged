@@ -121,6 +121,9 @@ ck('log is empty right after the clear', 0, length(obj.log.call({ args: {} }).li
 obj.rule_restart.call({ args: { sid: 'does-not-exist' } });
 has('a new line lands after the clear', 'nothing to restart',
     join('\n', obj.log.call({ args: { lines: 10 } }).lines));
+/* leave the router's log empty rather than holding this run's test lines:
+ * a real log that only shows "does-not-exist" is worse than no log at all */
+obj.log_clear.call();
 
 /* ---- helpers used by the view ----------------------------------------- */
 ck('hex() parses a port', 8080, hex('1F90'));

@@ -22,6 +22,8 @@
 #  (/var/log/socat-reforged.log): syslog's ring buffer is small and is wiped
 #  on every reboot, so "what happened before it died" would otherwise be gone.
 #  The LuCI view reads that file directly (ubus luci.socat-reforged log).
+#  A steady state is silent on purpose, so a rate-limited "alive:" line every
+#  ~15 min is the log's proof of life.
 #  * The personal-environment behaviour of V2 left the default path: the
 #    2000::/3 route fix and the WireGuard DNAT watchdog are opt-in UCI
 #    switches (default off) and never flush conntrack.
@@ -105,6 +107,7 @@ FULL_EVERY=8         # cycles between unconditional full passes (~2 min)
 MEM_EVERY=4          # cycles between memory checks (~1 min)
 FW_EVERY=8           # cycles between firewall rule-existence checks
 V6_EVERY=8           # cycles between IPv6 address refresh (~2 min)
+ALIVE_EVERY=60       # cycles between "still alive" log lines (~15 min)
 FW_MAX_ZONES=4       # multi-WAN: how many zones get their own accept rule
 MEM_WARN=20          # warn below this % of MemTotal
 MEM_CRIT=10          # restart socat below this % of MemTotal
@@ -1194,6 +1197,15 @@ while true; do
 
 	if [ $((CYCLE % MEM_EVERY)) -eq 0 ]; then
 		check_health
+	fi
+
+	# Proof of life.  While nothing changes the engine is deliberately silent
+	# (zero log lines in a steady state is the point), but a log that stays
+	# empty for hours looks broken — so poll it at a human cadence.  15 min, not
+	# 15s: per-minute HEALTH spam is exactly what buried the real warnings in
+	# the (small) syslog ring buffer before.
+	if [ $((CYCLE % ALIVE_EVERY)) -eq 0 ]; then
+		log "alive: workers=$WORKER_COUNT listeners=$LIST_COUNT mem=$(mem_pct)% uptime=$(uptime_s)s"
 	fi
 
 	sync_firewall
