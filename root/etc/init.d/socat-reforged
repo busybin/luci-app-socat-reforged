@@ -16,8 +16,7 @@ start_service() {
 }
 
 stop_service() {
-	killall socat 2>/dev/null
-	sleep 1
-	killall -9 socat 2>/dev/null
-	rm -f /var/run/socat-reforged.hb 2>/dev/null
+	# The engine only kills the workers it started itself (they carry a
+	# SOCAT_REFORGED=1 marker), so somebody else's socat is never touched.
+	/etc/socat-boot.sh cleanup >/dev/null 2>&1
 }
