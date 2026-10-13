@@ -124,72 +124,81 @@ function live_state() {
 /*
  * Engine state.
  *
- * Preferred source is the engine's own state file (it also tells us the loop
- * pid, so a dead loop cannot look healthy).  Fallbacks: the plain heartbeat
- * file, then a worker count.  `fresh` says whether the state file was written
- * within the last 90 seconds.
+ * Liveness comes from the heartbeat the engine writes every cycle:
+ *   "<uptime> <workers> <loop_pid>"
+ * All age maths is in uptime seconds.  (The old code compared the state
+ * file's mtime — an *epoch* timestamp — against /proc/uptime, so the 90s
+ * staleness test could never fire.)
  */
-function engine_state() {
+const HB_MAX_AGE = 45;            /* three engine cycles (15s each) */
+
+function hb_state() {
 	const uptime = to_int(split(read_trim('/proc/uptime') + ' ', ' ')[0]);
-	let workers = 0, age = -1, loop_pid = null, listeners = null, fresh = false;
-	let version = null, build = null, built = null;
+	const hb = read_trim(HB_FILE);
+	if (hb == '')
+		return { age: -1, workers: 0, loop_pid: null };
 
+	const f = split(hb, /\s+/);
+	const t = to_int(f[0]);
+	if (t <= 0)
+		return { age: -1, workers: to_int(f[1]), loop_pid: null };
+
+	return { age: uptime - t, workers: to_int(f[1]), loop_pid: (to_int(f[2]) || null) };
+}
+
+/* header of the state file (per-rule detail + version), or null when stale */
+function state_meta() {
 	const st = fs.stat(STATE_FILE);
-	if (st != null && st.mtime != null) {
-		const data = readfile(STATE_FILE);
-		if (data != null) {
-			const first = split(data, '\n')[0];
-			if (first != null && trim(first) != '') {
-				const f = split(trim(first), /\s+/);
-				loop_pid = to_int(f[1]) || null;
-				const t = to_int(f[2]);
-				listeners = to_int(f[3]);
-				/* engine <pid> <uptime> <listeners> <version> <build> <built> */
-				version = f[4] ?? null;
-				build = f[5] ?? null;
-				built = f[6] ?? null;
-				if (t > 0)
-					age = uptime - t;
-			}
-		}
-		fresh = (age >= 0 && age <= 90);
-		if (fresh && loop_pid != null && fs.stat('/proc/' + loop_pid) == null)
-			loop_pid = null;
-	}
+	if (st == null || st.mtime == null)
+		return null;
 
-	if (age < 0) {
-		/* heartbeat of an engine that does not write a state file yet */
-		const hb = read_trim(HB_FILE);
-		if (hb != '') {
-			const f = split(hb, /\s+/);
-			const t = to_int(f[0]);
-			workers = to_int(f[1]);
-			if (t > 0)
-				age = uptime - t;
-		}
-	}
-	else {
-		workers = listeners ?? 0;
-	}
+	if (st.mtime > 0 && (time() - st.mtime) > 60)
+		return null;
+
+	const data = readfile(STATE_FILE);
+	if (data == null)
+		return null;
+
+	const first = split(data, '\n')[0];
+	if (first == null || trim(first) == '')
+		return null;
+
+	/* engine <pid> <uptime> <listeners> <version> <build> <built> */
+	const f = split(trim(first), /\s+/);
+	return {
+		loop_pid: (to_int(f[1]) || null),
+		listeners: to_int(f[3]),
+		version: f[4] ?? null,
+		build: f[5] ?? null,
+		built: f[6] ?? null
+	};
+}
+
+function engine_state() {
+	const hb = hb_state();
+	const meta = state_meta();
+
+	const loop_pid = hb.loop_pid ?? (meta != null ? meta.loop_pid : null);
+	const fresh = (hb.age >= 0 && hb.age <= HB_MAX_AGE);
+	const alive = (loop_pid != null && fs.stat('/proc/' + loop_pid) != null);
 
 	/* last resort: worker count only, loop liveness unknown */
-	if (age < 0) {
+	let workers = hb.workers;
+	if (hb.age < 0) {
 		const n = to_int(trim(shell(SAFE_PATH + 'pgrep socat 2>/dev/null | wc -l')));
-		if (n > 0) {
+		if (n > 0)
 			workers = n;
-			age = 0;
-		}
 	}
 
 	return {
-		running: (fresh && loop_pid != null),
-		loop_pid,
-		listeners,
+		running: (fresh && alive),
+		loop_pid: fresh ? loop_pid : null,
+		listeners: meta != null ? meta.listeners : null,
 		workers,
-		age,
-		version,
-		build,
-		built
+		age: hb.age,
+		version: meta != null ? meta.version : null,
+		build: meta != null ? meta.build : null,
+		built: meta != null ? meta.built : null
 	};
 }
 
@@ -203,8 +212,9 @@ function engine_rules() {
 	if (st == null || st.mtime == null)
 		return null;
 
-	const uptime = to_int(split(read_trim('/proc/uptime') + ' ', ' ')[0]);
-	if (uptime - st.mtime > 90)
+	/* the engine touches the file every cycle; epoch vs epoch, unlike the
+	 * old code which compared this epoch mtime to /proc/uptime */
+	if (st.mtime > 0 && (time() - st.mtime) > 60)
 		return null;
 
 	const data = readfile(STATE_FILE);
