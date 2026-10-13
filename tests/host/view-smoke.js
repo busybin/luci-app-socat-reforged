@@ -145,7 +145,21 @@ global.ui = {
 	createHandlerFn: () => () => {}
 };
 global.rpc = {
-	declare: (o) => () => {
+	declare: (o) => function () {
+		/* LuCI's rpc.declare packs arguments *positionally* onto the declared
+		 * params, and rpcd then type-checks them against the backend's `args`
+		 * spec: passing an object where a scalar is declared fails the whole
+		 * call with "Invalid argument".  Reproduce that here, or a view that
+		 * mis-packs its arguments looks fine in the smoke test and dies in the
+		 * browser (the log box showed "could not read" for exactly that). */
+		const packed = {};
+		for (let i = 0; i < (o.params || []).length; i++)
+			packed[o.params[i]] = arguments[i];
+		for (const k of Object.keys(packed)) {
+			const v = packed[k];
+			if (v !== null && typeof v === 'object')
+				return Promise.reject(new Error('Invalid argument: ' + k));
+		}
 		if (o.method === 'status') return Promise.resolve(STATUS);
 		if (o.method === 'test') return Promise.resolve({ ok: true, detail: 'connection succeeded' });
 		if (o.method === 'log') return Promise.resolve({
@@ -214,6 +228,7 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('log box asks the log ubus method', "method: 'log'", src);
 	has('log clear uses the log_clear ubus method', "method: 'log_clear'", src);
 	has('log poll only runs while open', '_logOpen', src);
+	has('import/export buttons carry the accent class', 'socat-io', all);
 
 	const metaText = byId['socat-t-version'] ? byId['socat-t-version'].textContent : '(none)';
 	has('version text after recount', 'v2', metaText);
@@ -222,6 +237,8 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 
 	const logText = byId['socat-log'] ? byId['socat-log'].textContent : '(none)';
 	has('log box shows the backend lines', 'engine started', logText);
+	/* a mis-packed rpc call rejects and lands in the catch: "could not read" */
+	ck('the log call was accepted by the stub', false, /could not read/.test(logText));
 
 	console.log('\nview smoke test: ' + pass + ' passed, ' + fail + ' failed');
 	process.exit(fail ? 1 : 0);
