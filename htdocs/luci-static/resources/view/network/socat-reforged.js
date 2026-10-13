@@ -58,6 +58,8 @@ tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-mediu
 .socat-log{max-height:20em;overflow:auto;font-family:var(--mono-font-family,monospace);font-size:.8em;white-space:pre-wrap;word-break:break-all;background:var(--background-color-low,rgba(128,128,128,.06));border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:6px;padding:8px 10px;margin:.5em 0 0}\
 .socat-logbox{margin:.8em 0 0}\
 .socat-logbox summary{cursor:pointer;font-weight:600;padding:.3em 0}\
+.socat-io{background:var(--background-color-high,transparent);border:1px solid var(--primary-color-medium,#2980b9);color:var(--primary-color-medium,#2980b9);font-weight:600}\
+.socat-io:hover{border-color:var(--primary-color-high,#1f6aa2);color:var(--primary-color-high,#1f6aa2)}\
 .socat-adv{margin:.6em 0}\
 .socat-meta{font-size:.85rem;opacity:.72;margin:-.35em 0 .8em;display:flex;flex-wrap:wrap;align-items:center;gap:.4em}\
 .socat-ver{font-weight:600;opacity:.9}\
@@ -443,7 +445,9 @@ return view.extend({
 		var el = document.getElementById('socat-log');
 		if (!el)
 			return Promise.resolve();
-		return callLog({ lines: LOG_MAX_LINES }).then(function(res) {
+		/* rpc.declare packs arguments positionally; passing an object here
+		 * makes rpcd reject the call with "Invalid argument" */
+		return callLog(LOG_MAX_LINES).then(function(res) {
 			res = res || {};
 			if (!res.lines || !res.lines.length) {
 				el.textContent = res.error ? res.error : _('(log is empty)');
@@ -661,8 +665,10 @@ return view.extend({
 
 		var toolbar = E('div', { 'class': 'socat-toolbar' }, [
 			search, chips,
-			E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(this, 'handleImport') }, [ _('Import') ]),
-			E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(this, 'handleExport') }, [ _('Export') ])
+			/* outlined accent buttons: visually distinct from the engine
+			 * controls above (green Start / red Stop / grey Restart) */
+			E('button', { 'class': 'btn cbi-button socat-io', 'click': ui.createHandlerFn(this, 'handleImport') }, [ _('Import') ]),
+			E('button', { 'class': 'btn cbi-button socat-io', 'click': ui.createHandlerFn(this, 'handleExport') }, [ _('Export') ])
 		]);
 
 		/* ---- port-forward table ---- */
