@@ -178,7 +178,7 @@ return view.extend({
 		set('socat-t-procs', String(es.workers || 0), 'v');
 
 		/* installed version + build, as stamped by the installer */
-		set('socat-t-version', version_string(es), null);
+		set('socat-t-version', self.version_string(es), null);
 
 		var age = document.getElementById('socat-t-engine-age');
 		if (age) {
