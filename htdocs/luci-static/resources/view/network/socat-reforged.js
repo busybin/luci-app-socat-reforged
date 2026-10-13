@@ -13,7 +13,12 @@ var callStart       = rpc.declare({ object: 'luci.socat-reforged', method: 'star
 var callStop        = rpc.declare({ object: 'luci.socat-reforged', method: 'stop' });
 var callRestart     = rpc.declare({ object: 'luci.socat-reforged', method: 'restart' });
 var callRuleRestart = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_restart', params: [ 'sid' ] });
+var callLog         = rpc.declare({ object: 'luci.socat-reforged', method: 'log', params: [ 'lines' ] });
+var callLogClear    = rpc.declare({ object: 'luci.socat-reforged', method: 'log_clear' });
 var callRevert      = rpc.declare({ object: 'uci', method: 'revert', params: [ 'config' ] });
+
+/* how many lines the log box shows at a time */
+var LOG_MAX_LINES = 300;
 
 /* fields that make up one forward (used for import/export + dirty tracking) */
 var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto', 'dest_ip', 'dest_port', 'family', 'firewall_accept', 'proxy', 'proxy_server', 'proxy_port', 'reuseaddr' ];
@@ -50,6 +55,9 @@ var STYLE = '\
 tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-medium,#f0c629)}\
 .socat-errs{background:var(--error-color-low,rgba(198,40,40,.12));border:1px solid var(--error-color-medium,#c62828);color:var(--error-color-medium,#c62828);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
 .socat-reason{font-size:.8em;opacity:.75;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22em}\
+.socat-log{max-height:20em;overflow:auto;font-family:var(--mono-font-family,monospace);font-size:.8em;white-space:pre-wrap;word-break:break-all;background:var(--background-color-low,rgba(128,128,128,.06));border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:6px;padding:8px 10px;margin:.5em 0 0}\
+.socat-logbox{margin:.8em 0 0}\
+.socat-logbox summary{cursor:pointer;font-weight:600;padding:.3em 0}\
 .socat-adv{margin:.6em 0}\
 .socat-meta{font-size:.85rem;opacity:.72;margin:-.35em 0 .8em;display:flex;flex-wrap:wrap;align-items:center;gap:.4em}\
 .socat-ver{font-weight:600;opacity:.9}\
@@ -427,6 +435,40 @@ return view.extend({
 	handleStart: function() { return this.doAction(callStart, _('Starting socat engine\u2026'), 5000); },
 	handleRestart: function() { return this.doAction(callRestart, _('Restarting socat engine\u2026'), 3000); },
 
+	/* ---- engine log ----
+	 * The engine writes every line to /var/log/socat-reforged.log (syslog's
+	 * ring buffer is small and is wiped on reboot), so the page can show the
+	 * history directly instead of asking for a `logread` screenshot. */
+	loadLog: function() {
+		var el = document.getElementById('socat-log');
+		if (!el)
+			return Promise.resolve();
+		return callLog({ lines: LOG_MAX_LINES }).then(function(res) {
+			res = res || {};
+			if (!res.lines || !res.lines.length) {
+				el.textContent = res.error ? res.error : _('(log is empty)');
+				return;
+			}
+			el.textContent = res.lines.join('\n');
+			el.scrollTop = el.scrollHeight;
+		}).catch(function() {
+			el.textContent = _('could not read the engine log');
+		});
+	},
+
+	handleLogRefresh: function() { return this.loadLog(); },
+
+	handleLogClear: function() {
+		var self = this;
+		return callLogClear().then(function(res) {
+			if (res && res.ok)
+				return self.loadLog();
+			ui.addNotification(null, E('p', {}, _('Could not clear the engine log: %s').format((res && res.detail) || 'failed')));
+		}).catch(function() {
+			ui.addNotification(null, E('p', {}, _('Could not clear the engine log')));
+		});
+	},
+
 	handleStop: function() {
 		var self = this;
 		ui.showModal(_('Stop socat engine?'), [
@@ -582,6 +624,25 @@ return view.extend({
 			]),
 			E('div', { 'class': 'socat-hint' }, _('Config changes are applied on Save & Apply (the engine is restarted automatically).'))
 		]);
+
+		/* ---- engine log (persistent file, survives reboot) ---- */
+		var logPre = E('pre', { 'id': 'socat-log', 'class': 'socat-log' }, _('(loading\u2026)'));
+		var logBox = E('details', { 'id': 'socat-logbox', 'class': 'socat-logbox' }, [
+			E('summary', {}, _('Engine log')),
+			E('div', { 'class': 'socat-hint' }, _('Every line also goes to syslog; this copy survives reboots (last %d lines).').format(LOG_MAX_LINES)),
+			E('div', { 'class': 'cbi-section-actions' }, [
+				E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(this, 'handleLogRefresh') }, [ _('Refresh') ]),
+				' ',
+				E('button', { 'class': 'btn cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, 'handleLogClear') }, [ _('Clear') ])
+			]),
+			logPre
+		]);
+		self._logOpen = false;
+		logBox.addEventListener('toggle', function() {
+			self._logOpen = !!logBox.open;
+			if (logBox.open)
+				self.loadLog();
+		});
 
 		/* toolbar: search + status filter + import/export */
 		var search = E('input', { 'class': 'socat-search', 'type': 'text', 'placeholder': _('Search name / port / target\u2026') });
@@ -851,6 +912,10 @@ return view.extend({
 		poll.add(L.bind(function() {
 			return this.refreshStatus().then(L.bind(function() {
 				this.recount();
+				/* the log only refreshes while its box is open: a closed
+				 * <details> must not pull 64 KiB every 5s */
+				if (this._logOpen)
+					this.loadLog();
 				return this.checkDirty();
 			}, this));
 		}, this), 5);
@@ -901,7 +966,7 @@ return view.extend({
 
 			window.setTimeout(L.bind(function() { this.recount(); this.checkDirty(); }, self), 0);
 
-			return E([ styleEl, titleEl, metaEl, descEl, banner, conflictBanner, errorBanner, card, toolbar, empty, mapNode ]);
+			return E([ styleEl, titleEl, metaEl, descEl, banner, conflictBanner, errorBanner, card, toolbar, empty, mapNode, logBox ]);
 		});
 	}
 });
