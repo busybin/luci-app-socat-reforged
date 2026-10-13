@@ -3,6 +3,43 @@
 `V<integer>` releases (see Releases). `main` carries unreleased work on top of
 the last tag; version numbers only change when a release is requested.
 
+## Unreleased (third round: listener identity, duplicate listeners, diagnostics — 2026-10-13)
+
+Follow-up audit after observing "the engine process exits and comes back" and
+rules that silently stop forwarding.
+
+* **Engine — a listener is no longer identified by its parent pid alone.** socat
+  `,fork` leaves a per-connection child whose argv is *identical* to the
+  listener; when the listener dies first that child is reparented to init, so
+  the old ppid heuristic treated it as a healthy listener and the rule was never
+  restarted. A worker now also has to still own its listening socket
+  (`/proc/net/{tcp,tcp6,udp,udp6}`, checked per protocol family), so the rule is
+  restarted instead of staying silently dead. Covered by a new router
+  regression test (a real fork child that outlives its listener).
+* **Engine — duplicate listeners are collapsed.** TCP refuses a second bind, but
+  UDP honours `SO_REUSEADDR` and binds twice, so a spawn/scan race could pile up
+  copies silently (observed: 60 workers for 30 rules). The reconcile now keeps
+  exactly one worker per desired key, and the pid registry closes the race that
+  produced them.
+* **Engine — a crash is no longer invisible.** The loop traps TERM/INT/HUP and
+  records a last-exit reason; on start it reports a previous run that exited
+  without cleanup. `procd_set_param stderr 1` sends the engine's own stderr to
+  syslog and the respawn `max_fail` went from 5/hour to effectively unlimited
+  (an engine left dead = forwards silently stop). The engine no longer writes
+  to `/dev/watchdog` — the hardware watchdog belongs to `watchdogd`.
+* **Backend — correct engine liveness.** The state file's mtime is an *epoch*
+  timestamp and was compared against `/proc/uptime`, so the staleness test never
+  fired; and the state header only refreshed every 120s, so the dashboard showed
+  "stopped" for ~30s out of every 2 minutes. Liveness now comes from the
+  per-cycle heartbeat (`<uptime> <workers> <loop_pid>`), which the backend reads
+  with matching units.
+* **UI — Test uses what you typed.** `fieldVal()` read the field *wrapper* div
+  (no `.value`), so it always fell back to the saved value; it now reads the
+  real widget, so "Test" checks the destination in the dialog. Imports are
+  validated (port range, protocol, address) before anything reaches UCI.
+* **Packaging/tests.** The installer keeps only the 5 most recent engine
+  backups; the router checks remove every test section on exit (even on failure).
+
 ## Unreleased (will ship as V3)
 
 Engine and packaging rewrite of V2, driven by a full code audit (2026-10-13):

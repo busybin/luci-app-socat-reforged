@@ -57,13 +57,53 @@ tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-mediu
 .socat-link:hover{opacity:1}\
 ';
 
-/* value of a field as currently shown in the (modal) form, falling back to UCI */
+/* Value of a field as currently shown in the (modal) form, falling back to
+ * UCI.  LuCI marks the field wrapper with data-field="cbid.<cfg>.<sid>.<opt>"
+ * and the real <input> lives inside it; the old code read the wrapper id
+ * `cbi-<cfg>-<sid>-<opt>` directly, but that is a <div> with no `.value`, so
+ * it always fell back to UCI — i.e. "Test" tested the *saved* target, not what
+ * you just typed into the dialog. */
 function fieldVal(sid, opt) {
-	var el = document.getElementById('cbi-socat-' + sid + '-' + opt);
-	if (el && typeof el.value !== 'undefined' && el.value !== null && el.value !== '')
+	var cfg = 'socat';
+	var scope = document.querySelector('[data-field="cbid.' + cfg + '.' + sid + '.' + opt + '"]');
+	var el = scope ? scope.querySelector('input, select, textarea') : null;
+	if (!el) {
+		var box = document.getElementById('cbi-' + cfg + '-' + sid + '-' + opt);
+		if (box && box.querySelector)
+			el = box.querySelector('input, select, textarea');
+	}
+	if (el && el.value !== undefined && el.value !== null && el.value !== '')
 		return el.value;
-	var v = uci.get('socat', sid, opt);
+	var v = uci.get(cfg, sid, opt);
 	return (v == null) ? '' : v;
+}
+
+/* ---- import validation (never let a malformed rule reach UCI) ---- */
+var HOST_RE = /^[A-Za-z0-9._:-]+$/;
+function importPortOk(v) {
+	return /^[0-9]+$/.test(String(v)) && parseInt(v, 10) >= 1 && parseInt(v, 10) <= 65535;
+}
+function importCheck(rule) {
+	if (!rule || typeof rule !== 'object')
+		return 'not an object';
+	if (rule.enable != null && rule.enable !== '' && [ '0', '1' ].indexOf(String(rule.enable)) < 0)
+		return 'bad enable';
+	if (rule.proto != null && rule.proto !== 'tcp' && rule.proto !== 'udp')
+		return 'bad proto';
+	if (!importPortOk(rule.listen_port))
+		return 'listen_port must be 1-65535';
+	if (!importPortOk(rule.dest_port))
+		return 'dest_port must be 1-65535';
+	if (rule.dest_ip == null || !HOST_RE.test(String(rule.dest_ip)))
+		return 'bad dest_ip';
+	if (rule.dest_proto != null && [ 'tcp4', 'udp4', 'tcp6', 'udp6' ].indexOf(rule.dest_proto) < 0)
+		return 'bad dest_proto';
+	if (rule.family != null && rule.family !== '' && rule.family !== '4' && rule.family !== '6')
+		return 'bad family';
+	if (rule.proxy != null && rule.proxy !== '' && rule.proxy !== 'none' &&
+	    rule.proxy !== 'socks4' && rule.proxy !== 'socks4a' && rule.proxy !== 'http')
+		return 'bad proxy';
+	return null;
 }
 
 return view.extend({
@@ -446,10 +486,10 @@ return view.extend({
 					ui.addNotification(null, E('p', {}, _('Import failed: no rules found in the file.')));
 					return;
 				}
-				var added = 0;
+				var added = 0, skipped = [];
 				rules.forEach(function(rule) {
-					if (!rule || typeof rule !== 'object')
-						return;
+					var err = importCheck(rule);
+					if (err) { skipped.push(err); return; }
 					var name = 'cfg' + Date.now().toString(16) + Math.random().toString(16).slice(2, 8);
 					uci.add('socat', 'config', name);
 					EXPORT_FIELDS.forEach(function(f) {
@@ -459,9 +499,14 @@ return view.extend({
 					added++;
 				});
 				if (!added) {
-					ui.addNotification(null, E('p', {}, _('Import: nothing to add.')));
+					ui.addNotification(null, E('p', {}, _('Import: nothing to add%s.').format(
+						skipped.length
+							? _(' (%d invalid entry/entries: %s)').format(skipped.length, skipped.join(', '))
+							: '')));
 					return;
 				}
+				if (skipped.length)
+					ui.addNotification(null, E('p', {}, _('Import: skipped %d invalid entry/entries.').format(skipped.length)));
 				ui.showModal(_('Importing'), [ E('p', { 'class': 'spinning' }, _('Applying %s rule(s)\u2026').format(added)) ]);
 				uci.save().then(function() { return uci.apply(10); }).then(function() {
 					ui.hideModal();

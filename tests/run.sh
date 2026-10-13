@@ -45,9 +45,3 @@ else
 	echo "HOST SUITE: FAILURES"
 fi
 exit "$fail"
-if [ "$fail" = 0 ]; then
-	echo "HOST SUITE: all green  (add --router <host> to also test a router)"
-else
-	echo "HOST SUITE: FAILURES"
-fi
-exit "$fail"
