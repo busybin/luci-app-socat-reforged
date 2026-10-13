@@ -3,6 +3,26 @@
 `V<integer>` releases (see Releases). `main` carries unreleased work on top of
 the last tag; version numbers only change when a release is requested.
 
+## Unreleased
+
+### Persistent engine log, readable in the UI
+
+The engine already logged to syslog, but that ring buffer is small and is wiped
+on every reboot — so the history around an incident (a loop that exited, a
+firewall reload that failed) was often gone before anyone looked.
+
+* **Engine** — every line is also appended to `/var/log/socat-reforged.log`,
+  capped at 64 KiB (the newest half is kept), checked once per cycle. `/var/log`
+  is tmpfs, so this costs RAM, never flash.
+* **Backend** — new `log{lines}` (tail of that file, max 300 lines by default,
+  arbitrary counts up to 2000) and `log_clear` ubus methods; ACL updated.
+* **UI** — an "Engine log" section at the bottom of the page shows the last 300
+  lines with Refresh / Clear buttons. It is a `<details>`: it only fetches while
+  open, so a closed page never pulls the file every 5s.
+* Tests: host simulator asserts the file is created, timestamped and capped; the
+  view smoke test covers the new section; router suites assert the file and the
+  new backend methods.
+
 ## V3 (2026-10-13)
 
 ### Listener identity, duplicate listeners, diagnostics
