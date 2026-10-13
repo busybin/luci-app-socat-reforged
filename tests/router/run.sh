@@ -16,8 +16,12 @@ echo "router test suite -> $HOST"
 echo
 
 echo "== installing the working tree on $HOST =="
-tar czf - -C "$REPO" --exclude=.git --exclude=.github . | \
-	ssh "$HOST" 'rm -rf /tmp/socat-test && mkdir -p /tmp/socat-test && tar xzf - -C /tmp/socat-test && cd /tmp/socat-test && sh install.sh' | tail -3
+BUILD=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo devel)
+tar czf - -C "$REPO" --exclude=.git --exclude=.github --exclude='*.tar.gz' . | \
+	ssh "$HOST" "rm -rf /tmp/socat-test && mkdir -p /tmp/socat-test && tar xzf - -C /tmp/socat-test &&
+		echo '$BUILD' > /tmp/socat-test/.build-stamp &&
+		cd /tmp/socat-test && sh install.sh '$BUILD'" | tail -3
+echo "  (installed build $BUILD)"
 echo
 
 echo "== copying the checks =="
