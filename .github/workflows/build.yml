@@ -19,9 +19,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The payload is `Architecture: all`, so ONE build per OpenWrt
-          # version is enough on every target; extra entries only burned CI
-          # time and produced identical artifacts.
           # OpenWrt 24.10 (opkg, .ipk) — JS LuCI
           - name: 24.10-x86_64
             base: releases
@@ -29,6 +26,16 @@ jobs:
             target: x86/64
             ext: ipk
             publish: true
+          - name: 24.10-aarch64
+            base: releases
+            ver: "24.10.4"
+            target: armsr/armv8
+            ext: ipk
+          - name: 24.10-mips
+            base: releases
+            ver: "24.10.4"
+            target: ath79/generic
+            ext: ipk
           # OpenWrt snapshot (apk, .apk) — ucode-only LuCI (25.x line)
           - name: snapshot-x86_64
             base: snapshots
