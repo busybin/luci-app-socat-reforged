@@ -327,7 +327,7 @@ all_listeners_alive() {
 
 reconcile_pass() {
 	local line sid kind port key cmd pid errf e
-	local spawned=0 killed=0 remarked=0 kill_it up alive
+	local spawned=0 killed=0 remarked=0 kill_it
 
 	[ -f "$CFG" ] || { log_rate "nocfg" 3600 "WARN: $CFG missing, nothing to reconcile"; return 0; }
 	[ -x "$SOCAT_BIN" ] || { log_rate "nosocat" 3600 "WARN: $SOCAT_BIN missing, cannot start forwards"; return 0; }
@@ -376,11 +376,15 @@ EOF
 	[ "$killed" -gt 0 ] && sleep 1
 	[ "$remarked" -gt 0 ] && log "reconcile: replaced $remarked unmarked legacy listener(s)"
 
-	# start what is missing
+	# start what is missing (and refresh stale pid bookkeeping)
 	while IFS="$TAB" read -r sid kind port key cmd; do
 		[ -n "$sid" ] || continue
 		find_pid "$key"
-		[ -n "$RUN_PID" ] && continue
+		if [ -n "$RUN_PID" ]; then
+			# keep the registry honest: a reused port must not keep a dead pid
+			echo "$RUN_PID" > "$PIDDIR/$kind-$port"
+			continue
+		fi
 		errf="$ERRDIR/$kind-$port.log"
 		: > "$errf" 2>/dev/null
 		# the assignment must be literal: $MARKER would expand to a command
@@ -402,10 +406,13 @@ EOF
 #   line 1 : engine <loop_pid> <uptime> <listeners>
 #   rest   : <sid> <kind> <port> <pid|-> <error|->
 publish_state() {
-	local sid kind port key cmd pid e up lp
+	local sid kind port key cmd pid e up rest lp
 	scan_workers
 	listener_pids
-	up=$(uptime_s)
+	up=""
+	rest=""
+	read -r up rest < /proc/uptime 2>/dev/null
+	up=${up%%.*}
 	# report the real engine loop, not the one-shot process that may be running us
 	lp=$(pgrep -f '/etc/socat-boot.sh$' 2>/dev/null | head -1)
 	[ -n "$lp" ] || lp=$$
@@ -415,10 +422,15 @@ publish_state() {
 			[ -n "$sid" ] || continue
 			find_pid "$key"
 			pid=$RUN_PID
-			[ -n "$pid" ] || pid="-"
 			e="-"
-			[ -s "$ERRDIR/$kind-$port.log" ] && read -r e < "$ERRDIR/$kind-$port.log" 2>/dev/null
-			[ -n "$e" ] || e="-"
+			# only report a reason when the listener really is not running:
+			# the err file is per port+kind and could hold a previous
+			# attempt's message for a healthy listener
+			if [ -z "$pid" ]; then
+				pid="-"
+				[ -s "$ERRDIR/$kind-$port.log" ] && read -r e < "$ERRDIR/$kind-$port.log" 2>/dev/null
+				[ -n "$e" ] || e="-"
+			fi
 			echo "$sid $kind $port $pid $e"
 		done < "$DESF"
 	} > "$STATEF"
@@ -463,12 +475,11 @@ fw_ports() { # $FWF -> $FW_TCP / $FW_UDP (raw, unsorted; zero forks)
 
 sync_firewall() {
 	[ -x /sbin/fw4 ] || return 0
-	local TCP UDP sig raw_sig stored now p
+	local TCP UDP raw_sig stored now p
 	fw_ports
 	raw_sig="tcp:$FW_TCP udp:$FW_UDP"
 	stored=""
 	[ -f "$FWSIG" ] && read -r stored < "$FWSIG" 2>/dev/null
-	now=$(uptime_s)
 
 	# happy path: already applied (and our rules still exist)
 	if [ "$stored" = "ok $raw_sig" ]; then
@@ -484,6 +495,7 @@ sync_firewall() {
 
 	# backoff after a failed reload (do not fight a broken firewall forever)
 	if [ "$stored" != "${stored#fail }" ]; then
+		now=$(uptime_s)
 		p=${stored##* }
 		if is_uint "$p" && [ $((now - p)) -lt "$FW_RETRY" ]; then
 			return 0
@@ -679,7 +691,11 @@ pet_watchdog() {
 
 # engine + worker heartbeat for the LuCI backend (zero forks)
 heartbeat() {
-	echo "$(uptime_s) $WORKER_COUNT" > "$HB" 2>/dev/null
+	local up rest
+	up=""
+	rest=""
+	read -r up rest < /proc/uptime 2>/dev/null
+	echo "${up%%.*} $WORKER_COUNT" > "$HB" 2>/dev/null
 }
 
 # -------------------------------------------------------------- one-shots ---

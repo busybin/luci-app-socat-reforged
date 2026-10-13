@@ -18,6 +18,10 @@ var callRevert      = rpc.declare({ object: 'uci', method: 'revert', params: [ '
 /* fields that make up one forward (used for import/export + dirty tracking) */
 var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto', 'dest_ip', 'dest_port', 'family', 'firewall_accept', 'proxy', 'proxy_server', 'proxy_port', 'reuseaddr' ];
 
+/* engine settings section (internal) + the options of one forward */
+var SETTING_FIELDS = [ 'fix_v6_route', 'wg_dnat_guard', 'debug' ];
+var ENGINE_SECTION = 'reforged';
+
 /* theme-aware styling: uses LuCI CSS variables so light/dark both look right */
 var STYLE = '\
 .socat-tiles{display:flex;flex-wrap:wrap;gap:12px;margin:.4em 0 0}\
@@ -267,6 +271,9 @@ return view.extend({
 			EXPORT_FIELDS.forEach(function(f) { rec[f] = uci.get('socat', sid, f); });
 			snap[sid] = rec;
 		});
+		var eng = {};
+		SETTING_FIELDS.forEach(function(f) { eng[f] = uci.get('socat', 'reforged', f); });
+		snap[ENGINE_SECTION] = eng;
 		this._snap = snap;
 	},
 
@@ -294,6 +301,15 @@ return view.extend({
 			if (cb && !self.sameVal(cb.checked ? '1' : '0', (rec.enable == null ? '1' : rec.enable)))
 				dirty = true;
 		});
+		/* engine settings (internal section) are not in the table */
+		seen[ENGINE_SECTION] = true;
+		var eng = snap[ENGINE_SECTION];
+		if (eng) {
+			SETTING_FIELDS.forEach(function(f) {
+				if (!self.sameVal(uci.get('socat', ENGINE_SECTION, f), eng[f]))
+					dirty = true;
+			});
+		}
 		Object.keys(snap).forEach(function(sid) { if (!seen[sid]) dirty = true; });
 
 		self.dirty = dirty;
