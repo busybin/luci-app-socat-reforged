@@ -1,8 +1,6 @@
 #!/bin/sh
 # ============================================================================
-#  socat-reforged forwarding engine
-#  (unreleased 2026-10 rewrite; will ship as V3 — PKG_VERSION stays at 2
-#   until the maintainer asks for a release)
+#  socat-reforged forwarding engine  (V3)
 # ============================================================================
 #  Reconciles /etc/config/socat against the running socat workers.
 #
