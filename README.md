@@ -31,10 +31,14 @@ drop-in replacement with a modern, ucode-native view.
   active connection count, refreshed automatically; **inline enable checkbox**
   that applies on `Save & Apply`.
 * **Reachability test** per rule (dials the configured target — optionally via
-  the configured proxy) and **Clone** to duplicate a rule.
+  the configured proxy; bounded by `connect-timeout=5` so a black-holed target
+  cannot hang the request) and **Clone** to duplicate a rule.
 * **Import / export** all rules as JSON.
 * **Port-conflict detection**: two enabled rules sharing a `proto:port` are
   flagged in the table and in a warning banner.
+* **Down-reason reporting**: a rule that cannot start shows the listener's own
+  error (e.g. `address already in use`) in the table and in a warning banner, and
+  half-bound rules (e.g. IPv4 up, IPv6 refused) show as `partial`.
 * **Unsaved-changes guard**: red banner + a save/discard dialog when you leave
   the page with pending edits (banner clears the moment you revert a value).
 * **Automatic WAN firewall** (`firewall_accept`, on by default): keeps a dedicated
@@ -58,14 +62,43 @@ drop-in replacement with a modern, ucode-native view.
   in 25.10+). No `luci-compat` needed.
 * `socat` (pulled automatically as a dependency; it is architecture-specific and
   comes from your distribution's feeds).
-* **The forwarding engine is included.** The package ships `/etc/socat-boot.sh`
-  and its own procd service `/etc/init.d/socat-reforged` — no separate engine is
-  needed. On install it stops and removes any legacy init that runs the same
-  engine (e.g. from a custom socat build) so only one loop can ever run.
+* **The forwarding engine is included.** The package ships `/etc/socat-boot.sh`,
+  its config generator `/usr/libexec/socat-reforged-gen.awk` and its own procd
+  service `/etc/init.d/socat-reforged` — no separate engine is needed. On install
+  it stops and removes any legacy init that runs the same engine (e.g. from a
+  custom socat build) so only one loop can ever run.
 * A `firewall4`/`nftables` system for the automatic WAN rule (everything else works
   without it; the firewall sync simply no-ops).
-* BusyBox userland (standard on OpenWrt) for `sh`, `sort`, `grep`, `tr`, `sed`,
-  `awk`, `pgrep`, `killall`, `netstat`, `nft`, `ubus`, `uci`.
+* BusyBox userland (standard on OpenWrt) for `sh`, `awk`, `sort`, `grep`, `tr`,
+  `sed`, `awk`, `pgrep`, `killall`, `ubus`, `uci`, `logger`.
+
+## Engine settings (UCI section `socat.reforged`, editable in the UI)
+
+| option | default | meaning |
+| --- | --- | --- |
+| `fix_v6_route` | `0` | Keep a static `2000::/3` route pointing at the current default gateway. An ISP-specific workaround; off by default. |
+| `wg_dnat_guard` | `0` | If you configured a 51820 DNAT rule, reload the firewall when it disappears from nftables. Never touches connection tracking. |
+| `debug` | `0` | Log a `HEALTH` line every minute (memory, worker count, IPv6, uptime). |
+
+Runtime state lives in `/var/run/socat-reforged/` (`desired`, `state`, `fw.sig`,
+`err/<kind>-<port>.log`, `ratelog/`), the heartbeat in `/var/run/socat-reforged.hb`.
+`socat-boot.sh status` prints a human-readable summary.
+
+## How it works (short version)
+
+* The LuCI view talks to the ubus object `luci.socat-reforged`; one call returns
+  engine state, every rule's live status, connection counts and — new — **why a
+  rule is down** (the listener's own error message).
+* The engine parses `/etc/config/socat` with **one** `uci show` + **one** awk
+  pass per cycle into `/var/run/socat-reforged/desired`; validation (port ranges,
+  IP/hostname whitelist, family, proxy) happens there, so a bad value can never
+  become a broken command line.
+* Every worker it starts carries `SOCAT_REFORGED=1` in its environment, so the
+  engine only ever manages **its own** socat processes — a socat you started
+  yourself is left alone.
+* Reconcile is a diff: unchanged rules keep running, only changed rules restart.
+  IPv6 is read from the interface that holds the default route, and with no IPv6
+  at all the engine still starts every IPv4 forward.
 
 ## Installation
 
@@ -153,6 +186,27 @@ Each `config config` section is one forward:
 | `proxy` | `''` / `socks4a` / `http` (+ `proxy_server`, `proxy_port`) |
 | `firewall_accept` | `1` = keep the WAN port open automatically |
 | `reuseaddr` | `1`/`0` (default `1`) |
+
+## Troubleshooting
+
+`logread | grep socat-boot` is the first stop; common messages:
+
+| message | meaning / fix |
+| --- | --- |
+| `WARN [<sid>] bad listen_port, skip` | A rule has a non-numeric or out-of-range port (1-65535). Fix it in the UI/UCI; the rule is ignored. |
+| `WARN [<sid>] IPv6-only listen but no WAN IPv6 address` | The rule is `family=6` but the router has no global IPv6 right now; nothing is started until it does. |
+| `reconcile: started=N stopped=M listeners=K` | Normal change log after Save & Apply. Repeated identical lines every cycle mean something is thrashing — check the state file. |
+| `firewall: our accept rules are gone` | Someone removed the generated fw4 rules; they are recreated automatically. |
+| `another engine loop (pid X) is active; idling this one` | A second loop tried to start; the singleton lock makes it idle until the active one exits. |
+| rule shows `down` with `address already in use` | Another process holds that port — the table cell shows the exact error. |
+
+Checklist when a forward does not work:
+1. Is the rule **enabled** and shown as `listening`?
+2. Is the listener really there: `socat-boot.sh status`
+3. Is the WAN port open: `nft list chain inet fw4 input_wan | grep <port>` (or
+   `uci show firewall | grep socat_reforged`)
+4. Is the target reachable from the router: the **Test target** button, or
+   `socat -T3 -u /dev/null TCP4:<ip>:<port>`
 
 ## Credits & license
 

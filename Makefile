@@ -1,4 +1,7 @@
 # luci-app-socat-reforged — release V2 (self-upstream)
+# NOTE: main additionally carries the unreleased 2026-10 engine/UI rework
+# (portable IPv6, single-pass config parsing, per-rule error reporting).
+# PKG_VERSION stays 2 until a release is requested; the next release is V3.
 # OpenWrt 25.x ucode-native LuCI for the custom socat forwarding engine.
 # A ground-up rewrite ("reforged") of the classic Lua/CBI socat page, which
 # cannot run on 25.x (no /usr/lib/lua tree). Distinct name to avoid clashing
@@ -23,9 +26,10 @@ LUCI_TITLE:=LuCI support for Socat (Reforged, custom engine)
 LUCI_DEPENDS:=+luci-base +socat +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci
 LUCI_PKGARCH:=all
 
-# The package ships the engine (/etc/socat-boot.sh) and its procd service
-# (/etc/init.d/socat-reforged). Enable the service on install and migrate off
-# a legacy init that runs the same engine, so only one loop can ever run.
+# The package ships the engine (/etc/socat-boot.sh + the generator awk in
+# /usr/libexec) and its procd service (/etc/init.d/socat-reforged). Enable the
+# service on install and migrate off a legacy init that runs the same engine,
+# so only one loop can ever run.
 define Package/luci-app-socat-reforged/postinst
 [ -n "$${IPKG_INSTROOT}" ] || { \
 	[ -f /etc/config/socat ] || {
@@ -37,13 +41,18 @@ define Package/luci-app-socat-reforged/postinst
 		/etc/init.d/socat stop >/dev/null 2>&1
 		/etc/init.d/socat disable >/dev/null 2>&1
 		rm -f /etc/rc.d/S*socat /etc/rc.d/K*socat
+		cp -p /etc/init.d/socat /root/init.d.socat.bak.$$$(date +%Y%m%d-%H%M%S) 2>/dev/null
+		rm -f /etc/init.d/socat
 	fi
 	ubus call service delete '{"name":"socat"}' >/dev/null 2>&1
+	ubus call service delete '{"name":"socat-reforged"}' >/dev/null 2>&1
+	for p in $$(pgrep -f '/etc/socat-boot.sh$' 2>/dev/null); do kill -9 "$$p" 2>/dev/null; done
+	[ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1
 	/etc/init.d/socat-reforged enable
 	/etc/init.d/socat-reforged restart
-	rm -f /tmp/luci-indexcache.*
-	rm -rf /tmp/luci-modulecache/
-	/etc/init.d/rpcd reload 2>/dev/null
+	rm -f /tmp/luci-indexcache
+	rm -rf /tmp/luci-indexcache.* /tmp/luci-modulecache /tmp/luci-modulecache.*
+	/etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart
 	exit 0
 }
 endef
