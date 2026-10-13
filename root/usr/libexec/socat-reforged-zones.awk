@@ -83,7 +83,9 @@ END {
 			continue
 		if (s in zname && zname[s] != "")
 			print zname[s]
-		else
-			print s
+		else if (substr(s, 1, 1) != "@")
+			print s          # a named section doubles as the zone name
+		# an anonymous zone with no name option cannot be referenced by a
+		# rule's src at all, so skip it rather than inventing a name
 	}
 }

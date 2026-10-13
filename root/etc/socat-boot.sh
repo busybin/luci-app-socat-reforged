@@ -40,6 +40,32 @@
 # ============================================================================
 LOG_TAG="socat-boot"
 
+# Never depend on the caller's PATH: procd, the ucitrack trigger, a cron job
+# and an interactive shell all hand us different ones.  Everything the engine
+# needs is resolved once, here, with a plain-name fallback so a missing tool
+# degrades instead of exploding.
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
+export PATH
+
+find_bin() { command -v "$1" 2>/dev/null || echo "$1"; }
+
+AWK_BIN=$(find_bin awk)
+IP_BIN=$(find_bin ip)
+UCI_BIN=$(find_bin uci)
+PGREP_BIN=$(find_bin pgrep)
+LOGGER_BIN=$(find_bin logger)
+NFT_BIN=$(find_bin nft)
+FW4_BIN=$(find_bin fw4)
+CMP_BIN=$(find_bin cmp)
+CP_BIN=$(find_bin cp)
+WC_BIN=$(find_bin wc)
+SORT_BIN=$(find_bin sort)
+TR_BIN=$(find_bin tr)
+CUT_BIN=$(find_bin cut)
+HEAD_BIN=$(find_bin head)
+SED_BIN=$(find_bin sed)
+GREP_BIN=$(find_bin grep)
+
 RUNDIR=/var/run/socat-reforged
 DESF=$RUNDIR/desired
 CACHEF=$RUNDIR/desired.cache
@@ -87,15 +113,12 @@ DES_KEYS=""
 WORKER_COUNT=0
 LIST_COUNT=0
 
-SOCAT_BIN=/usr/bin/socat
-[ -x "$SOCAT_BIN" ] || SOCAT_BIN=$(command -v socat 2>/dev/null || echo /usr/bin/socat)
-AWK_BIN=awk
-LOGGER=$(command -v logger 2>/dev/null || echo logger)
+[ -n "$SOCAT_BIN" ] || SOCAT_BIN=$(find_bin socat)
 
 # ---------------------------------------------------------------- logging ---
 
 log() {
-	"$LOGGER" -t "$LOG_TAG" "$1"
+	"$LOGGER_BIN" -t "$LOG_TAG" "$1" 2>/dev/null || true
 }
 
 # zero-fork "seconds since boot"
@@ -135,7 +158,7 @@ mkrun() {
 # engine's own settings live in the (internal) socat.reforged section
 opt() { # opt <name> [default]
 	local v
-	v=$(uci -q get "socat.reforged.$1" 2>/dev/null)
+	v=$($UCI_BIN -q get "socat.reforged.$1" 2>/dev/null)
 	if [ -n "$v" ]; then echo "$v"; else echo "${2:-}"; fi
 }
 
@@ -157,9 +180,15 @@ gen_desired() {
 		log_rate "nogen" 3600 "ERROR: generator $GPROG is missing"
 		return 1
 	fi
+	# Never let a missing tool look like "the user disabled everything":
+	# an empty desired set would make reconcile stop every worker we own.
+	if [ ! -x "$AWK_BIN" ] || [ ! -x "$UCI_BIN" ]; then
+		log_rate "notools" 3600 "ERROR: awk ($AWK_BIN) or uci ($UCI_BIN) missing; not reconciling"
+		return 1
+	fi
 	: > "$WARNF"
 	: > "$DESF"
-	uci show socat 2>/dev/null | "$AWK_BIN" -v ipv6="$IPV6" -v socat="$SOCAT_BIN" \
+	$UCI_BIN show socat 2>/dev/null | "$AWK_BIN" -v ipv6="$IPV6" -v socat="$SOCAT_BIN" \
 		-v desf="$DESF" -v warnf="$WARNF" -v fwf="$FWF" -f "$GPROG"
 	return 0
 }
@@ -183,7 +212,7 @@ scan_workers() {
 	local p env cmd m
 	SCAN=""
 	WORKER_COUNT=0
-	for p in $(pgrep socat 2>/dev/null); do
+	for p in $($PGREP_BIN socat 2>/dev/null); do
 		[ -r "/proc/$p/environ" ] || continue
 		# /proc files have no trailing newline, so `read` exits non-zero while
 		# still filling the variable: test the value, never the exit status.
@@ -419,7 +448,7 @@ publish_state() {
 	read -r up rest < /proc/uptime 2>/dev/null
 	up=${up%%.*}
 	# report the real engine loop, not the one-shot process that may be running us
-	lp=$(pgrep -f '/etc/socat-boot.sh$' 2>/dev/null | head -1)
+	lp=$($PGREP_BIN -f '/etc/socat-boot.sh$' 2>/dev/null | head -1)
 	[ -n "$lp" ] || lp=$$
 	{
 		echo "engine $lp $up $LIST_COUNT"
@@ -479,7 +508,7 @@ fw_ports() { # $FWF -> $FW_TCP / $FW_UDP (raw, unsorted; zero forks)
 }
 
 sync_firewall() {
-	[ -x /sbin/fw4 ] || return 0
+	[ -x "$FW4_BIN" ] || return 0
 	local TCP UDP raw_sig stored now p z sfx nzones zone
 	fw_ports
 	load_wan_zones
@@ -500,8 +529,8 @@ sync_firewall() {
 		if [ $((CYCLE % FW_EVERY)) -ne 0 ]; then
 			return 0
 		fi
-		if uci -q get firewall.socat_reforged_tcp >/dev/null 2>&1 \
-		   || uci -q get firewall.socat_reforged_udp >/dev/null 2>&1; then
+		if $UCI_BIN -q get firewall.socat_reforged_tcp >/dev/null 2>&1 \
+		   || $UCI_BIN -q get firewall.socat_reforged_udp >/dev/null 2>&1; then
 			return 0
 		fi
 		log "firewall: our accept rules are gone, re-creating them"
@@ -525,8 +554,8 @@ sync_firewall() {
 		z=$((z + 1))
 		sfx=""
 		[ "$z" -gt 1 ] && sfx="_$z"
-		uci -q delete "firewall.socat_reforged_tcp$sfx"
-		uci -q delete "firewall.socat_reforged_udp$sfx"
+		$UCI_BIN -q delete "firewall.socat_reforged_tcp$sfx"
+		$UCI_BIN -q delete "firewall.socat_reforged_udp$sfx"
 	done
 
 	# one rule per (zone, proto).  fw4 rules default to family "any", so both
@@ -538,25 +567,25 @@ sync_firewall() {
 		sfx=""
 		[ "$nzones" -gt 1 ] && sfx="_$nzones"
 		if [ -n "$TCP" ]; then
-			uci set "firewall.socat_reforged_tcp$sfx=rule"
-			uci set "firewall.socat_reforged_tcp$sfx.name=socat-reforged (tcp)"
-			uci set "firewall.socat_reforged_tcp$sfx.src=$zone"
-			uci set "firewall.socat_reforged_tcp$sfx.proto=tcp"
-			uci set "firewall.socat_reforged_tcp$sfx.target=ACCEPT"
-			for p in $TCP; do uci add_list "firewall.socat_reforged_tcp$sfx.dest_port=$p"; done
+			$UCI_BIN set "firewall.socat_reforged_tcp$sfx=rule"
+			$UCI_BIN set "firewall.socat_reforged_tcp$sfx.name=socat-reforged (tcp)"
+			$UCI_BIN set "firewall.socat_reforged_tcp$sfx.src=$zone"
+			$UCI_BIN set "firewall.socat_reforged_tcp$sfx.proto=tcp"
+			$UCI_BIN set "firewall.socat_reforged_tcp$sfx.target=ACCEPT"
+			for p in $TCP; do $UCI_BIN add_list "firewall.socat_reforged_tcp$sfx.dest_port=$p"; done
 		fi
 		if [ -n "$UDP" ]; then
-			uci set "firewall.socat_reforged_udp$sfx=rule"
-			uci set "firewall.socat_reforged_udp$sfx.name=socat-reforged (udp)"
-			uci set "firewall.socat_reforged_udp$sfx.src=$zone"
-			uci set "firewall.socat_reforged_udp$sfx.proto=udp"
-			uci set "firewall.socat_reforged_udp$sfx.target=ACCEPT"
-			for p in $UDP; do uci add_list "firewall.socat_reforged_udp$sfx.dest_port=$p"; done
+			$UCI_BIN set "firewall.socat_reforged_udp$sfx=rule"
+			$UCI_BIN set "firewall.socat_reforged_udp$sfx.name=socat-reforged (udp)"
+			$UCI_BIN set "firewall.socat_reforged_udp$sfx.src=$zone"
+			$UCI_BIN set "firewall.socat_reforged_udp$sfx.proto=udp"
+			$UCI_BIN set "firewall.socat_reforged_udp$sfx.target=ACCEPT"
+			for p in $UDP; do $UCI_BIN add_list "firewall.socat_reforged_udp$sfx.dest_port=$p"; done
 		fi
 	done
-	uci commit firewall
+	$UCI_BIN commit firewall
 
-	if /sbin/fw4 check >/dev/null 2>&1; then
+	if "$FW4_BIN" check >/dev/null 2>&1; then
 		/etc/init.d/firewall reload >/dev/null 2>&1
 		echo "ok $raw_sig" > "$FWSIG"
 		log "firewall synced: zones[$WAN_ZONES] tcp[$TCP] udp[$UDP]"
@@ -566,10 +595,10 @@ sync_firewall() {
 			z=$((z + 1))
 			sfx=""
 			[ "$z" -gt 1 ] && sfx="_$z"
-			uci -q delete "firewall.socat_reforged_tcp$sfx"
-			uci -q delete "firewall.socat_reforged_udp$sfx"
+			$UCI_BIN -q delete "firewall.socat_reforged_tcp$sfx"
+			$UCI_BIN -q delete "firewall.socat_reforged_udp$sfx"
 		done
-		uci commit firewall
+		$UCI_BIN commit firewall
 		echo "fail $raw_sig $now" > "$FWSIG"
 		log "WARN: fw4 check failed, removed socat-reforged rules (retry in $((FW_RETRY / 60)) min)"
 	fi
@@ -580,7 +609,7 @@ sync_firewall() {
 get_v6dev() {
 	local line
 	V6DEV=""
-	line=$(ip -6 route show default 2>/dev/null | head -1)
+	line=$($IP_BIN -6 route show default 2>/dev/null | head -1)
 	[ -n "$line" ] || return 0
 	set -- $line
 	while [ $# -ge 2 ]; do
@@ -594,9 +623,9 @@ get_v6dev() {
 get_wandev() {
 	local line
 	WAN_DEV=""
-	line=$(ip route show default 2>/dev/null | head -1)
+	line=$($IP_BIN route show default 2>/dev/null | head -1)
 	if [ -z "$line" ]; then
-		line=$(ip -6 route show default 2>/dev/null | head -1)
+		line=$($IP_BIN -6 route show default 2>/dev/null | head -1)
 	fi
 	[ -n "$line" ] || return 0
 	set -- $line
@@ -613,7 +642,7 @@ refresh_wan_zones() {
 	local out
 	[ -f "$ZONES_AWK" ] || return 1
 	[ -n "$WAN_DEV" ] || return 1
-	out=$( { uci show network 2>/dev/null; echo "%FIREWALL%"; uci show firewall 2>/dev/null; } \
+	out=$( { $UCI_BIN show network 2>/dev/null; echo "%FIREWALL%"; $UCI_BIN show firewall 2>/dev/null; } \
 		| "$AWK_BIN" -v dev="$WAN_DEV" -f "$ZONES_AWK" 2>/dev/null )
 	printf '%s\n' "$out" | awk 'NF && !seen[$0]++' > "$RUNDIR/fw.zones"
 	return 0
@@ -638,7 +667,7 @@ get_ipv6() {
 	[ -n "$V6DEV" ] || get_v6dev
 	IPV6=""
 	if [ -n "$V6DEV" ]; then
-		out=$(ip -o -6 addr show dev "$V6DEV" 2>/dev/null)
+		out=$($IP_BIN -o -6 addr show dev "$V6DEV" 2>/dev/null)
 		while read -r line; do
 			case "$line" in *" scope global "*) ;; *) continue ;; esac
 			set -- $line
@@ -650,7 +679,7 @@ get_ipv6() {
 $out
 EOF
 	fi
-	out=$(ip -o -6 addr show 2>/dev/null)
+	out=$($IP_BIN -o -6 addr show 2>/dev/null)
 	while read -r line; do
 		case "$line" in *" scope global "*) ;; *) continue ;; esac
 		set -- $line
@@ -669,7 +698,7 @@ EOF
 fix_ipv6_route() {
 	[ "$(opt fix_v6_route 0)" = "1" ] || return 0
 	local line gw dev
-	line=$(ip -6 route show default 2>/dev/null | head -1)
+	line=$($IP_BIN -6 route show default 2>/dev/null | head -1)
 	[ -n "$line" ] || return 0
 	set -- $line
 	gw=""
@@ -682,10 +711,10 @@ fix_ipv6_route() {
 		shift
 	done
 	[ -n "$gw" ] && [ -n "$dev" ] || return 0
-	if ip -6 route show 2000::/3 2>/dev/null | grep -q "via $gw dev $dev"; then
+	if $IP_BIN -6 route show 2000::/3 2>/dev/null | grep -q "via $gw dev $dev"; then
 		return 0
 	fi
-	if ip -6 route replace 2000::/3 via "$gw" dev "$dev" metric 1024 2>/dev/null; then
+	if $IP_BIN -6 route replace 2000::/3 via "$gw" dev "$dev" metric 1024 2>/dev/null; then
 		log_rate "v6route" 3600 "2000::/3 route updated -> via $gw dev $dev"
 	fi
 }
@@ -694,20 +723,25 @@ fix_ipv6_route() {
 # 51820 DNAT rule, make sure it is present.  Never touches conntrack.
 check_wg_dnat() {
 	[ "$(opt wg_dnat_guard 0)" = "1" ] || return 0
-	local line want=0 fwin
-	fwin=$(uci show firewall 2>/dev/null)
+	local line want=0 fwin zone
+	fwin=$($UCI_BIN show firewall 2>/dev/null)
 	while IFS= read -r line; do
 		case "$line" in *dest_port*51820*) want=1; break ;; esac
 	done <<EOF
 $fwin
 EOF
 	[ "$want" = "1" ] || return 0
-	if nft list chain inet fw4 dstnat_wan 2>/dev/null | grep -q '51820.*dnat'; then
-		return 0
-	fi
+	# fw4 names the chain after the zone (dstnat_<zone>), so check the zones
+	# we detected instead of assuming one called "wan"
+	load_wan_zones
+	for zone in $WAN_ZONES; do
+		if $NFT_BIN list chain inet fw4 "dstnat_$zone" 2>/dev/null | grep -q '51820.*dnat'; then
+			return 0
+		fi
+	done
 	log_rate "wgdnat" 900 "WARN: configured WG 51820 DNAT rule is missing from nftables"
 	if [ $((CYCLE % (FW_EVERY * 4))) -eq 0 ]; then
-		/sbin/fw4 reload 2>/dev/null
+		"$FW4_BIN" reload 2>/dev/null
 		log "reloaded fw4 to restore the WG DNAT rule"
 	fi
 }
@@ -832,7 +866,7 @@ if [ "$1" = "status" ]; then
 	listener_pids
 	gen_desired
 	flush_warnings
-	echo "engine loop  : $(pgrep -f '/etc/socat-boot.sh$' | tr '\n' ' ')"
+	echo "engine loop  : $($PGREP_BIN -f '/etc/socat-boot.sh$' | tr '\n' ' ')"
 	echo "uptime        : $(uptime_s)s"
 	echo "socat workers : $WORKER_COUNT (listeners $LIST_COUNT)"
 	echo "wan ipv6      : ${IPV6:-none}"

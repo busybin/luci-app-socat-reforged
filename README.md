@@ -104,8 +104,16 @@ IPv6 side of a zone are covered by the same rule.
 
 Verified against these layouts: DHCP on `eth0.2` (default zone), PPPoE on
 `pppoe-wan`, a renamed zone (`ext`), a device-only zone, multi-WAN (two zones
-for the same device), a router with no IPv6 at all, and a layout that cannot be
-mapped to a zone (no rules written, one warning).
+for the same device), a router with no IPv6 at all, an anonymous zone that
+cannot be referenced by a rule, and a layout that cannot be mapped to a zone
+(no rules written, one warning).
+
+The engine also fixes its own `PATH` and resolves every tool it uses
+(`ip`, `uci`, `awk`, `nft`, `fw4`, `pgrep`, `logger`, `socat`, …) once at
+startup, so it behaves the same whether it was started by procd, by the
+ucitrack trigger, from cron or by hand with a minimal environment. If `awk` or
+`uci` are missing it logs once and does nothing at all rather than treating
+that as "all rules disabled" (which would have stopped every forward).
 
 ## How it works (short version)
 
