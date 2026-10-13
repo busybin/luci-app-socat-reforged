@@ -218,6 +218,17 @@ Each `config config` section is one forward:
 | `firewall_accept` | `1` = keep the WAN port open automatically |
 | `reuseaddr` | `1`/`0` (default `1`) |
 
+## Tests
+
+Everything that does not need a router runs anywhere (BusyBox/Linux + `socat`):
+
+```sh
+sh tests/run.sh                  # generator + zone detection + layout simulator
+sh tests/run.sh --router router # also install on a router, test engine/backend/perf
+```
+
+See `tests/README.md` for what each suite covers. Exit codes are CI-friendly.
+
 ## Troubleshooting
 
 `logread | grep socat-boot` is the first stop; common messages:
