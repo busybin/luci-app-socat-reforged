@@ -132,6 +132,7 @@ function live_state() {
 function engine_state() {
 	const uptime = to_int(split(read_trim('/proc/uptime') + ' ', ' ')[0]);
 	let workers = 0, age = -1, loop_pid = null, listeners = null, fresh = false;
+	let version = null, build = null, built = null;
 
 	const st = fs.stat(STATE_FILE);
 	if (st != null && st.mtime != null) {
@@ -143,6 +144,10 @@ function engine_state() {
 				loop_pid = to_int(f[1]) || null;
 				const t = to_int(f[2]);
 				listeners = to_int(f[3]);
+				/* engine <pid> <uptime> <listeners> <version> <build> <built> */
+				version = f[4] ?? null;
+				build = f[5] ?? null;
+				built = f[6] ?? null;
 				if (t > 0)
 					age = uptime - t;
 			}
@@ -181,7 +186,10 @@ function engine_state() {
 		loop_pid,
 		listeners,
 		workers,
-		age
+		age,
+		version,
+		build,
+		built
 	};
 }
 

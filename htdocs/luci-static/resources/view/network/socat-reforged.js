@@ -23,6 +23,7 @@ var SETTING_FIELDS = [ 'fix_v6_route', 'wg_dnat_guard', 'debug' ];
 var ENGINE_SECTION = 'reforged';
 
 /* theme-aware styling: uses LuCI CSS variables so light/dark both look right */
+var REPO_URL = 'https://github.com/busybin/luci-app-socat-reforged';
 var STYLE = '\
 .socat-tiles{display:flex;flex-wrap:wrap;gap:12px;margin:.4em 0 0}\
 .socat-tile{flex:1 1 150px;min-width:150px;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:8px;padding:10px 14px;background:var(--background-color-medium,rgba(128,128,128,.06))}\
@@ -50,6 +51,8 @@ tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-mediu
 .socat-errs{background:var(--error-color-low,rgba(198,40,40,.12));border:1px solid var(--error-color-medium,#c62828);color:var(--error-color-medium,#c62828);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
 .socat-reason{font-size:.8em;opacity:.75;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22em}\
 .socat-adv{margin:.6em 0}\
+.socat-ver{font-size:.42em;font-weight:400;opacity:.55;margin-left:.6em;vertical-align:.35em;white-space:nowrap}\
+.socat-link{font-size:.85em;opacity:.75;margin-left:.5em;white-space:nowrap}\
 ';
 
 /* value of a field as currently shown in the (modal) form, falling back to UCI */
@@ -100,8 +103,16 @@ return view.extend({
 		return { cls: 'socat-down', dot: '\u25cb', label: _('down'), bucket: 'down', conns: 0, error: r.error };
 	},
 
-	localCounts: function() {
-		var self = this, total = 0, enabled = 0, listening = 0;
+	/* "v2 (5b1f927)" out of what the installer stamped; "v?" when unknown */
+	version_string: function(es) {
+		var v = es && es.version ? String(es.version) : '';
+		var b = es && es.build ? String(es.build) : '';
+		if (v === '' || v === 'devel')
+			return v === 'devel' ? 'devel' : 'v?';
+		return 'v' + v + (b && b !== v ? ' \u00b7 ' + b : '');
+	},
+
+	localCounts: function() {		var self = this, total = 0, enabled = 0, listening = 0;
 		(uci.sections('socat', 'config') || []).forEach(function(s) {
 			total++;
 			if (uci.get('socat', s['.name'], 'enable') === '0')
@@ -163,6 +174,9 @@ return view.extend({
 			'v ' + (c.enabled === 0 || c.listening === c.enabled ? 'socat-up' : (c.listening === 0 ? 'socat-down' : 'socat-warn')));
 		set('socat-t-conns', String(st.connections || 0), 'v');
 		set('socat-t-procs', String(es.workers || 0), 'v');
+
+		/* installed version + build, as stamped by the installer */
+		set('socat-t-version', version_string(es), null);
 
 		var age = document.getElementById('socat-t-engine-age');
 		if (age) {
@@ -467,7 +481,12 @@ return view.extend({
 		var m, s, o;
 
 		var styleEl = E('style', {}, STYLE);
-		var titleEl = E('h2', { 'name': 'content' }, _('Socat Reforged'));
+		var titleEl = E('h2', { 'name': 'content' }, [
+			_('Socat Reforged'),
+			E('span', { 'class': 'socat-ver', 'id': 'socat-t-version' }, '…'),
+			E('a', { 'class': 'socat-link', 'href': REPO_URL, 'target': '_blank', 'rel': 'noreferrer' },
+				E('span', { 'title': REPO_URL }, 'GitHub ↗'))
+		]);
 		var descEl = E('div', { 'class': 'cbi-map-descr' },
 			_('Port forwards handled by the custom socat engine (source of truth: /etc/config/socat).'));
 
