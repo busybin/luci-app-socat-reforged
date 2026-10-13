@@ -24,6 +24,13 @@
 #    switches (default off) and never flush conntrack.
 #  * Firewall sync rate-limits retries, aggregates consecutive ports into
 #    ranges, and self-heals if its rules were removed behind our back.
+#  * A listener is identified by the fact that it still owns the listening
+#    socket (/proc/net state 0A/07), not only by its parent pid: socat `,fork`
+#    leaves a per-connection child whose argv is identical, and once the
+#    listener dies that child is reparented to init and would otherwise be
+#    mistaken for a healthy listener (so the rule was never restarted).
+#  * The main loop records why it stopped (signal trap + a last-exit file) and
+#    logs an unclean previous run on start, so a silent crash is visible.
 #
 #  Runtime state (/var/run/socat-reforged, never /tmp):
 #     engine.lock/       singleton guard for this loop
@@ -78,6 +85,7 @@ PIDDIR=$RUNDIR/pids
 ERRDIR=$RUNDIR/err
 RATELOG=$RUNDIR/ratelog
 HB=/var/run/socat-reforged.hb
+ALIVE_MARK=$RUNDIR/engine.alive    # present only while our loop is running
 GPROG=/usr/libexec/socat-reforged-gen.awk
 ZONES_AWK=/usr/libexec/socat-reforged-zones.awk
 VERF=/usr/libexec/socat-reforged-version
@@ -86,7 +94,6 @@ CFG=/etc/config/socat
 TAB=$(printf '\t')
 MARKER="SOCAT_REFORGED=1"
 KA="keepalive,keepidle=60,keepintvl=10,keepcnt=5"
-WDOG_DEV=/dev/watchdog
 
 INTERVAL=15          # loop period, seconds
 FULL_EVERY=8         # cycles between unconditional full passes (~2 min)
@@ -113,6 +120,12 @@ RUN_KEYS=""
 DES_KEYS=""
 WORKER_COUNT=0
 LIST_COUNT=0
+LOOP_PID=""           # this loop's pid (empty while a one-shot runs us)
+LISTEN_TCP=""         # " p port ... " sets of ports with a socket in
+LISTEN_TCP6=""        #   LISTEN/bound state, per protocol family
+LISTEN_UDP=""
+LISTEN_UDP6=""
+LISTEN_OK=0           # 1 = the socket tables were readable this pass
 
 [ -n "$SOCAT_BIN" ] || SOCAT_BIN=$(find_bin socat)
 
@@ -236,6 +249,64 @@ flush_warnings() {
 	: > "$WARNF"
 }
 
+# ----------------------------------------------------------------- sockets ---
+# Ports that currently have a listening (0A) TCP or bound (07) UDP socket,
+# straight out of /proc/net, kept per protocol family.  This is what tells a
+# real listener apart from an orphaned per-connection child.  Matching by
+# family matters: a tcp6 listener on the same port must not make an orphaned
+# *v4* child look alive.
+_listen_ports() { # _listen_ports <state> <file...>
+	local st="$1"; shift
+	"$AWK_BIN" -v st="$st" '
+		function h2d(s,  i,c,n,hex){ hex="0123456789ABCDEF"; n=0; s=toupper(s)
+			for (i=1;i<=length(s);i++){ c=substr(s,i,1); n=n*16+index(hex,c)-1 } return n }
+		FNR>1 && $4==st { split($2,a,":"); printf " %d", h2d(a[2]) }
+	' "$@" 2>/dev/null
+}
+
+collect_listen_ports() {
+	[ -r /proc/net/tcp ] || return 1
+	LISTEN_TCP=" $(_listen_ports 0A /proc/net/tcp) "
+	LISTEN_TCP6=" $(_listen_ports 0A /proc/net/tcp6) "
+	LISTEN_UDP=" $(_listen_ports 07 /proc/net/udp) "
+	LISTEN_UDP6=" $(_listen_ports 07 /proc/net/udp6) "
+	return 0
+}
+
+port_in_listen() { # port_in_listen <fam> <port>
+	case "$1" in
+		tcp)  case "$LISTEN_TCP"  in *" $2 "*) return 0 ;; esac ;;
+		tcp6) case "$LISTEN_TCP6" in *" $2 "*) return 0 ;; esac ;;
+		udp)  case "$LISTEN_UDP"  in *" $2 "*) return 0 ;; esac ;;
+		udp6) case "$LISTEN_UDP6" in *" $2 "*) return 0 ;; esac ;;
+	esac
+	return 1
+}
+
+# Which kind of listener is this argv key?  Sets $FAM to tcp/tcp6/udp/udp6.
+key_kind() {
+	case "$1" in
+		*TCP6-LISTEN*) FAM=tcp6 ;;
+		*TCP-LISTEN*)  FAM=tcp ;;
+		*UDP6-LISTEN*) FAM=udp6 ;;
+		*UDP-LISTEN*)  FAM=udp ;;
+		*)             FAM=""; return 1 ;;
+	esac
+	return 0
+}
+
+# The listen port encoded in a worker's argv key ("socat TCP-LISTEN:44550,..."
+# with the spaces removed -> the digits after "LISTEN:").  Sets $KEY_PORT.
+key_port() {
+	local x
+	KEY_PORT=""
+	x=${1#*LISTEN:}
+	[ "$x" != "$1" ] || return 1
+	KEY_PORT=${x%%,*}
+	is_uint "$KEY_PORT" || { KEY_PORT=""; return 1; }
+	return 0
+}
+
 # ---------------------------------------------------------- worker discovery ---
 # Fill $SCAN ("pid<TAB>argv-key<TAB>marked" per line) for every socat worker.  /proc/<pid>/environ is NUL separated and busybox ash `read`
 # concatenates those fields, so the marker test costs no fork.
@@ -279,6 +350,8 @@ listener_pids() {
 	LISTENERS=""
 	LIST_COUNT=0
 	ALLPIDS=""
+	LISTEN_OK=0
+	collect_listen_ports && LISTEN_OK=1
 	while IFS="$TAB" read -r pid key m; do
 		[ -n "$pid" ] || continue
 		ALLPIDS="$ALLPIDS $pid"
@@ -298,6 +371,15 @@ EOF
 			[ "$q" = "$ppid" ] && { keep=0; break; }
 		done
 		[ "$keep" = "1" ] || continue
+		# An orphaned per-connection child is reparented to init (ppid 1) and
+		# keeps the listener's argv, so the ppid test cannot see it.  A real
+		# listener still owns the listening socket; require its port to be in
+		# LISTEN state.  If the tables were unreadable we keep the old guess.
+		if [ "$LISTEN_OK" = "1" ]; then
+			key_kind "$key" || continue
+			key_port "$key" || continue
+			port_in_listen "$FAM" "$KEY_PORT" || continue
+		fi
 		LISTENERS="$LISTENERS$pid$TAB$key$TAB$m
 "
 		RUN="$RUN$pid $key $m "
@@ -309,18 +391,37 @@ EOF
 }
 
 # Is this argv key currently running as one of our marked listeners?
-# Sets $RUN_PID (empty when not running); no subshell, so no fork.
+# Sets $RUN_PID (empty when not running); no fork, no fragile re-tokenising.
 find_pid() { # find_pid <key>
 	local want="$1" p k m
 	RUN_PID=""
-	set -- $RUN
-	while [ $# -ge 3 ]; do
-		if [ "$3" = "1" ] && [ "$2" = "$want" ]; then
-			RUN_PID="$1"
-			return 0
-		fi
-		shift 3
-	done
+	while IFS="$TAB" read -r p k m; do
+		[ "$m" = "1" ] || continue
+		[ "$k" = "$want" ] || continue
+		RUN_PID="$p"
+		return 0
+	done <<EOF
+$LISTENERS
+EOF
+	return 1
+}
+
+# The pid we treat as the live listener for one desired entry.  Prefer the
+# scan (a process that still owns its own listening socket) and fall back to
+# the pid recorded when we started it: that closes the tiny race right after a
+# spawn, when the fresh worker is not in the LISTEN table yet.
+# Sets $LL_PID.
+live_listener_pid() { # live_listener_pid <kind> <port> <key>
+	local reg rc f="$PIDDIR/$1-$2" want="$3"
+	LL_PID=""
+	find_pid "$want" && { LL_PID="$RUN_PID"; return 0; }
+	reg=""
+	[ -f "$f" ] && read -r reg < "$f" 2>/dev/null
+	[ -n "$reg" ] || return 1
+	kill -0 "$reg" 2>/dev/null || return 1
+	rc=""
+	read -r rc < "/proc/$reg/cmdline" 2>/dev/null
+	case "$rc" in *"$want"*) LL_PID="$reg"; return 0 ;; esac
 	return 1
 }
 
@@ -376,9 +477,10 @@ reconcile() {
 	return 0
 }
 
-# Cheap liveness test: every registered listener must still be alive.
+# Cheap liveness test: every registered listener must still be alive *and*
+# still be our worker (a reused pid must not pass for a listener).
 all_listeners_alive() {
-	local sid kind port key cmd p
+	local sid kind port key cmd p c
 	while IFS="$TAB" read -r sid kind port key cmd; do
 		[ -n "$sid" ] || continue
 		p=""
@@ -386,12 +488,15 @@ all_listeners_alive() {
 		if [ -z "$p" ] || ! kill -0 "$p" 2>/dev/null; then
 			return 1
 		fi
+		c=""
+		read -r c < "/proc/$p/cmdline" 2>/dev/null
+		case "$c" in *"$key"*) ;; *) return 1 ;; esac
 	done < "$DESF"
 	return 0
 }
 
 reconcile_pass() {
-	local line sid kind port key cmd pid errf e
+	local line sid kind port key cmd pid errf e reg rc seen dups
 	local spawned=0 killed=0 remarked=0 kill_it
 
 	[ -f "$CFG" ] || { log_rate "nocfg" 3600 "WARN: $CFG missing, nothing to reconcile"; return 0; }
@@ -441,13 +546,47 @@ EOF
 	[ "$killed" -gt 0 ] && sleep 1
 	[ "$remarked" -gt 0 ] && log "reconcile: replaced $remarked unmarked legacy listener(s)"
 
+	# Duplicates: several of our listeners can carry the same argv key.  TCP
+	# would refuse the second bind, but UDP honours SO_REUSEADDR and happily
+	# binds twice, so duplicates can pile up silently over time.  If a desired
+	# key has more than one listener, drop *all* of them and let the spawn loop
+	# below start exactly one fresh one.
+	seen=""
+	dups=""
+	while IFS="$TAB" read -r pid key m; do
+		[ -n "$pid" ] || continue
+		[ "$m" = "1" ] || continue
+		case "$DES_KEYS" in *" $key "*) ;; *) continue ;; esac
+		case "$seen" in
+			*"|$key|"*) dups="$dups|$key|" ;;
+			*)          seen="$seen|$key|" ;;
+		esac
+	done <<EOF
+$LISTENERS
+EOF
+	if [ -n "$dups" ]; then
+		while IFS="$TAB" read -r pid key m; do
+			[ -n "$pid" ] || continue
+			[ "$m" = "1" ] || continue
+			case "$dups" in *"|$key|"*) kill "$pid" 2>/dev/null; killed=$((killed + 1)) ;; esac
+		done <<EOF
+$LISTENERS
+EOF
+		log "reconcile: duplicate listeners for$dups removed; respawning one each"
+		sleep 1
+		# the scan above is stale now; the spawn loop below needs fresh data
+		scan_workers
+		listener_pids
+	fi
+
 	# start what is missing (and refresh stale pid bookkeeping)
 	while IFS="$TAB" read -r sid kind port key cmd; do
 		[ -n "$sid" ] || continue
-		find_pid "$key"
-		if [ -n "$RUN_PID" ]; then
+		live_listener_pid "$kind" "$port" "$key"
+		pid="$LL_PID"
+		if [ -n "$pid" ]; then
 			# keep the registry honest: a reused port must not keep a dead pid
-			echo "$RUN_PID" > "$PIDDIR/$kind-$port"
+			echo "$pid" > "$PIDDIR/$kind-$port"
 			continue
 		fi
 		errf="$ERRDIR/$kind-$port.log"
@@ -485,8 +624,8 @@ publish_state() {
 		echo "engine $lp $up $LIST_COUNT $PKG_VERSION $BUILD $BUILT"
 		while IFS="$TAB" read -r sid kind port key cmd; do
 			[ -n "$sid" ] || continue
-			find_pid "$key"
-			pid=$RUN_PID
+			live_listener_pid "$kind" "$port" "$key"
+			pid="$LL_PID"
 			e="-"
 			# only report a reason when the listener really is not running:
 			# the err file is per port+kind and could hold a previous
@@ -540,7 +679,7 @@ fw_ports() { # $FWF -> $FW_TCP / $FW_UDP (raw, unsorted; zero forks)
 
 sync_firewall() {
 	[ -x "$FW4_BIN" ] || return 0
-	local TCP UDP raw_sig stored now p z sfx nzones zone
+	local TCP UDP raw_sig stored now p z sfx nzones zone miss
 	fw_ports
 	load_wan_zones
 	raw_sig="zones:${WAN_ZONES:-none} tcp:$FW_TCP udp:$FW_UDP"
@@ -555,13 +694,17 @@ sync_firewall() {
 		return 0
 	fi
 
-	# happy path: already applied (and our rules still exist)
+	# happy path: already applied (and our rules still exist).  Check every
+	# protocol we actually need, so a rule deleted behind our back for just
+	# one of them is re-created as well.
 	if [ "$stored" = "ok $raw_sig" ]; then
 		if [ $((CYCLE % FW_EVERY)) -ne 0 ]; then
 			return 0
 		fi
-		if $UCI_BIN -q get firewall.socat_reforged_tcp >/dev/null 2>&1 \
-		   || $UCI_BIN -q get firewall.socat_reforged_udp >/dev/null 2>&1; then
+		miss=0
+		if [ -n "$FW_TCP" ] && ! $UCI_BIN -q get firewall.socat_reforged_tcp >/dev/null 2>&1; then miss=1; fi
+		if [ -n "$FW_UDP" ] && ! $UCI_BIN -q get firewall.socat_reforged_udp >/dev/null 2>&1; then miss=1; fi
+		if [ "$miss" = "0" ]; then
 			return 0
 		fi
 		log "firewall: our accept rules are gone, re-creating them"
@@ -828,17 +971,39 @@ check_health() {
 }
 
 pet_watchdog() {
-	[ -c "$WDOG_DEV" ] && echo w > "$WDOG_DEV" 2>/dev/null
+	# Intentionally empty: the hardware watchdog belongs to the system
+	# (watchdogd), not to a port-forward manager.  Writing to /dev/watchdog
+	# from here would fight the real watchdog daemon and could disarm it.
 	return 0
 }
 
-# engine + worker heartbeat for the LuCI backend (zero forks)
+# engine + worker heartbeat for the LuCI backend (zero forks).  The loop pid
+# travels with it, so the backend never has to fork to find out whether the
+# engine is alive.
 heartbeat() {
-	local up rest
+	local up rest pid
+	pid="$LOOP_PID"
+	if [ -z "$pid" ]; then
+		# a one-shot process: borrow the loop pid from the state header
+		pid=""
+		[ -f "$STATEF" ] && read -r _ pid _ < "$STATEF" 2>/dev/null
+	fi
 	up=""
 	rest=""
 	read -r up rest < /proc/uptime 2>/dev/null
-	echo "${up%%.*} $WORKER_COUNT" > "$HB" 2>/dev/null
+	echo "${up%%.*} $WORKER_COUNT ${pid:-}" > "$HB" 2>/dev/null
+}
+
+# Why the loop stopped, for the next start to report.
+note_exit() { # note_exit <reason>
+	printf '%s %s %s\n' "$(uptime_s)" "$$" "$1" > "$RUNDIR/last-exit" 2>/dev/null
+}
+
+on_signal() { # on_signal <NAME>  (installed only in the main loop)
+	note_exit "signal $1"
+	log "engine: caught SIG$1, stopping"
+	rm -f "$ALIVE_MARK" 2>/dev/null
+	exit 0
 }
 
 # -------------------------------------------------------------- one-shots ---
@@ -944,8 +1109,28 @@ acquire_loop_lock() {
 
 acquire_loop_lock
 mkrun
+LOOP_PID=$$
 read_version
 write_version_file
+
+# An engine that died without a clean stop left its marker behind: report it
+# (together with the last recorded exit reason) so a silent crash is visible
+# in logread instead of just being an unexplained "engine started".
+if [ -f "$ALIVE_MARK" ]; then
+	_prev=""
+	read -r _prev < "$ALIVE_MARK" 2>/dev/null
+	if [ -n "$_prev" ] && [ "$_prev" != "$$" ] && ! kill -0 "$_prev" 2>/dev/null; then
+		_le="none"
+		[ -f "$RUNDIR/last-exit" ] && _le=$(cat "$RUNDIR/last-exit" 2>/dev/null)
+		log "engine: previous loop (pid $_prev) exited without cleanup; last-exit: ${_le:-none}"
+	fi
+fi
+echo $$ > "$ALIVE_MARK" 2>/dev/null
+trap 'on_signal TERM' TERM
+trap 'on_signal INT'  INT
+trap 'on_signal HUP'  HUP
+trap 'on_signal QUIT' QUIT
+
 log "engine started (pid $$, $(version_line), interval ${INTERVAL}s, socat=$SOCAT_BIN)"
 
 while true; do
@@ -974,7 +1159,6 @@ while true; do
 		check_health
 	fi
 
-	pet_watchdog
 	sync_firewall
 	heartbeat
 

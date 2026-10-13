@@ -75,6 +75,8 @@ echo "stamped $VER ($PKG_VER / $BUILD)"
 # --- outgoing engine + its service (self-contained) ---
 TS=$(date +%Y%m%d-%H%M%S)
 [ -f /etc/socat-boot.sh ] && cp -p /etc/socat-boot.sh "/etc/socat-boot.sh.bak.$TS"
+# installs are idempotent and repeatable; keep only the 5 most recent backups
+ls -1t /etc/socat-boot.sh.bak.* 2>/dev/null | tail -n +6 | while read -r b; do rm -f "$b"; done
 if inst root/etc/socat-boot.sh /etc/socat-boot.sh 755 && sh -n /etc/socat-boot.sh; then
   echo "engine syntax OK (backup: $TS)"
 else

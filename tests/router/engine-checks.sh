@@ -22,6 +22,16 @@ has() { case "$3" in *"$2"*) PASS=$((PASS+1)); printf '  %-44s ok\n' "$1" ;;
 SID_BASE="t$(date +%s)"
 sid() { echo "${SID_BASE}$1"; }
 
+# Remove every section this run may have created, even on an early failure, so
+# a broken test run can never leave junk in the live /etc/config/socat.
+cleanup_test_sections() {
+	for S in "$(sid conflict)" "$(sid badport)" "$(sid inject)" "$(sid udpv6)" "$(sid disable)" "$(sid orphan)"; do
+		uci -q delete "socat.$S" 2>/dev/null
+	done
+	uci commit socat 2>/dev/null
+}
+trap cleanup_test_sections EXIT
+
 alive() { awk -v s="$1" 'NR>1 && $1==s && $4!="-"{n++} END{print n+0}' "$R/state"; }
 total() { awk -v s="$1" 'NR>1 && $1==s{n++} END{print n+0}' "$R/state"; }
 err()   { awk -v s="$1" 'NR>1 && $1==s && $5!="-"{ for (i=5;i<=NF;i++) printf "%s%s", $i, (i<NF?" ":""); print ""; exit }' "$R/state"; }
@@ -169,6 +179,48 @@ reconcile_now
 wait_gone "$D"
 ck "removing the rule leaves nothing" 0 "$(total "$D")"
 
+# ---------------------------------------------- orphaned ,fork child ---
+# socat `,fork` leaves a per-connection child with the *same* argv; when the
+# listener dies first that child is reparented to init.  It must not be
+# mistaken for a healthy listener (that would leave the rule dead forever).
+O=$(sid orphan)
+OPORT=21094
+OTGT=21093
+# clear anything a previous, possibly aborted run left behind (no pkill on busybox)
+for p in $(pgrep -f "TCP-LISTEN:$OPORT") $(pgrep -f "TCP-LISTEN:$OTGT"); do kill "$p" 2>/dev/null; done
+sleep 1
+socat "TCP-LISTEN:$OTGT,fork,reuseaddr" EXEC:'sleep 60' >/dev/null 2>&1 & TP=$!
+uci set "socat.$O=config" >/dev/null
+uci set "socat.$O.enable=1" >/dev/null
+uci set "socat.$O.proto=tcp" >/dev/null
+uci set "socat.$O.listen_port=$OPORT" >/dev/null
+uci set "socat.$O.dest_proto=tcp4" >/dev/null
+uci set "socat.$O.dest_ip=127.0.0.1" >/dev/null
+uci set "socat.$O.dest_port=$OTGT" >/dev/null
+uci set "socat.$O.firewall_accept=0" >/dev/null
+uci commit socat
+reconcile_now
+wait_alive "$O" 2 || echo "    (orphan setup: rule did not come up; state: [$(err "$O")])"
+# open a connection so the listener forks a per-connection child
+socat - "TCP4:127.0.0.1:$OPORT" < /dev/zero >/dev/null 2>&1 & CP=$!
+sleep 2
+LP=$(awk -v s="$O" 'NR>1 && $1==s && $4!="-" {print $4; exit}' "$R/state")
+CH=$(pgrep -P "$LP" 2>/dev/null | head -1)
+ck "orphan: listener forked a child" 1 "$([ -n "$CH" ] && echo 1 || echo 0)"
+kill "$LP" 2>/dev/null
+sleep 1
+ck "orphan: child outlives its listener" 1 "$([ -n "$CH" ] && kill -0 "$CH" 2>/dev/null && echo 1 || echo 0)"
+reconcile_now
+wait_alive "$O" 2
+NP=$(awk -v s="$O" 'NR>1 && $1==s && $2=="tcp" && $4!="-" {print $4; exit}' "$R/state")
+ck "orphan: engine restarts the real listener" 1 \
+	"$([ -n "$NP" ] && [ "$NP" != "$LP" ] && [ "$NP" != "$CH" ] && echo 1 || echo 0)"
+kill "$CP" "$TP" 2>/dev/null
+for p in $(pgrep -f "TCP-LISTEN:$OPORT") $(pgrep -f "TCP-LISTEN:$OTGT"); do kill "$p" 2>/dev/null; done
+uci delete "socat.$O" >/dev/null 2>&1
+uci commit socat
+reconcile_now
+
 # ------------------------------------------------------------- restart-rule --
 S2=$(awk 'NR==2 && $4!="-"{print $1; exit}' "$R/state")
 P1=$(awk -v s="$S2" 'NR>1 && $1==s && $4!="-"{print $4; exit}' "$R/state")
@@ -199,7 +251,7 @@ fi
 kill "$FP" 2>/dev/null
 
 # ---------------------------------------------------------------- cleanup ---
-for S in "$S" "$B" "$I" "$U" "$D"; do uci delete "socat.$S" >/dev/null 2>&1; done
+for S in "$S" "$B" "$I" "$U" "$D" "$O"; do uci delete "socat.$S" >/dev/null 2>&1; done
 uci commit socat
 reconcile_now
 ck "cleanup: listeners back to normal" "$(awk 'NR>1' "$R/state" | wc -l)" "$(awk 'NR>1 && $4!="-"' "$R/state" | wc -l)"
