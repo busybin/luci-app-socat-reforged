@@ -13,7 +13,9 @@ firewall reload that failed) was often gone before anyone looked.
 
 * **Engine** — every line is also appended to `/var/log/socat-reforged.log`,
   capped at 64 KiB (the newest half is kept), checked once per cycle. `/var/log`
-  is tmpfs, so this costs RAM, never flash.
+  is tmpfs, so this costs RAM, never flash. A steady state logs nothing, so a
+  rate-limited `alive:` line every ~15 min is the log's proof of life (per-minute
+  HEALTH spam is what buried real warnings in the syslog ring buffer before).
 * **Backend** — new `log{lines}` (tail of that file, max 300 lines by default,
   arbitrary counts up to 2000) and `log_clear` ubus methods; ACL updated.
 * **UI** — an "Engine log" section at the bottom of the page shows the last 300
