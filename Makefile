@@ -1,7 +1,7 @@
-# luci-app-socat-reforged — release V2 (self-upstream)
-# NOTE: main additionally carries the unreleased 2026-10 engine/UI rework
-# (portable IPv6, single-pass config parsing, per-rule error reporting).
-# PKG_VERSION stays 2 until a release is requested; the next release is V3.
+# luci-app-socat-reforged — release V3 (self-upstream)
+# V3 is the engine/UI rework: portable IPv6, single-pass config parsing,
+# per-rule error reporting, robust listener identity, crash diagnostics.
+# Versioning: tag / Release = "V3", PKG_VERSION = "3" (see below).
 # OpenWrt 25.x ucode-native LuCI for the custom socat forwarding engine.
 # A ground-up rewrite ("reforged") of the classic Lua/CBI socat page, which
 # cannot run on 25.x (no /usr/lib/lua tree). Distinct name to avoid clashing
@@ -15,7 +15,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-socat-reforged
-PKG_VERSION:=2
+PKG_VERSION:=3
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=busybin <65460344+busybin@users.noreply.github.com>
