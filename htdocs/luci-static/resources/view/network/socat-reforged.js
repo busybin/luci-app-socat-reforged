@@ -51,8 +51,10 @@ tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-mediu
 .socat-errs{background:var(--error-color-low,rgba(198,40,40,.12));border:1px solid var(--error-color-medium,#c62828);color:var(--error-color-medium,#c62828);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
 .socat-reason{font-size:.8em;opacity:.75;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22em}\
 .socat-adv{margin:.6em 0}\
-.socat-ver{font-size:.42em;font-weight:400;opacity:.55;margin-left:.6em;vertical-align:.35em;white-space:nowrap}\
-.socat-link{font-size:.85em;opacity:.75;margin-left:.5em;white-space:nowrap}\
+.socat-meta{font-size:.85rem;opacity:.72;margin:-.35em 0 .8em;display:flex;flex-wrap:wrap;align-items:center;gap:.4em}\
+.socat-ver{font-weight:600;opacity:.9}\
+.socat-link{color:inherit;text-decoration:none;border-bottom:1px dotted currentColor}\
+.socat-link:hover{opacity:1}\
 ';
 
 /* value of a field as currently shown in the (modal) form, falling back to UCI */
@@ -481,11 +483,13 @@ return view.extend({
 		var m, s, o;
 
 		var styleEl = E('style', {}, STYLE);
-		var titleEl = E('h2', { 'name': 'content' }, [
-			_('Socat Reforged'),
-			E('span', { 'class': 'socat-ver', 'id': 'socat-t-version' }, '…'),
+		var titleEl = E('h2', { 'name': 'content' }, _('Socat Reforged'));
+		/* version of what is installed + a link back to the source: kept out of
+		 * the h2 so they do not inherit its (much larger) font size */
+		var metaEl = E('div', { 'class': 'socat-meta' }, [
+			E('span', { 'id': 'socat-t-version', 'class': 'socat-ver' }, '\u2026'),
 			E('a', { 'class': 'socat-link', 'href': REPO_URL, 'target': '_blank', 'rel': 'noreferrer' },
-				E('span', { 'title': REPO_URL }, 'GitHub ↗'))
+				E('span', { 'title': REPO_URL }, 'GitHub \u2197'))
 		]);
 		var descEl = E('div', { 'class': 'cbi-map-descr' },
 			_('Port forwards handled by the custom socat engine (source of truth: /etc/config/socat).'));
@@ -852,7 +856,7 @@ return view.extend({
 
 			window.setTimeout(L.bind(function() { this.recount(); this.checkDirty(); }, self), 0);
 
-			return E([ styleEl, titleEl, descEl, banner, conflictBanner, errorBanner, card, toolbar, empty, mapNode ]);
+			return E([ styleEl, titleEl, metaEl, descEl, banner, conflictBanner, errorBanner, card, toolbar, empty, mapNode ]);
 		});
 	}
 });
