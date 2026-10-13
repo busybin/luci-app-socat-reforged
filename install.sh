@@ -55,6 +55,23 @@ if [ -n "$missing" ]; then
   echo "         On OpenWrt: opkg install$missing"
 fi
 
+# --- stamp the version the UI shows (what is installed, not what git says) --
+VER=/usr/libexec/socat-reforged-version
+PKG_VER=$(sed -n 's/^PKG_VERSION:=//p' "$HERE/Makefile" 2>/dev/null | tr -d ' ')
+[ -n "$PKG_VER" ] || PKG_VER=devel
+# build id, in order of preference: explicit argument, a stamp shipped inside
+# the tarball (.build-stamp), git, else "devel"
+BUILD="${1:-}"
+if [ -z "$BUILD" ] && [ -n "${SOCAT_BUILD:-}" ]; then BUILD="$SOCAT_BUILD"; fi
+if [ -z "$BUILD" ] && [ -f "$HERE/.build-stamp" ]; then BUILD=$(cat "$HERE/.build-stamp"); fi
+if [ -z "$BUILD" ]; then BUILD=$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo devel); fi
+{
+  echo "PKG_VERSION=$PKG_VER"
+  echo "BUILD=$BUILD"
+  echo "BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$VER"
+echo "stamped $VER ($PKG_VER / $BUILD)"
+
 # --- outgoing engine + its service (self-contained) ---
 TS=$(date +%Y%m%d-%H%M%S)
 [ -f /etc/socat-boot.sh ] && cp -p /etc/socat-boot.sh "/etc/socat-boot.sh.bak.$TS"

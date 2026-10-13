@@ -50,13 +50,15 @@ define Package/luci-app-socat-reforged/postinst
 	[ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1
 	/etc/init.d/socat-reforged enable
 	/etc/init.d/socat-reforged restart
+	{ echo "PKG_VERSION=$(PKG_VERSION)-$(PKG_RELEASE)"; \
+	  echo "BUILD=$(PKG_VERSION)-$(PKG_RELEASE)"; \
+	  echo "BUILT=package"; } > /usr/libexec/socat-reforged-version
 	rm -f /tmp/luci-indexcache
 	rm -rf /tmp/luci-indexcache.* /tmp/luci-modulecache /tmp/luci-modulecache.*
 	/etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart
 	exit 0
 }
 endef
-
 include $(TOPDIR)/feeds/luci/luci.mk
 
 # call BuildPackage - OpenWrt buildroot signature
