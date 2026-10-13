@@ -38,6 +38,23 @@ inst root/usr/libexec/socat-reforged-ctl /usr/libexec/socat-reforged-ctl 755
 inst root/usr/libexec/socat-reforged-gen.awk /usr/libexec/socat-reforged-gen.awk 644
 inst root/usr/libexec/socat-reforged-zones.awk /usr/libexec/socat-reforged-zones.awk 644
 
+# --- dependency check (manual installs have no opkg to resolve these) -------
+missing=""
+command -v socat >/dev/null 2>&1 || missing="$missing socat"
+command -v ucode >/dev/null 2>&1 || missing="$missing ucode"
+command -v ubus  >/dev/null 2>&1 || missing="$missing ubus"
+if command -v ucode >/dev/null 2>&1; then
+  for m in uci fs; do
+    ucode -e "import * as x from '$m';" >/dev/null 2>&1 || missing="$missing ucode-mod-$m"
+  done
+fi
+if [ -n "$missing" ]; then
+  echo "WARNING: missing dependencies:$missing"
+  echo "         the engine needs socat; the LuCI page also needs ubus + ucode"
+  echo "         (ucode-mod-uci, ucode-mod-fs and rpcd-mod-ucode)."
+  echo "         On OpenWrt: opkg install$missing"
+fi
+
 # --- outgoing engine + its service (self-contained) ---
 TS=$(date +%Y%m%d-%H%M%S)
 [ -f /etc/socat-boot.sh ] && cp -p /etc/socat-boot.sh "/etc/socat-boot.sh.bak.$TS"
