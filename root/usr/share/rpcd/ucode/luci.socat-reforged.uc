@@ -3,6 +3,7 @@
 'use strict';
 
 import { readfile, popen } from 'fs';
+import * as fs from 'fs';
 import { cursor } from 'uci';
 
 /*
@@ -14,7 +15,7 @@ import { cursor } from 'uci';
  *
  * Methods (all return plain JSON):
  *
- *   status()              engine + per-rule live state
+ *   status()              engine + per-rule live state (+ why a rule is down)
  *   test{...}             reachability test for one destination
  *   start / stop / restart
  *   reload                per-rule reconcile (only changed rules restart)
@@ -24,9 +25,11 @@ import { cursor } from 'uci';
  * governed by /usr/share/rpcd/acl.d/luci-app-socat-reforged.json.
  */
 
-const HB_FILE = '/var/run/socat-reforged.hb';
-const ENGINE  = '/etc/socat-boot.sh';
-const CTL     = '/usr/libexec/socat-reforged-ctl';
+const HB_FILE   = '/var/run/socat-reforged.hb';
+const STATE_FILE = '/var/run/socat-reforged/state';
+const ENGINE   = '/etc/socat-boot.sh';
+const CTL      = '/usr/libexec/socat-reforged-ctl';
+const UCI_CFG  = 'socat';
 
 const uci = cursor();
 
@@ -54,6 +57,14 @@ function shellquote(s) {
 	return "'" + replace(s ?? '', "'", "'\\''") + "'";
 }
 
+/* int() yields NaN for garbage; this returns 0 instead */
+function to_int(v) {
+	const n = int(v);
+	return (n == null || n !== n) ? 0 : n;
+}
+
+/* ------------------------------------------------- sockets from /proc/net --- */
+
 /* Parse a /proc/net/{tcp,tcp6,udp,udp6} table into [{ local, remote, state }]. */
 function net_table(path) {
 	const out = [];
@@ -80,6 +91,7 @@ function net_table(path) {
 
 /* ------------------------------------------------------------ live state */
 
+/* Bound ports / active connections straight from /proc/net (no fork). */
 function live_state() {
 	const tcp = {}, udp = {}, conns = {};
 
@@ -105,29 +117,116 @@ function live_state() {
 	return { tcp, udp, conns };
 }
 
+/*
+ * Engine state.
+ *
+ * Preferred source is the engine's own state file (it also tells us the loop
+ * pid, so a dead loop cannot look healthy).  Fallbacks: the plain heartbeat
+ * file, then a worker count.  `fresh` says whether the state file was written
+ * within the last 90 seconds.
+ */
 function engine_state() {
-	const uptime = int(split(read_trim('/proc/uptime') + ' ', ' ')[0]);
-	const hb = read_trim(HB_FILE);
-	let workers = 0, age = -1;
+	const uptime = to_int(split(read_trim('/proc/uptime') + ' ', ' ')[0]);
+	let workers = 0, age = -1, loop_pid = null, listeners = null, fresh = false;
 
-	if (hb != '') {
-		const f = split(hb, /\s+/);
-		const t = int(f[0]);
-		workers = int(f[1]) ?? 0;
-		if (t > 0)
-			age = uptime - t;
+	const st = fs.stat(STATE_FILE);
+	if (st != null && st.mtime != null) {
+		const data = readfile(STATE_FILE);
+		if (data != null) {
+			const first = split(data, '\n')[0];
+			if (first != null && trim(first) != '') {
+				const f = split(trim(first), /\s+/);
+				loop_pid = to_int(f[1]) || null;
+				const t = to_int(f[2]);
+				listeners = to_int(f[3]);
+				if (t > 0)
+					age = uptime - t;
+			}
+		}
+		fresh = (age >= 0 && age <= 90);
+		if (fresh && loop_pid != null && fs.stat('/proc/' + loop_pid) == null)
+			loop_pid = null;
 	}
 
-	/* Fallback for engines that do not write a heartbeat file yet. */
 	if (age < 0) {
-		const n = int(trim(shell('pgrep socat 2>/dev/null | wc -l')));
+		/* heartbeat of an engine that does not write a state file yet */
+		const hb = read_trim(HB_FILE);
+		if (hb != '') {
+			const f = split(hb, /\s+/);
+			const t = to_int(f[0]);
+			workers = to_int(f[1]);
+			if (t > 0)
+				age = uptime - t;
+		}
+	}
+	else {
+		workers = listeners ?? 0;
+	}
+
+	/* last resort: worker count only, loop liveness unknown */
+	if (age < 0) {
+		const n = to_int(trim(shell('pgrep socat 2>/dev/null | wc -l')));
 		if (n > 0) {
 			workers = n;
 			age = 0;
 		}
 	}
 
-	return { running: (age >= 0 && age <= 60), workers, age };
+	return {
+		running: (fresh && loop_pid != null),
+		loop_pid,
+		listeners,
+		workers,
+		age
+	};
+}
+
+/*
+ * Per-rule view of the engine's state file:
+ *   { kinds: { tcp: 'up'|'down', tcp6: ... }, expected, listening, error }
+ * Returns null when the file is missing or stale.
+ */
+function engine_rules() {
+	const st = fs.stat(STATE_FILE);
+	if (st == null || st.mtime == null)
+		return null;
+
+	const uptime = to_int(split(read_trim('/proc/uptime') + ' ', ' ')[0]);
+	if (uptime - st.mtime > 90)
+		return null;
+
+	const data = readfile(STATE_FILE);
+	if (data == null)
+		return null;
+
+	const out = {};
+	const lines = split(data, '\n');
+	for (let i = 1; i < length(lines); i++) {
+		const l = trim(lines[i]);
+		if (l == '')
+			continue;
+		const f = split(l, ' ');              /* sid kind port pid error... */
+		if (length(f) < 5)
+			continue;
+		const sid = f[0], kind = f[1], pid = f[2];
+		let err = '';
+		for (let j = 4; j < length(f); j++)
+			err += (j > 4 ? ' ' : '') + f[j];
+
+		let r = out[sid];
+		if (r == null) {
+			r = { kinds: {}, expected: 0, listening: 0, error: null };
+			out[sid] = r;
+		}
+		r.expected++;
+		if (pid != '-')
+			r.listening++;
+		r.kinds[kind] = (pid != '-') ? 'up' : 'down';
+		if (pid == '-' && err != '-' && err != '' && r.error == null)
+			r.error = err;
+	}
+
+	return out;
 }
 
 /* -------------------------------------------------------------- config */
@@ -135,26 +234,35 @@ function engine_state() {
 function read_rules() {
 	const rules = [];
 
-	uci.load('socat');
-	uci.foreach('socat', 'config', function(s) {
+	if (!fs.access('/etc/config/' + UCI_CFG)) {
+		return rules;
+	}
+
+	try {
+		uci.load(UCI_CFG);
+	} catch (e) {
+		return rules;
+	}
+
+	uci.foreach(UCI_CFG, 'config', function(s) {
 		const sid = s['.name'];
 		if (sid == null)
 			return;
 		push(rules, {
 			sid,
-			name: uci.get('socat', sid, 'remarks') ?? '',
-			enable: (uci.get('socat', sid, 'enable') ?? '1') != '0',
-			proto: uci.get('socat', sid, 'proto') ?? 'tcp',
-			listen: int(uci.get('socat', sid, 'listen_port') ?? 0),
-			dest_proto: uci.get('socat', sid, 'dest_proto') ?? 'tcp4',
-			dest_ip: uci.get('socat', sid, 'dest_ip') ?? '',
-			dest_port: int(uci.get('socat', sid, 'dest_port') ?? 0),
-			family: uci.get('socat', sid, 'family') ?? '',
-			proxy: uci.get('socat', sid, 'proxy') ?? '',
-			firewall_accept: (uci.get('socat', sid, 'firewall_accept') ?? '1') == '1'
+			name: uci.get(UCI_CFG, sid, 'remarks') ?? '',
+			enable: (uci.get(UCI_CFG, sid, 'enable') ?? '1') != '0',
+			proto: uci.get(UCI_CFG, sid, 'proto') ?? 'tcp',
+			listen: to_int(uci.get(UCI_CFG, sid, 'listen_port')),
+			dest_proto: uci.get(UCI_CFG, sid, 'dest_proto') ?? 'tcp4',
+			dest_ip: uci.get(UCI_CFG, sid, 'dest_ip') ?? '',
+			dest_port: to_int(uci.get(UCI_CFG, sid, 'dest_port')),
+			family: uci.get(UCI_CFG, sid, 'family') ?? '',
+			proxy: uci.get(UCI_CFG, sid, 'proxy') ?? '',
+			firewall_accept: (uci.get(UCI_CFG, sid, 'firewall_accept') ?? '1') == '1'
 		});
 	});
-	uci.unload('socat');
+	uci.unload(UCI_CFG);
 
 	return rules;
 }
@@ -165,22 +273,44 @@ function do_status() {
 	const rules = read_rules();
 	const lv = live_state();
 	const es = engine_state();
+	const er = engine_rules();
+	const config_missing = !fs.access('/etc/config/' + UCI_CFG);
 
 	const out = [];
-	let enabled = 0, listening = 0, down = 0, connections = 0;
+	let enabled = 0, listening = 0, down = 0, connections = 0, errors = 0;
 
 	for (let i = 0; i < length(rules); i++) {
 		const r = rules[i];
-		const up = (r.proto == 'udp') ? (lv.udp[r.listen] != null) : (lv.tcp[r.listen] != null);
+		const sock_up = (r.proto == 'udp') ? (lv.udp[r.listen] != null) : (lv.tcp[r.listen] != null);
 		const conns = (r.proto == 'tcp') ? (lv.conns[r.listen] ?? 0) : 0;
-		const status = !r.enable ? 'disabled' : (up ? 'listening' : 'down');
+		const st = er ? er[r.sid] : null;
+
+		let status, error = null;
+		if (!r.enable) {
+			status = 'disabled';
+		}
+		else if (st != null) {
+			/* the engine knows better than a port lookup */
+			if (st.expected > 0 && st.listening == st.expected)
+				status = 'listening';
+			else if (st.listening > 0)
+				status = 'partial';
+			else
+				status = 'down';
+			error = st.error;
+		}
+		else {
+			status = sock_up ? 'listening' : 'down';
+		}
 
 		if (r.enable) {
 			enabled++;
-			if (up)
+			if (status == 'listening')
 				listening++;
-			else
+			else if (status != 'disabled')
 				down++;
+			if (error != null)
+				errors++;
 		}
 		connections += conns;
 
@@ -188,29 +318,33 @@ function do_status() {
 			sid: r.sid, name: r.name, enable: r.enable, proto: r.proto,
 			listen: r.listen, dest_proto: r.dest_proto, dest_ip: r.dest_ip,
 			dest_port: r.dest_port, family: r.family, proxy: r.proxy,
-			firewall_accept: r.firewall_accept, status, conns
+			firewall_accept: r.firewall_accept, status, conns, error
 		});
 	}
 
 	return {
 		engine: es,
-		counts: { total: length(out), enabled, listening, down },
+		counts: { total: length(out), enabled, listening, down, errors },
 		connections,
+		config_missing,
 		rules: out
 	};
 }
 
 function do_test(args) {
 	const host = args?.dest_ip ?? '';
-	const port = int(args?.dest_port ?? 0);
+	const port = to_int(args?.dest_port);
 	const dproto = args?.dest_proto ?? 'tcp4';
 	const proxy = args?.proxy ?? '';
 	let pserver = args?.proxy_server ?? '';
-	let pport = int(args?.proxy_port ?? 0);
+	let pport = to_int(args?.proxy_port);
 
 	if (host == '' || port <= 0)
 		return { ok: false, detail: 'destination IP and port are required' };
 
+	/* connect-timeout bounds the dial itself; -T only bounds the transfer.
+	 * Without it a black-holed target hangs the ubus call (and the UI). */
+	let ro = '';
 	let dial;
 	if (proxy != '' && proxy != 'none') {
 		if (dproto != 'tcp4')
@@ -219,6 +353,7 @@ function do_test(args) {
 			pserver = '127.0.0.1';
 		if (pport <= 0)
 			pport = 1080;
+		ro = ',connect-timeout=5';
 		if (proxy == 'socks4a' || proxy == 'socks4')
 			dial = `SOCKS4A:${pserver}:${host}:${port},socksport=${pport}`;
 		else if (proxy == 'http')
@@ -226,11 +361,13 @@ function do_test(args) {
 		else
 			return { ok: false, detail: `unknown proxy type '${proxy}'` };
 	}
-	else if (dproto == 'tcp4') dial = `TCP4:${host}:${port}`;
+	else if (dproto == 'tcp4') { dial = `TCP4:${host}:${port}`; ro = ',connect-timeout=5'; }
 	else if (dproto == 'udp4') dial = `UDP4:${host}:${port}`;
-	else if (dproto == 'tcp6') dial = `TCP6:[${host}]:${port}`;
+	else if (dproto == 'tcp6') { dial = `TCP6:[${host}]:${port}`; ro = ',connect-timeout=5'; }
 	else if (dproto == 'udp6') dial = `UDP6:[${host}]:${port}`;
 	else return { ok: false, detail: `unknown destination protocol '${dproto}'` };
+
+	dial += ro;
 
 	const rc = shell_rc(`socat -T3 -u /dev/null ${shellquote(dial)} 2>/dev/null`);
 

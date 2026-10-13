@@ -43,6 +43,9 @@ var STYLE = '\
 .socat-alert{background:var(--warn-color-medium,#f0c629);color:var(--on-warn-color,#3a2f00);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
 .socat-empty{border:1px dashed var(--border-color-medium,rgba(128,128,128,.4));border-radius:8px;padding:24px;text-align:center;margin:.6em 0}\
 tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-medium,#f0c629)}\
+.socat-errs{background:var(--error-color-low,rgba(198,40,40,.12));border:1px solid var(--error-color-medium,#c62828);color:var(--error-color-medium,#c62828);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
+.socat-reason{font-size:.8em;opacity:.75;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22em}\
+.socat-adv{margin:.6em 0}\
 ';
 
 /* value of a field as currently shown in the (modal) form, falling back to UCI */
@@ -82,13 +85,15 @@ return view.extend({
 	/* status descriptor for one rule */
 	statFor: function(sid) {
 		if (uci.get('socat', sid, 'enable') === '0')
-			return { cls: 'socat-off', dot: '\u25cb', label: _('disabled'), conns: 0 };
+			return { cls: 'socat-off', dot: '\u25cb', label: _('disabled'), bucket: 'disabled', conns: 0 };
 		var r = this.rulesById ? this.rulesById[sid] : null;
 		if (!r)
-			return { cls: '', dot: '?', label: _('unknown'), conns: 0 };
+			return { cls: '', dot: '?', label: _('unknown'), bucket: 'down', conns: 0 };
 		if (r.status === 'listening')
-			return { cls: 'socat-up', dot: '\u25cf', label: _('listening'), conns: r.conns || 0 };
-		return { cls: 'socat-down', dot: '\u25cb', label: _('down'), conns: 0 };
+			return { cls: 'socat-up', dot: '\u25cf', label: _('listening'), bucket: 'listening', conns: r.conns || 0 };
+		if (r.status === 'partial')
+			return { cls: 'socat-warn', dot: '\u25d1', label: _('partial'), bucket: 'down', conns: r.conns || 0, error: r.error };
+		return { cls: 'socat-down', dot: '\u25cb', label: _('down'), bucket: 'down', conns: 0, error: r.error };
 	},
 
 	localCounts: function() {
@@ -135,6 +140,10 @@ return view.extend({
 			var r = self.statFor(s['.name']);
 			el.className = 'socat-st ' + r.cls;
 			el.textContent = r.dot + ' ' + r.label;
+			if (r.error)
+				el.title = r.error;
+			else
+				el.removeAttribute('title');
 			if (r.conns > 0)
 				el.appendChild(E('span', { 'class': 'conns' }, '\u00b7 ' + r.conns));
 		});
@@ -152,10 +161,17 @@ return view.extend({
 		set('socat-t-procs', String(es.workers || 0), 'v');
 
 		var age = document.getElementById('socat-t-engine-age');
-		if (age)
-			age.textContent = (es.running && es.age != null && es.age >= 0) ? _('reconciled %s s ago').format(es.age) : '';
+		if (age) {
+			var txt = '';
+			if (es.running && es.age != null && es.age >= 0)
+				txt = _('reconciled %s s ago').format(es.age);
+			if (c.errors)
+				txt = (txt ? txt + ' \u00b7 ' : '') + _('%d rule(s) failing').format(c.errors);
+			age.textContent = txt;
+		}
 
 		self.applyConflicts();
+		self.applyErrors();
 		self.applyFilter();
 		self.applyEmpty();
 	},
@@ -189,6 +205,28 @@ return view.extend({
 		}
 	},
 
+	/* rules the engine could not start: show the reason it captured */
+	applyErrors: function() {
+		var self = this;
+		var st = self.status || {};
+		var bad = ((st && st.rules) || []).filter(function(r) { return r.enable && r.error; });
+
+		var el = document.getElementById('socat-errors');
+		if (!el)
+			return;
+		if (!bad.length) {
+			el.style.display = 'none';
+			return;
+		}
+		var rows = bad.map(function(r) {
+			return (r.name || r.sid) + ' [' + (r.proto || 'tcp').toUpperCase() + ':' + r.listen + '] \u2014 ' + r.error;
+		});
+		el.style.display = '';
+		el.textContent = '';
+		el.appendChild(E('strong', {}, _('\u26a0 %d rule(s) not running: ').format(bad.length)));
+		el.appendChild(document.createTextNode(rows.join('   \u00b7   ')));
+	},
+
 	applyFilter: function() {
 		var self = this;
 		if (!self._mapNode)
@@ -198,7 +236,7 @@ return view.extend({
 		var rows = self._mapNode.querySelectorAll('tr[data-sid]');
 		Array.prototype.forEach.call(rows, function(tr) {
 			var r = self.statFor(tr.getAttribute('data-sid'));
-			var key = r.cls === 'socat-up' ? 'listening' : (r.cls === 'socat-down' ? 'down' : 'disabled');
+			var key = r.bucket || 'down';
 			var text = (tr.textContent || '').toLowerCase();
 			var show = (q === '' || text.indexOf(q) >= 0) && (f === 'all' || key === f);
 			tr.style.display = show ? '' : 'none';
@@ -422,6 +460,7 @@ return view.extend({
 			_('Click "Save & Apply" to apply them (leaving the page will prompt you).')
 		]);
 		var conflictBanner = E('div', { 'id': 'socat-conflicts', 'class': 'socat-alert', 'style': 'display:none' });
+		var errorBanner = E('div', { 'id': 'socat-errors', 'class': 'socat-errs', 'style': 'display:none' });
 
 		var st = this.status || {};
 		var c = st.counts || null;
@@ -525,13 +564,15 @@ return view.extend({
 		o.modalonly = false;
 		o.cfgvalue = function(section_id) {
 			var st = self.statFor(section_id);
-			return st.cls === 'socat-up' ? '1 listening' : (st.cls === 'socat-down' ? '2 down' : '3 disabled');
+			return st.cls === 'socat-up' ? '1 listening' : (st.cls === 'socat-warn' ? '2 partial' : (st.cls === 'socat-down' ? '3 down' : '4 disabled'));
 		};
 		o.textvalue = function(section_id) {
 			var r = self.statFor(section_id);
 			var kids = [ r.dot + ' ' + r.label ];
 			if (r.conns > 0)
 				kids.push(E('span', { 'class': 'conns' }, '\u00b7 ' + r.conns));
+			if (r.error)
+				kids.push(E('div', { 'class': 'socat-reason', 'title': r.error }, '\u26a0 ' + r.error));
 			return E('span', { 'id': 'socat-st-' + section_id, 'class': 'socat-st ' + r.cls }, kids);
 		};
 
@@ -604,6 +645,7 @@ return view.extend({
 
 		o = s.option(form.Value, 'dest_ip', _('Destination IP'));
 		o.placeholder = '192.168.1.x';
+		o.datatype = 'or(host, ip6addr)';
 		o.rmempty = false;
 		o.modalonly = true;
 
@@ -637,6 +679,7 @@ return view.extend({
 		o = s.option(form.Value, 'proxy_server', _('Proxy server'));
 		o.placeholder = '127.0.0.1';
 		o.default = '127.0.0.1';
+		o.datatype = 'or(host, ip6addr)';
 		o.depends('proxy', 'socks4a');
 		o.depends('proxy', 'http');
 		o.modalonly = true;
@@ -654,7 +697,7 @@ return view.extend({
 		o.rmempty = false;
 		o.default = '1';
 		o.editable = true;
-		o.onchange = function() { self.checkDirty(); window.setTimeout(function() { self.recount(); }, 50); };
+		o.onchange = function() { self.checkDirty(); self.recount(); };
 
 		/* create NAMED sections, so we never depend on fragile @config[N] indices */
 		s.handleAdd = function(ev) {
@@ -699,6 +742,27 @@ return view.extend({
 				return self.refreshStatus();
 			}).then(function() { self.recount(); });
 		};
+
+		/* ---- engine settings (internal section socat.reforged) ---- */
+		var g = m.section(form.NamedSection, 'reforged', _('Engine settings'));
+		g.addremove = false;
+
+		o = g.option(form.Flag, 'fix_v6_route', _('Maintain a 2000::/3 IPv6 route'));
+		o.default = '0';
+		o.rmempty = false;
+		o.description = _('Keep a static 2000::/3 route pointing at the current default gateway. ' +
+			'Only needed on ISPs whose delegation is broken \u2014 leave off unless you know you need it.');
+
+		o = g.option(form.Flag, 'wg_dnat_guard', _('Watch the WireGuard 51820 DNAT rule'));
+		o.default = '0';
+		o.rmempty = false;
+		o.description = _('Reload the firewall if a 51820 DNAT rule you configured disappears. ' +
+			'Only relevant if you forward WireGuard, and it never touches connection tracking.');
+
+		o = g.option(form.Flag, 'debug', _('Verbose engine logging'));
+		o.default = '0';
+		o.rmempty = false;
+		o.description = _('Log a HEALTH line every minute (memory, worker count, IPv6, uptime).');
 
 		poll.add(L.bind(function() {
 			return this.refreshStatus().then(L.bind(function() {
@@ -753,7 +817,7 @@ return view.extend({
 
 			window.setTimeout(L.bind(function() { this.recount(); this.checkDirty(); }, self), 0);
 
-			return E([ styleEl, titleEl, descEl, banner, conflictBanner, card, toolbar, empty, mapNode ]);
+			return E([ styleEl, titleEl, descEl, banner, conflictBanner, errorBanner, card, toolbar, empty, mapNode ]);
 		});
 	}
 });

@@ -1,375 +1,813 @@
 #!/bin/sh
+# ============================================================================
+#  socat-reforged forwarding engine
+#  (unreleased 2026-10 rewrite; will ship as V3 — PKG_VERSION stays at 2
+#   until the maintainer asks for a release)
+# ============================================================================
+#  Reconciles /etc/config/socat against the running socat workers.
+#
+#  What changed against V2
+#  -----------------------
+#  * IPv6 is discovered from the default route device (any WAN type).  The
+#    engine no longer refuses to work when there is no IPv6: IPv6 listeners
+#    are simply omitted and everything else runs normally.
+#  * Config is parsed with ONE `uci show` + ONE awk pass (see
+#    /usr/libexec/socat-reforged-gen.awk) into $RUNDIR/desired.  V2 forked
+#    ~200 times per 15s cycle just to find out that nothing had changed.
+#  * Workers we start carry SOCAT_REFORGED=1 in their environment and are
+#    matched by reading /proc/<pid>/environ (zero forks), so we only ever
+#    kill our own listeners, never somebody else's socat.
+#  * Per-listener stderr is captured in $RUNDIR/err/<kind>-<port>.log and
+#    published in $RUNDIR/state, so the UI can say WHY a rule is down.
+#  * The personal-environment behaviour of V2 left the default path: the
+#    2000::/3 route fix and the WireGuard DNAT watchdog are opt-in UCI
+#    switches (default off) and never flush conntrack.
+#  * Firewall sync rate-limits retries, aggregates consecutive ports into
+#    ranges, and self-heals if its rules were removed behind our back.
+#
+#  Runtime state (/var/run/socat-reforged, never /tmp):
+#     engine.lock/       singleton guard for this loop
+#     reconcile.lock/    serialises loop + on-demand reconcile
+#     desired            desired listeners: sid TAB kind TAB port TAB key TAB cmd
+#     desired.cache      last applied desired set
+#     state              per-listener state for the LuCI backend / CLI
+#     fw                 firewall ports: proto TAB port
+#     fw.sig             firewall sync signature (or a retry marker)
+#     pids/<kind>-<port> pid of the running listener
+#     err/<kind>-<port>.log  stderr of that listener
+#     gen.warn           validation warnings of the last generation
+#     ratelog/           rate-limit bookkeeping for log messages
+# ============================================================================
 LOG_TAG="socat-boot"
 
-KEEPALIVE="keepalive,keepidle=60,keepintvl=10,keepcnt=5"
-WDOG_DEV="/dev/watchdog"
-MEM_WARN=20
-MEM_CRIT=10
+RUNDIR=/var/run/socat-reforged
+DESF=$RUNDIR/desired
+CACHEF=$RUNDIR/desired.cache
+STATEF=$RUNDIR/state
+STATEC=$RUNDIR/state.cache
+FWF=$RUNDIR/fw
+FWSIG=$RUNDIR/fw.sig
+WARNF=$RUNDIR/gen.warn
+PIDDIR=$RUNDIR/pids
+ERRDIR=$RUNDIR/err
+RATELOG=$RUNDIR/ratelog
+HB=/var/run/socat-reforged.hb
+GPROG=/usr/libexec/socat-reforged-gen.awk
+CFG=/etc/config/socat
+
+TAB=$(printf '\t')
+MARKER="SOCAT_REFORGED=1"
+KA="keepalive,keepidle=60,keepintvl=10,keepcnt=5"
+WDOG_DEV=/dev/watchdog
+
+INTERVAL=15          # loop period, seconds
+FULL_EVERY=8         # cycles between unconditional full passes (~2 min)
+MEM_EVERY=4          # cycles between memory checks (~1 min)
+FW_EVERY=8           # cycles between firewall rule-existence checks
+V6_EVERY=8           # cycles between IPv6 address refresh (~2 min)
+MEM_WARN=20          # warn below this % of MemTotal
+MEM_CRIT=10          # restart socat below this % of MemTotal
+MEM_FLOOR_KB=4096    # ... or below this absolute amount, whichever comes first
+FW_RETRY=300         # seconds to wait before retrying a failed fw4 reload
+
+CYCLE=0
+MEM_FAILS=0
+MEM_LAST_ACTION=-99
+IPV6=""
+V6DEV=""
+SCAN=""               # "pid<TAB>argv-key<TAB>marked" per line, children included
+LISTENERS=""         # listeners only
+RUN=""               # "pid key pid key ..." (keys never contain spaces)
+RUN_KEYS=""
+DES_KEYS=""
+WORKER_COUNT=0
+LIST_COUNT=0
+
+SOCAT_BIN=/usr/bin/socat
+[ -x "$SOCAT_BIN" ] || SOCAT_BIN=$(command -v socat 2>/dev/null || echo /usr/bin/socat)
+AWK_BIN=awk
+
+# ---------------------------------------------------------------- logging ---
 
 log() {
-    logger -t "$LOG_TAG" "$1"
+	logger -t "$LOG_TAG" "$1"
 }
 
-# Keep a dedicated WAN-accept rule in sync with rules that ask for it
-# (firewall_accept=1). Only our own named rules are ever touched; the
-# change is written to UCI (persists across fw4 reloads / reboot) and
-# validated before reload. No-op on hosts without fw4.
-sync_firewall() {
-    [ -x /sbin/fw4 ] || return 0
-    local TCP="" UDP="" sec en fa proto port p
-
-    for sec in $(uci show socat 2>/dev/null | grep "=config$" | cut -d. -f2 | cut -d= -f1); do
-        en=$(uci -q get socat.$sec.enable)
-        [ "$en" = "1" ] || continue
-        fa=$(uci -q get socat.$sec.firewall_accept)
-        [ "$fa" = "1" ] || continue
-        proto=$(uci -q get socat.$sec.proto)
-        port=$(uci -q get socat.$sec.listen_port)
-        case "$port" in ''|*[!0-9]*) continue;; esac
-        case "$proto" in
-            tcp) TCP="$TCP $port";;
-            udp) UDP="$UDP $port";;
-        esac
-    done
-    TCP=$(echo $TCP | tr ' ' '\n' | grep -v '^$' | sort -n -u | tr '\n' ' ')
-    UDP=$(echo $UDP | tr ' ' '\n' | grep -v '^$' | sort -n -u | tr '\n' ' ')
-
-    local NEW_SIG="tcp:$TCP udp:$UDP"
-    local SIGFILE=/var/run/socat-reforged.fw.sig
-    [ "$NEW_SIG" = "$(cat $SIGFILE 2>/dev/null)" ] && return 0
-
-    # nothing to manage and nothing of ours exists -> nothing to do
-    if [ -z "$TCP$UDP" ] && ! uci -q get firewall.socat_reforged_tcp >/dev/null 2>&1 \
-                          && ! uci -q get firewall.socat_reforged_udp >/dev/null 2>&1; then
-        echo "$NEW_SIG" > "$SIGFILE"
-        return 0
-    fi
-
-    uci -q delete firewall.socat_reforged_tcp
-    uci -q delete firewall.socat_reforged_udp
-    if [ -n "$TCP" ]; then
-        uci set firewall.socat_reforged_tcp=rule
-        uci set firewall.socat_reforged_tcp.name='socat-reforged (tcp)'
-        uci set firewall.socat_reforged_tcp.src='wan'
-        uci set firewall.socat_reforged_tcp.proto='tcp'
-        uci set firewall.socat_reforged_tcp.target='ACCEPT'
-        for p in $TCP; do uci add_list firewall.socat_reforged_tcp.dest_port="$p"; done
-    fi
-    if [ -n "$UDP" ]; then
-        uci set firewall.socat_reforged_udp=rule
-        uci set firewall.socat_reforged_udp.name='socat-reforged (udp)'
-        uci set firewall.socat_reforged_udp.src='wan'
-        uci set firewall.socat_reforged_udp.proto='udp'
-        uci set firewall.socat_reforged_udp.target='ACCEPT'
-        for p in $UDP; do uci add_list firewall.socat_reforged_udp.dest_port="$p"; done
-    fi
-    uci commit firewall
-
-    if /sbin/fw4 check >/dev/null 2>&1; then
-        /etc/init.d/firewall reload >/dev/null 2>&1
-        echo "$NEW_SIG" > "$SIGFILE"
-        log "firewall synced: tcp[$TCP] udp[$UDP]"
-    else
-        log "WARN: fw4 check failed, removing socat-reforged rules"
-        uci -q delete firewall.socat_reforged_tcp
-        uci -q delete firewall.socat_reforged_udp
-        uci commit firewall
-    fi
+# zero-fork "seconds since boot"
+uptime_s() {
+	local up rest
+	up=""
+	rest=""
+	read -r up rest < /proc/uptime 2>/dev/null
+	[ -n "$up" ] || { echo 0; return; }
+	echo "${up%%.*}"
 }
 
-# Echo the socat command line(s) a rule wants (one per line). reconcile()
-# diffs these against the running processes so only changed rules restart.
-emit_section() {
-    local sec="$1" IPV6="$2"
-    local enable proto family listen_port dest_proto dest_ip dest_port proxy proxy_server proxy_port reuseaddr DIAL RA
-    enable=$(uci -q get socat.$sec.enable)
-    [ "$enable" = "1" ] || return 0
-    proto=$(uci -q get socat.$sec.proto)
-    family=$(uci -q get socat.$sec.family)
-    listen_port=$(uci -q get socat.$sec.listen_port)
-    dest_proto=$(uci -q get socat.$sec.dest_proto)
-    dest_ip=$(uci -q get socat.$sec.dest_ip)
-    dest_port=$(uci -q get socat.$sec.dest_port)
-    proxy=$(uci -q get socat.$sec.proxy)
-    proxy_server=$(uci -q get socat.$sec.proxy_server)
-    proxy_port=$(uci -q get socat.$sec.proxy_port)
-    reuseaddr=$(uci -q get socat.$sec.reuseaddr)
-    [ -z "$reuseaddr" ] && reuseaddr=1
-    case "$proto" in tcp|udp) ;; *) log "WARN: [$sec] bad proto, skip"; return 0;; esac
-    case "$listen_port" in ''|*[!0-9]*) log "WARN: [$sec] bad listen_port, skip"; return 0;; esac
-    case "$dest_port" in ''|*[!0-9]*) log "WARN: [$sec] bad dest_port, skip"; return 0;; esac
-    [ -n "$dest_ip" ] || { log "WARN: [$sec] empty dest_ip, skip"; return 0; }
-    if [ -n "$proxy" ] && [ "$proxy" != "none" ]; then
-        # reach the target through a SOCKS4a / HTTP CONNECT proxy (TCP only)
-        case "$dest_proto" in
-            tcp4) ;;
-            *) log "WARN: [$sec] proxy only valid with tcp4 target, skip"; return 0 ;;
-        esac
-        [ -n "$proxy_server" ] || proxy_server=127.0.0.1
-        [ -n "$proxy_port" ] || proxy_port=1080
-        case "$proxy" in
-            socks4|socks4a) DIAL="SOCKS4A:$proxy_server:$dest_ip:$dest_port,socksport=$proxy_port" ;;
-            http|proxy)     DIAL="PROXY:$proxy_server:$dest_ip:$dest_port,proxyport=$proxy_port" ;;
-            *) log "WARN: [$sec] unknown proxy '$proxy', skip"; return 0 ;;
-        esac
-    else
-        case "$dest_proto" in
-            tcp4) DIAL="TCP4:$dest_ip:$dest_port" ;;
-            udp4) DIAL="UDP4:$dest_ip:$dest_port" ;;
-            tcp6) DIAL="TCP6:[$dest_ip]:$dest_port" ;;
-            udp6) DIAL="UDP6:[$dest_ip]:$dest_port" ;;
-            *) log "WARN: [$sec] bad dest_proto, skip"; return 0 ;;
-        esac
-    fi
-    RA=""
-    [ "$reuseaddr" = "1" ] && RA=",reuseaddr"
-    if [ "$proto" = "tcp" ]; then
-        [ "$family" != "6" ] && echo "/usr/bin/socat TCP-LISTEN:$listen_port,fork$RA,$KEEPALIVE $DIAL,$KEEPALIVE"
-        if [ "$family" != "4" ] && [ -n "$IPV6" ]; then
-            echo "/usr/bin/socat TCP6-LISTEN:$listen_port,fork$RA,bind=$IPV6,ip-freebind=1,$KEEPALIVE $DIAL,$KEEPALIVE"
-        fi
-    else
-        echo "/usr/bin/socat UDP-LISTEN:$listen_port,fork $DIAL"
-    fi
+is_uint() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; return 0; }
+
+# log_rate <key> <min_interval_s> <message...>
+log_rate() {
+	local key="$1" iv="$2"; shift 2
+	local f="$RATELOG/$key" last now
+	[ -n "$iv" ] || iv=300
+	now=$(uptime_s)
+	last=0
+	[ -f "$f" ] && read -r last < "$f" 2>/dev/null
+	is_uint "$last" || last=0
+	if [ $((now - last)) -lt "$iv" ]; then
+		return 1
+	fi
+	echo "$now" > "$f" 2>/dev/null
+	log "$*"
 }
 
-# Diff the desired socat command lines against the running workers and
-# only start/stop what actually changed. Serialized via a mkdir lock so the
-# loop and an on-demand (config-change) run can't race.
+# --------------------------------------------------------------- run state ---
+
+mkrun() {
+	mkdir -p "$RUNDIR" "$PIDDIR" "$ERRDIR" "$RATELOG" 2>/dev/null
+}
+
+# engine's own settings live in the (internal) socat.reforged section
+opt() { # opt <name> [default]
+	local v
+	v=$(uci -q get "socat.reforged.$1" 2>/dev/null)
+	if [ -n "$v" ]; then echo "$v"; else echo "${2:-}"; fi
+}
+
+debug_on() { [ "$(opt debug 0)" = "1" ]; }
+
+# ------------------------------------------------- file helpers --------------
+
+same_file() { # same_file <a> <b> - true when both exist with identical content
+	[ -f "$1" ] && [ -f "$2" ] && cmp -s "$1" "$2"
+}
+
+copy_file() { cp -f "$1" "$2" 2>/dev/null; }
+line_count() { local n=0; [ -f "$1" ] && n=$(wc -l < "$1"); echo "$n"; }
+
+# ------------------------------------------------- desired state generation ---
+# 2 forks (`uci show` + awk) and no more.  $RUNDIR/fw gets the WAN ports.
+gen_desired() {
+	if [ ! -f "$GPROG" ]; then
+		log_rate "nogen" 3600 "ERROR: generator $GPROG is missing"
+		return 1
+	fi
+	: > "$WARNF"
+	: > "$DESF"
+	uci show socat 2>/dev/null | "$AWK_BIN" -v ipv6="$IPV6" -v socat="$SOCAT_BIN" \
+		-v desf="$DESF" -v warnf="$WARNF" -v fwf="$FWF" -f "$GPROG"
+	return 0
+}
+
+# Rate-limited per section, so one broken rule cannot spam the log.
+flush_warnings() {
+	local sec msg key
+	[ -s "$WARNF" ] || return 0
+	while IFS="$TAB" read -r sec msg; do
+		[ -n "$sec" ] || continue
+		key="gen-$(printf '%s' "$sec" | tr -c 'A-Za-z0-9_' '_')"
+		log_rate "$key" 900 "WARN [$sec] $msg"
+	done < "$WARNF"
+	: > "$WARNF"
+}
+
+# ---------------------------------------------------------- worker discovery ---
+# Fill $SCAN ("pid<TAB>argv-key<TAB>marked" per line) for every socat worker.  /proc/<pid>/environ is NUL separated and busybox ash `read`
+# concatenates those fields, so the marker test costs no fork.
+scan_workers() {
+	local p env cmd m
+	SCAN=""
+	WORKER_COUNT=0
+	for p in $(pgrep socat 2>/dev/null); do
+		[ -r "/proc/$p/environ" ] || continue
+		# /proc files have no trailing newline, so `read` exits non-zero while
+		# still filling the variable: test the value, never the exit status.
+		env=""
+		cmd=""
+		read -r env < "/proc/$p/environ" 2>/dev/null
+		[ -n "$env" ] || continue
+		m=0
+		case "$env" in *"$MARKER"*) m=1 ;; esac
+		read -r cmd < "/proc/$p/cmdline" 2>/dev/null
+		[ -n "$cmd" ] || continue
+		case "$cmd" in
+			*TCP-LISTEN*|*UDP-LISTEN*|*TCP6-LISTEN*|*UDP6-LISTEN*) ;;
+			*) continue ;;
+		esac
+		SCAN="$SCAN$p$TAB$cmd$TAB$m
+"
+		WORKER_COUNT=$((WORKER_COUNT + 1))
+	done
+}
+
+# A forked per-connection child shares the listener's argv; a listener is a
+# worker whose parent is not itself one of our workers.
+# Sets $LISTENERS ("pid<TAB>key<TAB>marked" lines), $RUN ("pid key m ..."),
+# $RUN_KEYS (" key key ...") and $LIST_COUNT.
+# Unmarked workers are only observed, never adopted: the reconcile replaces them
+# with a marked one (so Stop/Restart can always clean up after ourselves) but
+# never touches socat processes that are not doing one of our jobs.
+listener_pids() {
+	local pid key m st rest ppid q keep
+	RUN=""
+	RUN_KEYS=""
+	LISTENERS=""
+	LIST_COUNT=0
+	ALLPIDS=""
+	while IFS="$TAB" read -r pid key m; do
+		[ -n "$pid" ] || continue
+		ALLPIDS="$ALLPIDS $pid"
+	done <<EOF
+$SCAN
+EOF
+	while IFS="$TAB" read -r pid key m; do
+		[ -n "$pid" ] || continue
+		keep=1
+		st=""
+		read -r st < "/proc/$pid/stat" 2>/dev/null
+		[ -n "$st" ] || continue
+		rest=${st##*) }
+		set -- $rest
+		ppid=$2
+		for q in $ALLPIDS; do
+			[ "$q" = "$ppid" ] && { keep=0; break; }
+		done
+		[ "$keep" = "1" ] || continue
+		LISTENERS="$LISTENERS$pid$TAB$key$TAB$m
+"
+		RUN="$RUN$pid $key $m "
+		RUN_KEYS="$RUN_KEYS $key"
+		LIST_COUNT=$((LIST_COUNT + 1))
+	done <<EOF
+$SCAN
+EOF
+}
+
+# Is this argv key currently running as one of our marked listeners?
+# Sets $RUN_PID (empty when not running); no subshell, so no fork.
+find_pid() { # find_pid <key>
+	local want="$1" p k m
+	RUN_PID=""
+	set -- $RUN
+	while [ $# -ge 3 ]; do
+		if [ "$3" = "1" ] && [ "$2" = "$want" ]; then
+			RUN_PID="$1"
+			return 0
+		fi
+		shift 3
+	done
+	return 1
+}
+
+desired_keys() { # $DESF -> $DES_KEYS (" key key ... " -- note the trailing space)
+	local sid kind port key cmd
+	DES_KEYS=""
+	while IFS="$TAB" read -r sid kind port key cmd; do
+		[ -n "$key" ] || continue
+		DES_KEYS="$DES_KEYS$key "
+	done < "$DESF"
+	DES_KEYS=" $DES_KEYS"
+}
+
+kill_workers() { # stop every worker of ours (TERM, then KILL)
+	local p
+	scan_workers
+	for p in $(printf '%s\n' "$SCAN" | cut -f1,3 | awk -F'\t' '$2==1{print $1}'); do
+		kill "$p" 2>/dev/null
+	done
+	sleep 1
+	scan_workers
+	for p in $(printf '%s\n' "$SCAN" | cut -f1,3 | awk -F'\t' '$2==1{print $1}'); do
+		kill -9 "$p" 2>/dev/null
+	done
+}
+
+# ------------------------------------------------------------- reconcile ----
+
 reconcile() {
-    local lockdir=/var/run/socat-reforged.lock i=0 lp
-    while ! mkdir "$lockdir" 2>/dev/null; do
-        i=$((i + 1))
-        lp=$(cat "$lockdir/pid" 2>/dev/null)
-        if [ -n "$lp" ] && ! kill -0 "$lp" 2>/dev/null; then
-            log "reconcile: clearing stale lock (pid $lp gone)"
-            rm -rf "$lockdir"
-            continue
-        fi
-        if [ -z "$lp" ] && [ "$i" -ge 3 ]; then
-            log "reconcile: clearing lock without pid"
-            rm -rf "$lockdir"
-            continue
-        fi
-        [ "$i" -ge 20 ] && { log "reconcile busy, skip"; return 0; }
-        sleep 1
-    done
-    echo $$ > "$lockdir/pid"
-    trap 'rm -rf "$lockdir"; rm -f /tmp/socat-desired /tmp/socat-running /tmp/socat-desired-u /tmp/socat-running-u' EXIT INT TERM
+	local lockdir="$RUNDIR/reconcile.lock" i=0 lp
+	mkrun
+	while ! mkdir "$lockdir" 2>/dev/null; do
+		i=$((i + 1))
+		lp=""
+		[ -f "$lockdir/pid" ] && read -r lp < "$lockdir/pid" 2>/dev/null
+		if [ -n "$lp" ] && ! kill -0 "$lp" 2>/dev/null; then
+			log "reconcile: clearing stale lock (pid $lp gone)"
+			rm -rf "$lockdir"
+			continue
+		fi
+		if [ -z "$lp" ] && [ "$i" -ge 3 ]; then
+			rm -rf "$lockdir"
+			continue
+		fi
+		[ "$i" -ge 20 ] && { log "reconcile busy, skip"; return 0; }
+		sleep 1
+	done
+	echo $$ > "$lockdir/pid"
 
-    local IPV6 sec p c
-    local DES=/tmp/socat-desired RUN=/tmp/socat-running DESU=/tmp/socat-desired-u RUNU=/tmp/socat-running-u
-    IPV6=$(get_ipv6)
+	reconcile_pass
 
-    : > "$DES"
-    for sec in $(uci show socat 2>/dev/null | grep "=config$" | cut -d. -f2 | cut -d= -f1); do
-        emit_section "$sec" "$IPV6" >> "$DES"
-    done
-
-    : > "$RUN"
-    for p in $(/usr/bin/pgrep socat 2>/dev/null); do
-        c=$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | sed 's/[[:space:]]*$//')
-        case "$c" in
-            *LISTEN:*) echo "$c" >> "$RUN" ;;   # only touch our own listeners
-        esac
-    done
-
-    sort -u "$DES" > "$DESU" 2>/dev/null
-    sort -u "$RUN" > "$RUNU" 2>/dev/null
-
-    local killed=0 spawned=0
-    while IFS= read -r c; do
-        [ -n "$c" ] || continue
-        grep -Fxq "$c" "$DESU" && continue
-        for p in $(/usr/bin/pgrep socat 2>/dev/null); do
-            [ "$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | sed 's/[[:space:]]*$//')" = "$c" ] && kill "$p" 2>/dev/null
-        done
-        killed=$((killed + 1))
-    done < "$RUNU"
-
-    # give killed listeners a moment to release their ports before rebinding
-    [ "$killed" -gt 0 ] && sleep 1
-
-    while IFS= read -r c; do
-        [ -n "$c" ] || continue
-        grep -Fxq "$c" "$RUNU" && continue
-        $c >/dev/null 2>&1 &
-        spawned=$((spawned + 1))
-    done < "$DESU"
-
-    rm -f "$DES" "$RUN" "$DESU" "$RUNU"
-    rm -rf "$lockdir"
-    trap - EXIT INT TERM
-
-    if [ "$killed" -gt 0 ] || [ "$spawned" -gt 0 ]; then
-        log "reconcile: started=$spawned stopped=$killed (ipv6=$IPV6)"
-    fi
-    return 0
+	rm -rf "$lockdir"
+	return 0
 }
 
+# Cheap liveness test: every registered listener must still be alive.
+all_listeners_alive() {
+	local sid kind port key cmd p
+	while IFS="$TAB" read -r sid kind port key cmd; do
+		[ -n "$sid" ] || continue
+		p=""
+		[ -f "$PIDDIR/$kind-$port" ] && read -r p < "$PIDDIR/$kind-$port" 2>/dev/null
+		if [ -z "$p" ] || ! kill -0 "$p" 2>/dev/null; then
+			return 1
+		fi
+	done < "$DESF"
+	return 0
+}
+
+reconcile_pass() {
+	local line sid kind port key cmd pid errf e
+	local spawned=0 killed=0 remarked=0 kill_it up alive
+
+	[ -f "$CFG" ] || { log_rate "nocfg" 3600 "WARN: $CFG missing, nothing to reconcile"; return 0; }
+	[ -x "$SOCAT_BIN" ] || { log_rate "nosocat" 3600 "WARN: $SOCAT_BIN missing, cannot start forwards"; return 0; }
+
+	gen_desired || return 0
+	flush_warnings
+	desired_keys
+
+	# ---- fast path: nothing changed and everything is still running -------
+	if same_file "$DESF" "$CACHEF" && [ $((CYCLE % FULL_EVERY)) -ne 0 ] && all_listeners_alive; then
+		copy_file "$STATEC" "$STATEF"
+		return 0
+	fi
+
+	# ---- full pass --------------------------------------------------------
+	scan_workers
+	listener_pids
+
+	# Stop listeners that are no longer wanted (only ever our own), plus the
+	# unmarked leftovers of an older engine version, which we then replace
+	# with a properly marked worker.
+	remarked=0
+	while IFS="$TAB" read -r pid key m; do
+		[ -n "$pid" ] || continue
+		kill_it=0
+		case "$DES_KEYS" in
+			*" $key "*)
+				# wanted: keep ours, replace an unmarked legacy copy
+				if [ "$m" != "1" ]; then
+					kill_it=1
+					remarked=$((remarked + 1))
+				fi
+				;;
+			*)
+				# not wanted any more: only ever stop our own
+				[ "$m" = "1" ] && kill_it=1
+				;;
+		esac
+		if [ "$kill_it" = "1" ]; then
+			kill "$pid" 2>/dev/null
+			killed=$((killed + 1))
+		fi
+	done <<EOF
+$LISTENERS
+EOF
+	[ "$killed" -gt 0 ] && sleep 1
+	[ "$remarked" -gt 0 ] && log "reconcile: replaced $remarked unmarked legacy listener(s)"
+
+	# start what is missing
+	while IFS="$TAB" read -r sid kind port key cmd; do
+		[ -n "$sid" ] || continue
+		find_pid "$key"
+		[ -n "$RUN_PID" ] && continue
+		errf="$ERRDIR/$kind-$port.log"
+		: > "$errf" 2>/dev/null
+		# the assignment must be literal: $MARKER would expand to a command
+		SOCAT_REFORGED=1 $cmd >/dev/null 2>"$errf" &
+		echo $! > "$PIDDIR/$kind-$port"
+		spawned=$((spawned + 1))
+	done < "$DESF"
+
+	copy_file "$DESF" "$CACHEF"
+	publish_state
+
+	if [ "$killed" -gt 0 ] || [ "$spawned" -gt 0 ]; then
+		log "reconcile: started=$spawned stopped=$killed listeners=$(line_count "$DESF") (ipv6=${IPV6:-none})"
+	fi
+	return 0
+}
+
+# Per-listener state for the backend / CLI.
+#   line 1 : engine <loop_pid> <uptime> <listeners>
+#   rest   : <sid> <kind> <port> <pid|-> <error|->
+publish_state() {
+	local sid kind port key cmd pid e up lp
+	scan_workers
+	listener_pids
+	up=$(uptime_s)
+	# report the real engine loop, not the one-shot process that may be running us
+	lp=$(pgrep -f '/etc/socat-boot.sh$' 2>/dev/null | head -1)
+	[ -n "$lp" ] || lp=$$
+	{
+		echo "engine $lp $up $LIST_COUNT"
+		while IFS="$TAB" read -r sid kind port key cmd; do
+			[ -n "$sid" ] || continue
+			find_pid "$key"
+			pid=$RUN_PID
+			[ -n "$pid" ] || pid="-"
+			e="-"
+			[ -s "$ERRDIR/$kind-$port.log" ] && read -r e < "$ERRDIR/$kind-$port.log" 2>/dev/null
+			[ -n "$e" ] || e="-"
+			echo "$sid $kind $port $pid $e"
+		done < "$DESF"
+	} > "$STATEF"
+	copy_file "$STATEF" "$STATEC"
+}
+
+# --------------------------------------------------------------- firewall ---
+
+# Consecutive ports (3+) are merged into ranges to keep the fw4 rule short.
+agg_ports() { # stdin: ports -> stdout: space separated, ranges where useful
+	local start="" prev="" p out=""
+	while read -r p; do
+		[ -n "$p" ] || continue
+		if [ -z "$start" ]; then start=$p; prev=$p; continue; fi
+		if [ $((p - prev)) -eq 1 ]; then prev=$p; continue; fi
+		out="$out $(port_range "$start" "$prev")"
+		start=$p; prev=$p
+	done
+	[ -n "$start" ] && out="$out $(port_range "$start" "$prev")"
+	echo "${out# }"
+}
+
+port_range() { # port_range <first> <last>
+	if [ "$1" = "$2" ]; then echo "$1"
+	elif [ $(( $2 - $1 )) -eq 1 ]; then echo "$1 $2"
+	else echo "$1-$2"; fi
+}
+
+fw_ports() { # $FWF -> $FW_TCP / $FW_UDP (raw, unsorted; zero forks)
+	local proto port
+	FW_TCP=""
+	FW_UDP=""
+	[ -f "$FWF" ] || return 0
+	while IFS="$TAB" read -r proto port; do
+		[ -n "$port" ] || continue
+		case "$proto" in
+			tcp) FW_TCP="$FW_TCP $port" ;;
+			udp) FW_UDP="$FW_UDP $port" ;;
+		esac
+	done < "$FWF"
+}
+
+sync_firewall() {
+	[ -x /sbin/fw4 ] || return 0
+	local TCP UDP sig raw_sig stored now p
+	fw_ports
+	raw_sig="tcp:$FW_TCP udp:$FW_UDP"
+	stored=""
+	[ -f "$FWSIG" ] && read -r stored < "$FWSIG" 2>/dev/null
+	now=$(uptime_s)
+
+	# happy path: already applied (and our rules still exist)
+	if [ "$stored" = "ok $raw_sig" ]; then
+		if [ $((CYCLE % FW_EVERY)) -ne 0 ]; then
+			return 0
+		fi
+		if uci -q get firewall.socat_reforged_tcp >/dev/null 2>&1 \
+		   || uci -q get firewall.socat_reforged_udp >/dev/null 2>&1; then
+			return 0
+		fi
+		log "firewall: our accept rules are gone, re-creating them"
+	fi
+
+	# backoff after a failed reload (do not fight a broken firewall forever)
+	if [ "$stored" != "${stored#fail }" ]; then
+		p=${stored##* }
+		if is_uint "$p" && [ $((now - p)) -lt "$FW_RETRY" ]; then
+			return 0
+		fi
+	fi
+
+	TCP=$(printf '%s\n' $FW_TCP | sort -n -u | agg_ports)
+	UDP=$(printf '%s\n' $FW_UDP | sort -n -u | agg_ports)
+	sig="tcp:$TCP udp:$UDP"
+
+	uci -q delete firewall.socat_reforged_tcp
+	uci -q delete firewall.socat_reforged_udp
+	if [ -n "$TCP" ]; then
+		uci set firewall.socat_reforged_tcp=rule
+		uci set firewall.socat_reforged_tcp.name='socat-reforged (tcp)'
+		uci set firewall.socat_reforged_tcp.src='wan'
+		uci set firewall.socat_reforged_tcp.proto='tcp'
+		uci set firewall.socat_reforged_tcp.target='ACCEPT'
+		for p in $TCP; do uci add_list firewall.socat_reforged_tcp.dest_port="$p"; done
+	fi
+	if [ -n "$UDP" ]; then
+		uci set firewall.socat_reforged_udp=rule
+		uci set firewall.socat_reforged_udp.name='socat-reforged (udp)'
+		uci set firewall.socat_reforged_udp.src='wan'
+		uci set firewall.socat_reforged_udp.proto='udp'
+		uci set firewall.socat_reforged_udp.target='ACCEPT'
+		for p in $UDP; do uci add_list firewall.socat_reforged_udp.dest_port="$p"; done
+	fi
+	uci commit firewall
+
+	if /sbin/fw4 check >/dev/null 2>&1; then
+		/etc/init.d/firewall reload >/dev/null 2>&1
+		echo "ok $raw_sig" > "$FWSIG"
+		log "firewall synced: tcp[$TCP] udp[$UDP]"
+	else
+		uci -q delete firewall.socat_reforged_tcp
+		uci -q delete firewall.socat_reforged_udp
+		uci commit firewall
+		echo "fail $raw_sig $now" > "$FWSIG"
+		log "WARN: fw4 check failed, removed socat-reforged rules (retry in $((FW_RETRY / 60)) min)"
+	fi
+}
+
+# ------------------------------------------------------------------ IPv6 ----
+
+get_v6dev() {
+	local line
+	V6DEV=""
+	line=$(ip -6 route show default 2>/dev/null | head -1)
+	[ -n "$line" ] || return 0
+	set -- $line
+	while [ $# -ge 2 ]; do
+		if [ "$1" = "dev" ]; then V6DEV="$2"; return 0; fi
+		shift
+	done
+}
+
+# Preferred: the global address of the device holding the default v6 route.
+# Fallback: the first global, non-link-local, non-ULA address anywhere.
 get_ipv6() {
-    ip -6 addr show pppoe-wan 2>/dev/null | grep 'scope global' | awk '{print $2}' | cut -d'/' -f1 | head -1
+	local out line addr
+	[ -n "$V6DEV" ] || get_v6dev
+	IPV6=""
+	if [ -n "$V6DEV" ]; then
+		out=$(ip -o -6 addr show dev "$V6DEV" 2>/dev/null)
+		while read -r line; do
+			case "$line" in *" scope global "*) ;; *) continue ;; esac
+			set -- $line
+			addr=${4%%/*}
+			case "$addr" in fd*|fc*|fe80*|"") continue ;; esac
+			IPV6="$addr"
+			return 0
+		done <<EOF
+$out
+EOF
+	fi
+	out=$(ip -o -6 addr show 2>/dev/null)
+	while read -r line; do
+		case "$line" in *" scope global "*) ;; *) continue ;; esac
+		set -- $line
+		addr=${4%%/*}
+		case "$addr" in fd*|fc*|fe80*|"") continue ;; esac
+		IPV6="$addr"
+		return 0
+	done <<EOF
+$out
+EOF
+	return 0
 }
 
+# Opt-in (socat.reforged.fix_v6_route=1): keep a 2000::/3 route pointing at the
+# current default gateway.  Off by default: it is an ISP-specific workaround.
 fix_ipv6_route() {
-    local GW CUR_GW
-    if ! ip -6 route show 2000::/3 2>/dev/null | grep -q '2000::/3'; then
-        GW=$(ip -6 route show default 2>/dev/null | head -1 | awk '{for(i=1;i<=NF;i++) if($i=="via") print $(i+1)}')
-        if [ -n "$GW" ]; then
-            ip -6 route add 2000::/3 via $GW dev pppoe-wan metric 1024 2>/dev/null
-            log "Restored 2000::/3 route via $GW"
-        fi
-        return
-    fi
-    CUR_GW=$(ip -6 route show 2000::/3 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="via") print $(i+1)}')
-    GW=$(ip -6 route show default 2>/dev/null | head -1 | awk '{for(i=1;i<=NF;i++) if($i=="via") print $(i+1)}')
-    if [ -n "$GW" ] && [ -n "$CUR_GW" ] && [ "$GW" != "$CUR_GW" ]; then
-        ip -6 route del 2000::/3 2>/dev/null
-        ip -6 route add 2000::/3 via $GW dev pppoe-wan metric 1024 2>/dev/null
-        log "2000::/3 route updated: $CUR_GW -> $GW"
-    fi
+	[ "$(opt fix_v6_route 0)" = "1" ] || return 0
+	local line gw dev
+	line=$(ip -6 route show default 2>/dev/null | head -1)
+	[ -n "$line" ] || return 0
+	set -- $line
+	gw=""
+	dev=""
+	while [ $# -ge 2 ]; do
+		case "$1" in
+			via) gw="$2" ;;
+			dev) dev="$2" ;;
+		esac
+		shift
+	done
+	[ -n "$gw" ] && [ -n "$dev" ] || return 0
+	if ip -6 route show 2000::/3 2>/dev/null | grep -q "via $gw dev $dev"; then
+		return 0
+	fi
+	if ip -6 route replace 2000::/3 via "$gw" dev "$dev" metric 1024 2>/dev/null; then
+		log_rate "v6route" 3600 "2000::/3 route updated -> via $gw dev $dev"
+	fi
 }
 
+# Opt-in (socat.reforged.wg_dnat_guard=1): if the user really configured a
+# 51820 DNAT rule, make sure it is present.  Never touches conntrack.
 check_wg_dnat() {
-    if ! nft list chain inet fw4 dstnat_wan 2>/dev/null | grep -q '51820.*dnat'; then
-        log "WG 51820 DNAT rule missing, reloading fw4"
-        /sbin/fw4 reload 2>/dev/null
-        echo f > /proc/net/nf_conntrack 2>/dev/null
-        log "Conntrack flushed after fw4 reload"
-    fi
+	[ "$(opt wg_dnat_guard 0)" = "1" ] || return 0
+	local line want=0 fwin
+	fwin=$(uci show firewall 2>/dev/null)
+	while IFS= read -r line; do
+		case "$line" in *dest_port*51820*) want=1; break ;; esac
+	done <<EOF
+$fwin
+EOF
+	[ "$want" = "1" ] || return 0
+	if nft list chain inet fw4 dstnat_wan 2>/dev/null | grep -q '51820.*dnat'; then
+		return 0
+	fi
+	log_rate "wgdnat" 900 "WARN: configured WG 51820 DNAT rule is missing from nftables"
+	if [ $((CYCLE % (FW_EVERY * 4))) -eq 0 ]; then
+		/sbin/fw4 reload 2>/dev/null
+		log "reloaded fw4 to restore the WG DNAT rule"
+	fi
 }
 
-check_mem() {
-    local AVAILABLE TOTAL
-    TOTAL=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
-    AVAILABLE=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
-    if [ -z "$TOTAL" ] || [ "$TOTAL" -eq 0 ]; then
-        echo ""
-        return
-    fi
-    if [ -z "$AVAILABLE" ]; then
-        AVAILABLE=$(awk '/^MemFree:/{print $2}' /proc/meminfo)
-    fi
-    echo $((AVAILABLE * 100 / TOTAL))
+# ------------------------------------------------------------ memory health ---
+
+read_mem() { # -> $MEM_TOTAL_KB / $MEM_AVAIL_KB / $MEM_FREE_KB
+	local k v
+	MEM_TOTAL_KB=0
+	MEM_AVAIL_KB=0
+	MEM_FREE_KB=0
+	while read -r k v _; do
+		case "$k" in
+			MemTotal:) MEM_TOTAL_KB=$v ;;
+			MemAvailable:) MEM_AVAIL_KB=$v; break ;;
+			MemFree:) MEM_FREE_KB=$v ;;
+		esac
+	done < /proc/meminfo
+	is_uint "$MEM_TOTAL_KB" || MEM_TOTAL_KB=0
+	is_uint "$MEM_AVAIL_KB" || MEM_AVAIL_KB=0
+	is_uint "$MEM_FREE_KB" || MEM_FREE_KB=0
+	[ "$MEM_AVAIL_KB" -gt 0 ] || MEM_AVAIL_KB=$MEM_FREE_KB
+}
+
+mem_pct() {
+	read_mem
+	[ "$MEM_TOTAL_KB" -gt 0 ] || { echo ""; return; }
+	echo $((MEM_AVAIL_KB * 100 / MEM_TOTAL_KB))
 }
 
 check_health() {
-    local MEM_PCT
-    MEM_PCT=$(check_mem)
+	local pct
+	pct=$(mem_pct)
+	[ -n "$pct" ] || return 0
 
-    if [ -n "$MEM_PCT" ] && [ "$MEM_PCT" -lt "$MEM_CRIT" ]; then
-        log "CRIT: Free memory ${MEM_PCT}% < ${MEM_CRIT}%, restarting socat"
-        killall -TERM socat 2>/dev/null
-        sleep 1
-        killall -KILL socat 2>/dev/null
-        reconcile
-        return
-    fi
+	if [ "$MEM_AVAIL_KB" -lt "$MEM_FLOOR_KB" ] || [ "$pct" -lt "$MEM_CRIT" ]; then
+		MEM_FAILS=$((MEM_FAILS + 1))
+		# two consecutive hits, and never more than once every 20 cycles
+		if [ "$MEM_FAILS" -ge 2 ] && [ $((CYCLE - MEM_LAST_ACTION)) -ge 20 ]; then
+			MEM_LAST_ACTION=$CYCLE
+			MEM_FAILS=0
+			log "CRIT: free memory ${pct}% (${MEM_AVAIL_KB}kB), restarting socat workers"
+			kill_workers
+			reconcile
+		fi
+		return 0
+	fi
+	MEM_FAILS=0
 
-    if [ -n "$MEM_PCT" ] && [ "$MEM_PCT" -lt "$MEM_WARN" ]; then
-        log "WARN: Free memory ${MEM_PCT}% < ${MEM_WARN}%"
-    fi
+	if [ "$pct" -lt "$MEM_WARN" ]; then
+		log_rate "memwarn" 3600 "WARN: free memory ${pct}% (${MEM_AVAIL_KB}kB)"
+	fi
 }
 
 pet_watchdog() {
-    if [ -c "$WDOG_DEV" ]; then
-        echo w > "$WDOG_DEV" 2>/dev/null || true
-    fi
+	[ -c "$WDOG_DEV" ] && echo w > "$WDOG_DEV" 2>/dev/null
+	return 0
 }
 
-# Publish a tiny heartbeat (uptime seconds + socat worker count) so the LuCI
-# backend can report engine health without spawning processes on every poll.
+# engine + worker heartbeat for the LuCI backend (zero forks)
 heartbeat() {
-    echo "$(cut -d. -f1 /proc/uptime 2>/dev/null) $(/usr/bin/pgrep socat 2>/dev/null | wc -l)" \
-        > /var/run/socat-reforged.hb 2>/dev/null
+	echo "$(uptime_s) $WORKER_COUNT" > "$HB" 2>/dev/null
 }
 
-# One-shot entry point for the config-change trigger / ctl (fast, per-rule).
+# -------------------------------------------------------------- one-shots ---
+
+init_once() {
+	mkrun
+	CYCLE=0
+	get_ipv6
+}
+
 if [ "$1" = "reconcile" ]; then
-    reconcile
-    sync_firewall
-    heartbeat
-    exit 0
+	init_once
+	reconcile
+	sync_firewall
+	heartbeat
+	exit 0
 fi
 
-# Restart exactly one rule (used by the LuCI "Restart rule" button): kill the
-# worker(s) whose command line matches the section's desired listeners, then
-# let reconcile respawn just those.
 if [ "$1" = "restart-rule" ]; then
-    _sec="$2"
-    _des=/tmp/socat-rule-desired.$$
-    emit_section "$_sec" "$(get_ipv6)" > "$_des" 2>/dev/null
-    if [ -s "$_des" ]; then
-        for p in $(/usr/bin/pgrep socat 2>/dev/null); do
-            c=$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | sed 's/[[:space:]]*$//')
-            case "$c" in *LISTEN:*) ;; *) continue;; esac
-            grep -Fxq "$c" "$_des" && { kill "$p" 2>/dev/null; log "restart-rule $_sec: killed pid $p"; }
-        done
-        sleep 1
-    else
-        log "restart-rule $_sec: nothing to restart"
-    fi
-    rm -f "$_des"
-    reconcile
-    heartbeat
-    exit 0
+	_sec="$2"
+	case "$_sec" in ''|*[!A-Za-z0-9_]*) log "restart-rule: bad section id '$2'"; exit 1 ;; esac
+	init_once
+	gen_desired || exit 1
+	flush_warnings
+	scan_workers
+	listener_pids
+	desired_keys
+	_restarted=0
+	while IFS="$TAB" read -r _pid _key _m; do
+		[ "$_m" = "1" ] || continue          # only our own listeners
+		[ -n "$_pid" ] || continue
+		while IFS="$TAB" read -r _sid _kind _port _key2 _cmd; do
+			[ "$_sid" = "$_sec" ] || continue
+			if [ "$_key2" = "$_key" ]; then
+				rm -f "$PIDDIR/$_kind-$_port" "$ERRDIR/$_kind-$_port.log" 2>/dev/null
+				log "restart-rule $_sec: killed pid $_pid"
+				kill "$_pid" 2>/dev/null
+				_restarted=1
+			fi
+		done < "$DESF"
+	done <<EOF
+$LISTENERS
+EOF
+	[ "$_restarted" = "0" ] && log "restart-rule $_sec: nothing to restart"
+	sleep 1
+	reconcile
+	heartbeat
+	exit 0
 fi
 
-# Singleton guard: only ONE engine loop may run. If a competing init (e.g. a
-# socat build that ships /etc/init.d/socat running this same script) starts a
-# second loop, it blocks here until the active loop exits — so two loops can
-# never reconcile at once. The lock self-heals if the holder died uncleanly.
-acquire_loop_lock() {
-    local lockdir=/var/run/socat-reforged.engine.lock lp warned=0
-    while true; do
-        if mkdir "$lockdir" 2>/dev/null; then
-            echo $$ > "$lockdir/pid"
-            return 0
-        fi
-        lp=$(cat "$lockdir/pid" 2>/dev/null)
-        if [ -n "$lp" ] && kill -0 "$lp" 2>/dev/null && grep -q 'socat-boot.sh' /proc/$lp/cmdline 2>/dev/null; then
-            [ "$warned" = 0 ] && { log "another engine loop (pid $lp) is active; idling this one"; warned=1; }
-            sleep 30
-            continue
-        fi
-        log "clearing stale engine lock (holder '$lp' gone)"
-        rm -rf "$lockdir"
-    done
-}
-acquire_loop_lock
+if [ "$1" = "status" ]; then
+	init_once
+	scan_workers
+	listener_pids
+	gen_desired
+	flush_warnings
+	echo "engine loop  : $(pgrep -f '/etc/socat-boot.sh$' | tr '\n' ' ')"
+	echo "uptime        : $(uptime_s)s"
+	echo "socat workers : $WORKER_COUNT (listeners $LIST_COUNT)"
+	echo "wan ipv6      : ${IPV6:-none}"
+	echo "desired file  : $DESF ($(line_count "$DESF") listeners)"
+	echo "--- state file ---"
+	[ -f "$STATEF" ] && cat "$STATEF"
+	[ -s "$WARNF" ] && { echo "--- warnings ---"; cat "$WARNF"; }
+	exit 0
+fi
 
-CHECK_COUNTER=0
+if [ "$1" = "cleanup" ]; then
+	# stop path: drop our workers and all runtime state
+	kill_workers
+	rm -rf "$RUNDIR"
+	rm -f "$HB"
+	exit 0
+fi
+
+# ------------------------------------------------------------- main loop -----
+
+acquire_loop_lock() {
+	local lockdir="$RUNDIR/engine.lock" lp warned=0
+	mkrun
+	while true; do
+		if mkdir "$lockdir" 2>/dev/null; then
+			echo $$ > "$lockdir/pid"
+			return 0
+		fi
+		lp=""
+		[ -f "$lockdir/pid" ] && read -r lp < "$lockdir/pid" 2>/dev/null
+		if [ -n "$lp" ] && kill -0 "$lp" 2>/dev/null \
+		   && grep -q 'socat-boot.sh' "/proc/$lp/cmdline" 2>/dev/null; then
+			[ "$warned" = 0 ] && { log "another engine loop (pid $lp) is active; idling this one"; warned=1; }
+			sleep 30
+			continue
+		fi
+		log "clearing stale engine lock (holder '$lp' gone)"
+		rm -rf "$lockdir"
+	done
+}
+
+acquire_loop_lock
+mkrun
+log "engine started (pid $$, interval ${INTERVAL}s, socat=$SOCAT_BIN)"
 
 while true; do
-    CHECK_COUNTER=$((CHECK_COUNTER + 1))
+	CYCLE=$((CYCLE + 1))
 
-    IPV6=$(get_ipv6)
-    fix_ipv6_route
+	if [ $((CYCLE % V6_EVERY)) -eq 1 ] || [ -z "$IPV6" ]; then
+		get_ipv6
+	fi
+	if [ $((CYCLE % V6_EVERY)) -eq 3 ]; then
+		fix_ipv6_route
+	fi
+	if [ $((CYCLE % FW_EVERY)) -eq 3 ]; then
+		check_wg_dnat
+	fi
 
-    if [ $((CHECK_COUNTER % 4)) -eq 0 ]; then
-        check_wg_dnat
-    fi
+	reconcile
 
-    if [ -z "$IPV6" ]; then
-        log "WARN: No IPv6, retry in 30s"
-        sleep 30
-        continue
-    fi
+	if [ $((CYCLE % MEM_EVERY)) -eq 0 ]; then
+		check_health
+	fi
 
-    # per-rule reconcile also handles IPv6-address changes (the v6 binds change)
-    reconcile
-    check_health
-    pet_watchdog
-    sync_firewall
+	pet_watchdog
+	sync_firewall
+	heartbeat
 
-    if [ $((CHECK_COUNTER % 4)) -eq 0 ]; then
-        MEM_PCT=$(check_mem)
-        SOCAT_NUM=$(/usr/bin/pgrep socat 2>/dev/null | wc -l)
-        IPV6_SHORT=$(echo "$IPV6" | cut -d: -f1-4)
-        UPTIME=$(cat /proc/uptime 2>/dev/null | awk '{print int($1/60)"m"}')
-        log "HEALTH: mem=${MEM_PCT}% socat=$SOCAT_NUM ipv6=$IPV6_SHORT uptime=$UPTIME"
-    fi
+	if debug_on && [ $((CYCLE % MEM_EVERY)) -eq 0 ]; then
+		log "HEALTH: mem=$(mem_pct)% workers=$WORKER_COUNT listeners=$LIST_COUNT ipv6=${IPV6:-none} uptime=$(uptime_s)s"
+	fi
 
-    heartbeat
-    sleep 15
+	sleep "$INTERVAL"
 done
