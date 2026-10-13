@@ -343,6 +343,8 @@ run_one 7 ''        'tcp tcp6 udp udp6' ''
 prepare 1
 fixtures 1
 sed -i "s|^INTERVAL=15|INTERVAL=2|" "$SIM/socat-boot.sh"
+# the proof-of-life line is 15 min on a router; one cycle is enough here
+sed -i "s|^ALIVE_EVERY=60|ALIVE_EVERY=1|" "$SIM/socat-boot.sh"
 PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
 LOOP=$!
 sleep 5
@@ -357,6 +359,7 @@ check "engine log: file is created" 1 "$([ -s "$SIM/engine-logfile.log" ] && ech
 check "engine log: records the start" 1 "$(grep -c 'engine started' "$SIM/engine-logfile.log" 2>/dev/null)"
 check "engine log: enough lines for a cycle" 1 "$([ "${TOTAL:-0}" -ge 2 ] && echo 1 || echo 0)"
 check "engine log: every line is timestamped" "${TOTAL:-0}" "${STAMPED:-0}"
+check "engine log: keeps a proof of life" 1 "$([ "$(grep -c 'alive: workers=' "$SIM/engine-logfile.log" 2>/dev/null)" -ge 1 ] && echo 1 || echo 0)"
 
 # beyond the cap only the newest half survives (the marker is at the very end)
 head -c 200000 /dev/zero | tr '\0' 'x' > "$SIM/engine-logfile.log"

@@ -246,6 +246,10 @@ tail -30 /var/log/socat-reforged.log
 last 300 lines (Refresh fetches again, Clear empties the file). The section only
 talks to the router while it is open.
 
+A healthy engine is silent while nothing changes, so it writes a rate-limited
+`alive: workers=… listeners=… mem=…% uptime=…s` line about every 15 minutes —
+that is the log's proof of life, not an error.
+
 ## Troubleshooting
 
 `logread | grep socat-boot` is the first stop; common messages:
