@@ -258,6 +258,20 @@ ck "cleanup: listeners back to normal" "$(awk 'NR>1' "$R/state" | wc -l)" "$(awk
 ck "cleanup: still only our workers" "$(workers_total)" "$(workers_marked)"
 rm -f "$FOREIGN" 2>/dev/null
 
+# ------------------------------------------------------------- engine log ---
+# syslog's ring buffer is small and wiped on reboot, so every line also goes to
+# a size-capped file the UI can show.  A rotation may cut one line in half (it
+# keeps the newest *bytes*), so only "has timestamped lines" is asserted.
+L=/var/log/socat-reforged.log
+LT=$(wc -l < "$L" 2>/dev/null | tr -d ' ')
+LS=$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} ' "$L" 2>/dev/null)
+LR=$(grep -c 'reconcile:' "$L" 2>/dev/null)
+ck "engine log: file exists" 1 "$([ -s "$L" ] && echo 1 || echo 0)"
+ck "engine log: reconcile activity logged" 1 "$([ "${LR:-0}" -ge 1 ] && echo 1 || echo 0)"
+ck "engine log: lines are timestamped" 1 "$([ "${LS:-0}" -ge 1 ] && echo 1 || echo 0)"
+ck "engine log: capped at 64 KiB" 1 "$([ "$(wc -c < "$L" 2>/dev/null | tr -d ' ')" -le 65536 ] && echo 1 || echo 0)"
+echo "  (engine log: $LT lines, $LS timestamped, $LR reconcile lines, $(wc -c < "$L" 2>/dev/null | tr -d ' ') bytes)"
+
 echo
 echo "engine checks: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -99,6 +99,29 @@ ck('unknown action is refus- ... (rule_restart needs a sid)', false,
    obj.rule_restart.call({ args: { sid: '' } }).ok);
 ck('rule_restart with an unknown sid is safe', true, obj.rule_restart.call({ args: { sid: 'does-not-exist' } }).ok);
 
+/* ---- engine log ------------------------------------------------------- */
+const lg = obj.log.call({ args: { lines: 50 } });
+ck('log returns an object', 'object', type(lg));
+ck('log names its file', '/var/log/socat-reforged.log', lg.path);
+ck('log returns an array of lines', 'array', type(lg.lines));
+ck('log lines are strings', true, (function() {
+	for (let i = 0; i < length(lg.lines); i++)
+		if (type(lg.lines[i]) != 'string')
+			return false;
+	return true;
+})());
+has('log shows recent reconcile activity', 'reconcile:', join('\n', lg.lines));
+ck('log honours the line limit', true, length(obj.log.call({ args: { lines: 3 } }).lines) <= 3);
+ck('log survives a bogus line count', 'array', type(obj.log.call({ args: { lines: 'abc' } }).lines));
+
+/* clearing is observable: the file empties, and the engine's next line
+ * (triggered here on purpose) shows up in it again */
+ck('log_clear works', true, obj.log_clear.call().ok);
+ck('log is empty right after the clear', 0, length(obj.log.call({ args: {} }).lines));
+obj.rule_restart.call({ args: { sid: 'does-not-exist' } });
+has('a new line lands after the clear', 'nothing to restart',
+    join('\n', obj.log.call({ args: { lines: 10 } }).lines));
+
 /* ---- helpers used by the view ----------------------------------------- */
 ck('hex() parses a port', 8080, hex('1F90'));
 ck('fs.stat works', 'object', type(fs.stat('/etc/config/socat')));

@@ -17,6 +17,11 @@
 #    kill our own listeners, never somebody else's socat.
 #  * Per-listener stderr is captured in $RUNDIR/err/<kind>-<port>.log and
 #    published in $RUNDIR/state, so the UI can say WHY a rule is down.
+#
+#  The engine log goes to syslog *and* to a size-capped file
+#  (/var/log/socat-reforged.log): syslog's ring buffer is small and is wiped
+#  on every reboot, so "what happened before it died" would otherwise be gone.
+#  The LuCI view reads that file directly (ubus luci.socat-reforged log).
 #  * The personal-environment behaviour of V2 left the default path: the
 #    2000::/3 route fix and the WireGuard DNAT watchdog are opt-in UCI
 #    switches (default off) and never flush conntrack.
@@ -59,6 +64,8 @@ IP_BIN=$(find_bin ip)
 UCI_BIN=$(find_bin uci)
 PGREP_BIN=$(find_bin pgrep)
 LOGGER_BIN=$(find_bin logger)
+DATE_BIN=$(find_bin date)
+TAIL_BIN=$(find_bin tail)
 NFT_BIN=$(find_bin nft)
 FW4_BIN=$(find_bin fw4)
 CMP_BIN=$(find_bin cmp)
@@ -129,10 +136,6 @@ LISTEN_OK=0           # 1 = the socket tables were readable this pass
 
 # ---------------------------------------------------------------- logging ---
 
-log() {
-	"$LOGGER_BIN" -t "$LOG_TAG" "$1" 2>/dev/null || true
-}
-
 # zero-fork "seconds since boot"
 uptime_s() {
 	local up rest
@@ -175,6 +178,41 @@ opt() { # opt <name> [default]
 }
 
 debug_on() { [ "$(opt debug 0)" = "1" ]; }
+
+# ------------------------------------------------------------ engine log ----
+# logger(1) only reaches syslog: a small ring buffer that is wiped on every
+# reboot, so the history before a crash is often already gone.  Every line is
+# therefore also appended to a file that survives reboots, capped at
+# $LOG_MAX_KB (only the newest half is kept), and that is what the LuCI view
+# shows.  /var/log is tmpfs on OpenWrt, so this costs RAM, never flash.
+LOGF=/var/log/socat-reforged.log
+LOG_MAX_KB=64
+
+log() {
+	if [ -n "$LOGF" ]; then
+		printf '%s %s\n' "$($DATE_BIN '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$1" \
+			>> "$LOGF" 2>/dev/null || true
+	fi
+	"$LOGGER_BIN" -t "$LOG_TAG" "$1" 2>/dev/null || true
+}
+
+# Keep the file at or below the cap.  Called once per engine cycle: a burst
+# inside one cycle is orders of magnitude below 64 KiB, so checking more often
+# would only cost forks.
+log_rotate() {
+	[ -n "$LOGF" ] || return 0
+	[ -f "$LOGF" ] || return 0
+	local size keep
+	size=$($WC_BIN -c < "$LOGF" 2>/dev/null)
+	is_uint "$size" || return 0
+	[ "$size" -gt $((LOG_MAX_KB * 1024)) ] || return 0
+	keep=$((LOG_MAX_KB * 1024 / 2))
+	if $TAIL_BIN -c "$keep" "$LOGF" > "$LOGF.tmp" 2>/dev/null; then
+		mv -f "$LOGF.tmp" "$LOGF" 2>/dev/null
+	fi
+	rm -f "$LOGF.tmp" 2>/dev/null
+	return 0
+}
 
 # Version of the *installed* build, stamped by install.sh / the package
 # postinst into /usr/libexec/socat-reforged-version.  Read fork-free; a missing
@@ -1066,6 +1104,7 @@ if [ "$1" = "status" ]; then
 	echo "version       : $(version_line) (built $BUILT)"
 	echo "uptime        : $(uptime_s)s"
 	echo "socat workers : $WORKER_COUNT (listeners $LIST_COUNT)"
+	echo "log file      : $LOGF ($(line_count "$LOGF") lines)"
 	echo "wan ipv6      : ${IPV6:-none}"
 	echo "desired file  : $DESF ($(line_count "$DESF") listeners)"
 	echo "--- state file ---"
@@ -1158,6 +1197,7 @@ while true; do
 	fi
 
 	sync_firewall
+	log_rotate
 	heartbeat
 
 	if debug_on && [ $((CYCLE % MEM_EVERY)) -eq 0 ]; then

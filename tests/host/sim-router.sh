@@ -32,6 +32,7 @@ prepare() { # prepare <scenario>
 	sed -i "s|^ZONES_AWK=.*|ZONES_AWK=$SIM/zones.awk|" "$SIM/socat-boot.sh"
 	sed -i "s|^CFG=.*|CFG=$SIM/etc/socat|"          "$SIM/socat-boot.sh"
 	sed -i "s|^HB=.*|HB=$SIM/run/socat-reforged.hb|" "$SIM/socat-boot.sh"
+	sed -i "s|^LOGF=.*|LOGF=$SIM/engine-logfile.log|" "$SIM/socat-boot.sh"
 	sed -i "s|^MARKER=.*|MARKER=SOCAT_SIM_MARKER|"  "$SIM/socat-boot.sh"
 	sed -i "s|^\([[:space:]]*\)SOCAT_REFORGED=1 |\1SOCAT_SIM_MARKER=1 |" "$SIM/socat-boot.sh"
 	# the engine resolves tools first from its own PATH; put the sandbox in front
@@ -334,6 +335,43 @@ run_one 4 'wan wanb' 'tcp tcp6 udp udp6' 'wan wanb'
 run_one 5 ''        'tcp tcp6 udp udp6' ''
 run_one 6 'wan'     'tcp tcp6'          'wan'
 run_one 7 ''        'tcp tcp6 udp udp6' ''
+
+# ---- the engine keeps a persistent, capped log file ------------------------
+# syslog's ring buffer is small and wiped on reboot, so every line also goes to
+# $LOGF (64 KiB cap, newest half kept).  The layout is irrelevant here, so this
+# only re-uses scenario 1 with a 2s cycle.
+prepare 1
+fixtures 1
+sed -i "s|^INTERVAL=15|INTERVAL=2|" "$SIM/socat-boot.sh"
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+LOOP=$!
+sleep 5
+kill "$LOOP" 2>/dev/null
+wait "$LOOP" 2>/dev/null
+for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+sleep 1
+
+TOTAL=$(wc -l < "$SIM/engine-logfile.log" 2>/dev/null | tr -d ' ')
+STAMPED=$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} ' "$SIM/engine-logfile.log" 2>/dev/null)
+check "engine log: file is created" 1 "$([ -s "$SIM/engine-logfile.log" ] && echo 1 || echo 0)"
+check "engine log: records the start" 1 "$(grep -c 'engine started' "$SIM/engine-logfile.log" 2>/dev/null)"
+check "engine log: enough lines for a cycle" 1 "$([ "${TOTAL:-0}" -ge 2 ] && echo 1 || echo 0)"
+check "engine log: every line is timestamped" "${TOTAL:-0}" "${STAMPED:-0}"
+
+# beyond the cap only the newest half survives (the marker is at the very end)
+head -c 200000 /dev/zero | tr '\0' 'x' > "$SIM/engine-logfile.log"
+echo '2026-10-13 00:00:00 marker line' >> "$SIM/engine-logfile.log"
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+LOOP=$!
+sleep 4
+kill "$LOOP" 2>/dev/null
+wait "$LOOP" 2>/dev/null
+for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+sleep 1
+SIZE=$(wc -c < "$SIM/engine-logfile.log" 2>/dev/null | tr -d ' ')
+check "engine log: capped at 64 KiB" 1 "$([ "${SIZE:-0}" -le 65536 ] && echo 1 || echo 0)"
+check "engine log: keeps the newest half" 1 "$(grep -c 'marker line' "$SIM/engine-logfile.log" 2>/dev/null)"
+cleanup
 
 rm -rf "$SIM"
 summary 'OpenWrt layout simulator'

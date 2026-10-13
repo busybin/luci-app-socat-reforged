@@ -229,6 +229,23 @@ sh tests/run.sh --router router # also install on a router, test engine/backend/
 
 See `tests/README.md` for what each suite covers. Exit codes are CI-friendly.
 
+## Engine log
+
+Every line the engine logs also goes to `/var/log/socat-reforged.log` — syslog's
+ring buffer is small and is wiped on every reboot, so "what happened right
+before it died" would otherwise be gone. The file is capped at 64 KiB (only the
+newest half is kept), and `/var/log` is tmpfs, so it costs RAM, never flash.
+
+Read it wherever you like:
+
+```sh
+tail -30 /var/log/socat-reforged.log
+```
+
+…or open the **Engine log** section at the bottom of the LuCI page: it shows the
+last 300 lines (Refresh fetches again, Clear empties the file). The section only
+talks to the router while it is open.
+
 ## Troubleshooting
 
 `logread | grep socat-boot` is the first stop; common messages:

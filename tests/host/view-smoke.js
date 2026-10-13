@@ -148,6 +148,11 @@ global.rpc = {
 	declare: (o) => () => {
 		if (o.method === 'status') return Promise.resolve(STATUS);
 		if (o.method === 'test') return Promise.resolve({ ok: true, detail: 'connection succeeded' });
+		if (o.method === 'log') return Promise.resolve({
+			path: '/var/log/socat-reforged.log', size: 42,
+			lines: [ '2026-10-13 20:00:00 engine started (pid 4242, v3 (deadbee))' ]
+		});
+		if (o.method === 'log_clear') return Promise.resolve({ ok: true });
 		return Promise.resolve({ ok: true });
 	}
 };
@@ -190,16 +195,33 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	try { v.recount(); ck('recount() does not throw', true, true); }
 	catch (e) { ck('recount() does not throw', true, false); console.error('    ' + e.message); }
 
+	// the log box is lazy (only fetched once opened), so call it directly
+	try {
+		await v.loadLog();
+		ck('loadLog() does not throw', true, true);
+	}
+	catch (e) { ck('loadLog() does not throw', true, false); console.error('    ' + e.message); }
+
 	const all = JSON.stringify(node, (k, val) => (typeof val === 'function' ? '[fn]' : val));
 	has('meta line rendered', 'socat-meta', all);
 	has('version span has an id', 'socat-t-version', all);
 	has('GitHub link points at the repo', 'github.com/busybin/luci-app-socat-reforged', all);
 	has('engine settings section is declared', "form.NamedSection, 'reforged'", src);
+	has('engine log section is rendered', 'socat-logbox', all);
+	has('log box has a pre element to fill', '"id":"socat-log"', all);
+	has('refresh button is wired', 'handleLogRefresh', src);
+	has('clear button is wired', 'handleLogClear', src);
+	has('log box asks the log ubus method', "method: 'log'", src);
+	has('log clear uses the log_clear ubus method', "method: 'log_clear'", src);
+	has('log poll only runs while open', '_logOpen', src);
 
 	const metaText = byId['socat-t-version'] ? byId['socat-t-version'].textContent : '(none)';
 	has('version text after recount', 'v2', metaText);
 	has('build id after recount', 'deadbee', metaText);
 	has('meta line carries the GitHub link', 'GitHub', all);
+
+	const logText = byId['socat-log'] ? byId['socat-log'].textContent : '(none)';
+	has('log box shows the backend lines', 'engine started', logText);
 
 	console.log('\nview smoke test: ' + pass + ' passed, ' + fail + ' failed');
 	process.exit(fail ? 1 : 0);

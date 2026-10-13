@@ -3,13 +3,13 @@
 		"description": "Grant access to Socat Reforged (custom UCI socat forwarding page)",
 		"read": {
 			"ubus": {
-				"luci.socat-reforged": [ "status", "test" ]
+				"luci.socat-reforged": [ "status", "test", "log" ]
 			},
 			"uci": [ "socat" ]
 		},
 		"write": {
 			"ubus": {
-				"luci.socat-reforged": [ "start", "stop", "restart", "reload", "rule_restart" ]
+				"luci.socat-reforged": [ "start", "stop", "restart", "reload", "rule_restart", "log_clear" ]
 			},
 			"uci": [ "socat" ]
 		}

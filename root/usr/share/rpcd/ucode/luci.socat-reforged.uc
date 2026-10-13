@@ -20,6 +20,8 @@ import { cursor } from 'uci';
  *   start / stop / restart
  *   reload                per-rule reconcile (only changed rules restart)
  *   rule_restart{sid}     restart exactly one rule
+ *   log{lines}            tail of the engine's persistent log file
+ *   log_clear             truncate that file
  *
  * This runs as root inside rpcd; which session may call which method is
  * governed by /usr/share/rpcd/acl.d/luci-app-socat-reforged.json.
@@ -27,6 +29,8 @@ import { cursor } from 'uci';
 
 const HB_FILE   = '/var/run/socat-reforged.hb';
 const STATE_FILE = '/var/run/socat-reforged/state';
+const LOG_FILE  = '/var/log/socat-reforged.log';   /* engine's own log */
+const LOG_LINES = 300;                             /* lines one call returns */
 const ENGINE   = '/etc/socat-boot.sh';
 const CTL      = '/usr/libexec/socat-reforged-ctl';
 const UCI_CFG  = 'socat';
@@ -289,6 +293,38 @@ function read_rules() {
 	return rules;
 }
 
+/* ------------------------------------------------------------ engine log */
+
+/*
+ * The engine appends every log line to a file (syslog is a small ring buffer
+ * that is wiped on reboot).  The file is capped by the engine itself, so
+ * reading it whole is bounded and fork-free.
+ */
+function do_log(args) {
+	const want = to_int(args?.lines ?? 0);
+	const n = (want > 0 && want <= 2000) ? want : LOG_LINES;
+
+	const data = readfile(LOG_FILE);
+	if (data == null)
+		return { path: LOG_FILE, lines: [], error: 'log file not created yet' };
+
+	const out = [];
+	const all = split(data, '\n');
+	const from = (length(all) > n) ? length(all) - n : 0;
+	for (let i = from; i < length(all); i++) {
+		const l = trim(all[i]);
+		if (l != '')
+			push(out, l);
+	}
+
+	return { path: LOG_FILE, size: length(data), lines: out };
+}
+
+function do_log_clear() {
+	const rc = shell_rc(SAFE_PATH + ': > ' + shellquote(LOG_FILE));
+	return { ok: (rc == 0), detail: (rc == 0 ? '' : `exit ${rc}`) };
+}
+
 /* -------------------------------------------------------------- methods */
 
 function do_status() {
@@ -457,6 +493,17 @@ return {
 				if (sid == '')
 					return { ok: false, detail: 'section id is required' };
 				return do_action('rule_restart', sid);
+			}
+		},
+		log: {
+			args: { lines: 0 },
+			call: function(request) {
+				return do_log(request.args);
+			}
+		},
+		log_clear: {
+			call: function() {
+				return do_log_clear();
 			}
 		}
 	}
