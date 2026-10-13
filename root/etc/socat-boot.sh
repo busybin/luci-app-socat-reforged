@@ -80,6 +80,7 @@ RATELOG=$RUNDIR/ratelog
 HB=/var/run/socat-reforged.hb
 GPROG=/usr/libexec/socat-reforged-gen.awk
 ZONES_AWK=/usr/libexec/socat-reforged-zones.awk
+VERF=/usr/libexec/socat-reforged-version
 CFG=/etc/config/socat
 
 TAB=$(printf '\t')
@@ -163,6 +164,36 @@ opt() { # opt <name> [default]
 }
 
 debug_on() { [ "$(opt debug 0)" = "1" ]; }
+
+# Version of the *installed* build, stamped by install.sh / the package
+# postinst into /usr/libexec/socat-reforged-version.  Read fork-free; a missing
+# file (hand-copied engine) must not stop anything.
+read_version() {
+	local k v
+	PKG_VERSION="devel"
+	BUILD="devel"
+	BUILT=""
+	if [ -f "$VERF" ]; then
+		while IFS='=' read -r k v; do
+			case "$k" in
+				PKG_VERSION) PKG_VERSION="$v" ;;
+				BUILD)        BUILD="$v" ;;
+				BUILT)        BUILT="$v" ;;
+			esac
+		done < "$VERF"
+	fi
+}
+
+# Publish it where the LuCI backend and `socat-boot.sh status` can see it.
+write_version_file() {
+	echo "PKG_VERSION=$PKG_VERSION" > "$RUNDIR/version"
+	echo "BUILD=$BUILD"          >> "$RUNDIR/version"
+	echo "BUILT=$BUILT"          >> "$RUNDIR/version"
+}
+
+version_line() {
+	printf 'v%s (%s)' "$PKG_VERSION" "$BUILD"
+}
 
 # ------------------------------------------------- file helpers --------------
 
@@ -451,7 +482,7 @@ publish_state() {
 	lp=$($PGREP_BIN -f '/etc/socat-boot.sh$' 2>/dev/null | head -1)
 	[ -n "$lp" ] || lp=$$
 	{
-		echo "engine $lp $up $LIST_COUNT"
+		echo "engine $lp $up $LIST_COUNT $PKG_VERSION $BUILD $BUILT"
 		while IFS="$TAB" read -r sid kind port key cmd; do
 			[ -n "$sid" ] || continue
 			find_pid "$key"
@@ -815,6 +846,8 @@ heartbeat() {
 init_once() {
 	mkrun
 	CYCLE=0
+	read_version
+	write_version_file
 	get_ipv6
 	get_wandev
 	refresh_wan_zones
@@ -867,6 +900,7 @@ if [ "$1" = "status" ]; then
 	gen_desired
 	flush_warnings
 	echo "engine loop  : $($PGREP_BIN -f '/etc/socat-boot.sh$' | tr '\n' ' ')"
+	echo "version       : $(version_line) (built $BUILT)"
 	echo "uptime        : $(uptime_s)s"
 	echo "socat workers : $WORKER_COUNT (listeners $LIST_COUNT)"
 	echo "wan ipv6      : ${IPV6:-none}"
@@ -910,7 +944,9 @@ acquire_loop_lock() {
 
 acquire_loop_lock
 mkrun
-log "engine started (pid $$, interval ${INTERVAL}s, socat=$SOCAT_BIN)"
+read_version
+write_version_file
+log "engine started (pid $$, $(version_line), interval ${INTERVAL}s, socat=$SOCAT_BIN)"
 
 while true; do
 	CYCLE=$((CYCLE + 1))
