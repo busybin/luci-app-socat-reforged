@@ -52,14 +52,25 @@ Engine and packaging rewrite of V2, driven by a full code audit (2026-10-13):
 
 * **Firewall zones are detected, not assumed.** The accept rules go into the
   zone(s) that actually cover the WAN device — named or anonymous, DHCP or PPPoE,
-  single- or multi-WAN. If no zone can be determined the engine logs once and
-  leaves the firewall alone instead of writing into a non-existent zone (which
-  would have failed `fw4 check` and been undone every 5 minutes).
+  single- or multi-WAN. An anonymous zone without a `name` option cannot be
+  referenced by a rule at all, so it is skipped. If no zone can be determined
+  the engine logs once and leaves the firewall alone instead of writing into a
+  non-existent zone (which would have failed `fw4 check` and been undone every
+  5 minutes).
+* **Nothing depends on the caller's PATH.** The engine sets its own PATH and
+  resolves `ip`, `uci`, `awk`, `nft`, `fw4`, `pgrep`, `logger` and `socat` once
+  at startup; `/sbin/fw4` is gone as a hard path. The rpcd backend runs its
+  shell helpers with an explicit PATH as well.
+* **The WireGuard watchdog uses the detected zone** for the fw4 chain name
+  (`dstnat_<zone>`), not a hard-coded `dstnat_wan`.
+* **A missing tool can never look like "all rules disabled"** — if `awk` or
+  `uci` are unavailable the engine logs once and does nothing, instead of
+  stopping every forward it owns.
 * **Menu no longer depends on `/etc/config/socat` existing** — the page stays
   reachable and offers its empty state instead of disappearing.
 * Section names containing dots are parsed correctly (option vs. section is
   decided the way `uci show` itself does it), and such ids work with
   `restart-rule` too.
-* `logger`/`socat` are resolved via `command -v` instead of assuming paths.
 * Verified with an OpenWrt layout simulator: DHCP eth0.2, PPPoE pppoe-wan,
-  renamed zone, device-only zone, multi-WAN, no-IPv6, unmappable zone.
+  renamed zone, device-only zone, multi-WAN, no-IPv6, anonymous-nameless zone,
+  unmappable zone, and a restricted `PATH=/bin` start.

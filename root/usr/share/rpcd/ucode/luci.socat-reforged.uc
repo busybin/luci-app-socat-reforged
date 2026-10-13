@@ -53,6 +53,10 @@ function shell_rc(cmd) {
 	return p.close();
 }
 
+/* rpcd's environment is not ours: keep the tool lookup explicit so a worker
+ * count never depends on how rpcd was started. */
+const SAFE_PATH = 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ';
+
 function shellquote(s) {
 	return "'" + replace(s ?? '', "'", "'\\''") + "'";
 }
@@ -165,7 +169,7 @@ function engine_state() {
 
 	/* last resort: worker count only, loop liveness unknown */
 	if (age < 0) {
-		const n = to_int(trim(shell('pgrep socat 2>/dev/null | wc -l')));
+		const n = to_int(trim(shell(SAFE_PATH + 'pgrep socat 2>/dev/null | wc -l')));
 		if (n > 0) {
 			workers = n;
 			age = 0;
@@ -369,7 +373,7 @@ function do_test(args) {
 
 	dial += ro;
 
-	const rc = shell_rc(`socat -T3 -u /dev/null ${shellquote(dial)} 2>/dev/null`);
+	const rc = shell_rc(`${SAFE_PATH}socat -T3 -u /dev/null ${shellquote(dial)} 2>/dev/null`);
 
 	if (dproto == 'udp4' || dproto == 'udp6')
 		return { ok: (rc == 0), detail: (rc == 0 ? 'UDP probe sent (no handshake to verify)' : `socat exit ${rc}`) };
@@ -391,7 +395,7 @@ function do_action(what, arg) {
 	default:             return { ok: false, detail: 'unknown action' };
 	}
 
-	const rc = shell_rc(cmd + ' >/dev/null 2>&1');
+	const rc = shell_rc(SAFE_PATH + cmd + ' >/dev/null 2>&1');
 	return { ok: (rc == 0), detail: (rc == 0 ? '' : `exit ${rc}`) };
 }
 
