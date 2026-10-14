@@ -5,6 +5,33 @@ the last tag; version numbers only change when a release is requested.
 
 ## Unreleased
 
+### Audit round: three latent defects (2026-10-14)
+
+A full read-through of the engine, the generator, the zone detector, the backend
+and the view, plus a live check of the router (single loop, 30/30 listeners, no
+duplicates, no warnings). Three defects found and fixed, each with a regression
+test that was verified to fail on the old code:
+
+* **Firewall back-off did not engage after the first failure.** The fail marker
+  (`$RUNDIR/fw.sig`) stamps the epoch the back-off compares against, but the
+  variable holding it was only assigned *inside* the back-off branch — so a
+  failure wrote `fail <sig> ` with no epoch, the next cycle could not parse it,
+  and the engine retried the whole rebuild 15s later instead of after
+  `FW_RETRY` (300s). One premature `uci commit` + `fw4 check` per failure chain
+  against a broken firewall. The epoch is now stamped on every attempt.
+* **Zero-padded ports disabled the listener-identity check for that rule.** A
+  `listen_port=00443` passed validation and reached the command line verbatim,
+  while `/proc/net/*` and the pid registry speak plain decimal ("443"). The
+  rule's listeners were therefore never matched back to their socket — exactly
+  the ambiguity that duplicate-listener collapsing depends on (it would let UDP
+  listeners pile up again, the failure mode of V3). The generator now
+  canonicalises the listen, destination and proxy ports.
+* **`proxy=proxy` worked in the engine but not in the Test button.** The legacy
+  spelling of HTTP CONNECT is accepted by the generator, yet the backend refused
+  it as an unknown proxy type and the import validator rejected it — so a
+  hand-edited rule forwarded fine while its test always failed. All three accept
+  the same set now.
+
 ### Persistent engine log, readable in the UI
 
 The engine already logged to syslog, but that ring buffer is small and is wiped

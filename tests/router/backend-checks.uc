@@ -80,6 +80,12 @@ ck('test: unknown protocol is refused', false, obj.test.call({ args: { dest_ip: 
 ck('test: unknown proxy is refused', false, obj.test.call({ args: { dest_ip: '1.2.3.4', dest_port: 80, dest_proto: 'tcp4', proxy: 'bogus' } }).ok);
 has('test: proxy without tcp4 is refused', 'only supported with a TCP',
     obj.test.call({ args: { dest_ip: '1.2.3.4', dest_port: 80, dest_proto: 'udp4', proxy: 'socks4a' } }).detail);
+/* the legacy "proxy" spelling must behave exactly like "http" here too, or a
+ * hand-edited rule forwards fine but the Test button reports a type error */
+ck('test: the legacy proxy=proxy spelling is accepted', false,
+    index(obj.test.call({ args: { dest_ip: '192.0.2.1', dest_port: 80, dest_proto: 'tcp4',
+        proxy: 'proxy', proxy_server: '127.0.0.1', proxy_port: 1080 } }).detail ?? '',
+        'unknown proxy') >= 0);
 
 /* the router itself always listens on something: port 22 or the LuCI port */
 const t0 = time();
