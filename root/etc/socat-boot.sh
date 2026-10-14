@@ -724,6 +724,10 @@ sync_firewall() {
 	raw_sig="zones:${WAN_ZONES:-none} tcp:$FW_TCP udp:$FW_UDP"
 	stored=""
 	[ -f "$FWSIG" ] && read -r stored < "$FWSIG" 2>/dev/null
+	# stamped on every attempt, failure included: a fail marker without an
+	# epoch cannot be parsed by the backoff below, and the first retry would
+	# then run one cycle later instead of after FW_RETRY seconds.
+	now=$(uptime_s)
 
 	# without a known WAN zone we must not guess: a rule in the wrong zone
 	# either does nothing or fails `fw4 check` (which we would then undo
@@ -751,7 +755,6 @@ sync_firewall() {
 
 	# backoff after a failed reload (do not fight a broken firewall forever)
 	if [ "$stored" != "${stored#fail }" ]; then
-		now=$(uptime_s)
 		p=${stored##* }
 		if is_uint "$p" && [ $((now - p)) -lt "$FW_RETRY" ]; then
 			return 0

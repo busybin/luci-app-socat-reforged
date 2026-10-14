@@ -414,7 +414,7 @@ function do_test(args) {
 		ro = ',connect-timeout=5';
 		if (proxy == 'socks4a' || proxy == 'socks4')
 			dial = `SOCKS4A:${pserver}:${host}:${port},socksport=${pport}`;
-		else if (proxy == 'http')
+		else if (proxy == 'http' || proxy == 'proxy')
 			dial = `PROXY:${pserver}:${host}:${port},proxyport=${pport}`;
 		else
 			return { ok: false, detail: `unknown proxy type '${proxy}'` };

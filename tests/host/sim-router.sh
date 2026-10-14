@@ -376,5 +376,42 @@ check "engine log: capped at 64 KiB" 1 "$([ "${SIZE:-0}" -le 65536 ] && echo 1 |
 check "engine log: keeps the newest half" 1 "$(grep -c 'marker line' "$SIM/engine-logfile.log" 2>/dev/null)"
 cleanup
 
+# ---- a failed fw4 check must stamp the time of the attempt ------------------
+# The backoff parses the epoch out of the fail marker.  A marker written
+# without one ("fail <sig> " — the write used a variable that was only
+# assigned *inside* the backoff branch) cannot be parsed, so after a first
+# failure the engine retried one cycle later instead of after FW_RETRY
+# seconds, fighting a broken firewall every 15s.  The fake fw4 check fails
+# while fw.check.ok is absent; the engine is stopped as soon as it has
+# written the marker, so exactly one attempt is observed either way.
+prepare 1
+fixtures 1
+rm -f "$SIM/fw.check.ok"
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+LOOP=$!
+i=0
+while [ ! -s "$SIM/run/fw.sig" ] && [ "$i" -lt 60 ]; do sleep 0.2; i=$((i + 1)); done
+kill "$LOOP" 2>/dev/null
+wait "$LOOP" 2>/dev/null
+for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+sleep 1
+check "fw fail: the marker records the attempt" 1 "$(grep -c '^fail ' "$SIM/run/fw.sig" 2>/dev/null)"
+# ... and it ends in the epoch (a trailing space means "no epoch written")
+check "fw fail: the marker ends in an epoch" 1 "$(grep -cE '[0-9]$' "$SIM/run/fw.sig" 2>/dev/null)"
+contains "fw fail: the backoff is logged" 'retry in 5 min' "$(cat "$SIM/engine-logfile.log" 2>/dev/null)"
+
+# the read path: a marker that says "failed seconds ago" must block a rebuild
+: > "$SIM/fw.log"
+printf 'fail zones:wan tcp: 1 udp: %s\n' "$(( $(awk '{printf "%d", $1}' /proc/uptime) - 5 ))" > "$SIM/run/fw.sig"
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+LOOP=$!
+sleep 4
+kill "$LOOP" 2>/dev/null
+wait "$LOOP" 2>/dev/null
+for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+sleep 1
+check "fw backoff: a fresh fail marker blocks a rebuild" '' "$(cat "$SIM/fw.log" 2>/dev/null)"
+cleanup
+
 rm -rf "$SIM"
 summary 'OpenWrt layout simulator'
