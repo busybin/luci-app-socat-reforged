@@ -111,7 +111,8 @@ function importCheck(rule) {
 	if (rule.family != null && rule.family !== '' && rule.family !== '4' && rule.family !== '6')
 		return 'bad family';
 	if (rule.proxy != null && rule.proxy !== '' && rule.proxy !== 'none' &&
-	    rule.proxy !== 'socks4' && rule.proxy !== 'socks4a' && rule.proxy !== 'http')
+	    rule.proxy !== 'socks4' && rule.proxy !== 'socks4a' && rule.proxy !== 'http' &&
+	    rule.proxy !== 'proxy')
 		return 'bad proxy';
 	return null;
 }

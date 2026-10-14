@@ -104,6 +104,13 @@ END {
 		if (proto != "tcp" && proto != "udp") { warn(sid, "bad proto, skip"); continue }
 		if (!ipport(lp))                   { warn(sid, "bad listen_port, skip"); continue }
 		if (!ipport(dp))                   { warn(sid, "bad dest_port, skip"); continue }
+		# canonicalise the ports now that they are known good: a zero-padded
+		# value ("00443") must not reach the command line, because the socket
+		# tables (/proc/net) and the pid registry use the plain decimal form —
+		# a padded listener would never be recognised as owning its socket,
+		# which silently disables duplicate-listener detection for that rule.
+		lp = lp + 0
+		dp = dp + 0
 		if (dip == "" || !ok_host(dip))    { warn(sid, "bad dest_ip, skip"); continue }
 		if (dproto != "tcp4" && dproto != "udp4" && dproto != "tcp6" && dproto != "udp6") {
 			warn(sid, "bad dest_proto, skip"); continue
@@ -116,6 +123,7 @@ END {
 			if (pserv == "") pserv = "127.0.0.1"
 			if (pport == "") pport = "1080"
 			if (!ipport(pport))              { warn(sid, "bad proxy_port, skip"); continue }
+			pport = pport + 0
 			if (!ok_host(pserv))             { warn(sid, "bad proxy_server, skip"); continue }
 			if (prox == "socks4" || prox == "socks4a")
 				DIAL = "SOCKS4A:" pserv ":" dip ":" dp ",socksport=" pport

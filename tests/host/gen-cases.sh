@@ -208,6 +208,44 @@ FIX
 run_gen "$V6"
 contains 'tcp6 target uses [addr]:port' 'TCP6:[2001:db8:2:::5]:80' "$(cat "$WORK/out.des")"
 
+# ---- zero-padded ports are canonicalised ------------------------------------
+# The socket tables and the pid registry speak plain decimal ("443"), so a
+# padded listen_port would never match a listener back to its socket: the
+# listener-identity check (and with it duplicate detection) would be dead for
+# that rule while everything still looked healthy.
+cat > "$WORK/in.show" <<'FIX'
+socat.a=config
+socat.a.enable=1
+socat.a.proto=tcp
+socat.a.listen_port=00443
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=192.168.1.7
+socat.a.dest_port=00080
+socat.a.firewall_accept=1
+FIX
+run_gen "$V6"
+check 'padded ports still yield listeners' 'a/tcp a/tcp6 ' "$(kinds)"
+contains 'listener uses the plain port' 'TCP-LISTEN:443,' "$(cat "$WORK/out.des")"
+contains 'dial uses the plain dest port' 'TCP4:192.168.1.7:80' "$(cat "$WORK/out.des")"
+check 'firewall lists the plain port' 'tcp:443 ' "$(fwls)"
+
+# proxy=proxy is the legacy spelling of HTTP CONNECT: the engine, the ubus
+# test and the import validator must all agree on it.
+cat > "$WORK/in.show" <<'FIX'
+socat.a=config
+socat.a.enable=1
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=192.168.1.8
+socat.a.dest_port=80
+socat.a.proxy=proxy
+socat.a.proxy_server=127.0.0.1
+socat.a.proxy_port=01080
+FIX
+run_gen "$V6"
+contains 'proxy=proxy dials PROXY:' 'PROXY:127.0.0.1:192.168.1.8:80,proxyport=1080' "$(cat "$WORK/out.des")"
+
 # dotted section names + an option that is not an option
 cat > "$WORK/in.show" <<'FIX'
 socat.dotted.section.name=config
