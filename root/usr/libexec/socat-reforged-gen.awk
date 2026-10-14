@@ -32,6 +32,36 @@ function ok_name(v)  { return (v ~ /^[A-Za-z0-9_.-]+$/) }
 function ok_flag(v)  { return (v == "" || v == "0" || v == "1") }
 function ipport(v)   { return (v ~ /^[0-9]+$/ && v + 0 >= 1 && v + 0 <= 65535) }
 
+# listen_port may be a single port ("443") or a range ("30000-30010").
+# Returns 0 and sets LP_FROM/LP_TO (plain decimals) on success.
+# A range is expanded into one listener per port, so the span is capped: a
+# typo like "1000-99999" must not turn into ~100k workers.  LP_CLAMPED is set
+# when the cap kicked in so the caller can warn.
+function lport_parse(v,  a, b, n) {
+	LP_FROM = ""; LP_TO = ""; LP_CLAMPED = 0
+	n = index(v, "-")
+	if (n > 0) {
+		a = substr(v, 1, n - 1); b = substr(v, n + 1)
+		if (a !~ /^[0-9]+$/ || b !~ /^[0-9]+$/) return 1
+		a = a + 0; b = b + 0
+		if (a < 1 || b > 65535 || a > b) return 1
+		if (b - a + 1 > LPORT_CAP) { b = a + LPORT_CAP - 1; LP_CLAMPED = 1 }
+	}
+	else {
+		if (v !~ /^[0-9]+$/) return 1
+		a = v + 0; b = a
+		if (a < 1 || b > 65535) return 1
+	}
+	LP_FROM = a; LP_TO = b
+	return 0
+}
+
+# socat address host part: brackets are only valid around a *literal* IPv6
+# address.  A hostname must go in unbracketed ("TCP6:example.org:80") or socat
+# treats the brackets as part of the address and fails to resolve it — the
+# "IPv6 domain silently does not forward" class of bug.
+function dial_host(h) { return (h ~ /:/) ? "[" h "]" : h }
+
 function emit(sid, kind, port, cmd,  key) {
 	key = cmd
 	gsub(/ /, "", key)
@@ -45,6 +75,8 @@ BEGIN {
 	esc = sq bs sq sq           # UCI escaped quote: '\''
 	nsec = 0
 	KA = "keepalive,keepidle=60,keepintvl=10,keepcnt=5"
+	# max listeners one rule may spawn through a port range
+	LPORT_CAP = 256
 	if (ipv6 == "" || ipv6 == "-") ipv6 = ""
 }
 
@@ -102,14 +134,14 @@ END {
 		}
 		if (!ok_name(sid))                 { warn(sid, "bad section id, skip"); continue }
 		if (proto != "tcp" && proto != "udp") { warn(sid, "bad proto, skip"); continue }
-		if (!ipport(lp))                   { warn(sid, "bad listen_port, skip"); continue }
+		if (lport_parse(lp) != 0)          { warn(sid, "bad listen port, skip"); continue }
+		if (LP_CLAMPED)                    warn(sid, "port range larger than " LPORT_CAP " ports, clamped")
 		if (!ipport(dp))                   { warn(sid, "bad dest_port, skip"); continue }
 		# canonicalise the ports now that they are known good: a zero-padded
 		# value ("00443") must not reach the command line, because the socket
 		# tables (/proc/net) and the pid registry use the plain decimal form —
 		# a padded listener would never be recognised as owning its socket,
 		# which silently disables duplicate-listener detection for that rule.
-		lp = lp + 0
 		dp = dp + 0
 		if (dip == "" || !ok_host(dip))    { warn(sid, "bad dest_ip, skip"); continue }
 		if (dproto != "tcp4" && dproto != "udp4" && dproto != "tcp6" && dproto != "udp6") {
@@ -133,34 +165,37 @@ END {
 		}
 		else if (dproto == "tcp4") DIAL = "TCP4:" dip ":" dp
 		else if (dproto == "udp4") DIAL = "UDP4:" dip ":" dp
-		else if (dproto == "tcp6") DIAL = "TCP6:[" dip "]:" dp
-		else                      DIAL = "UDP6:[" dip "]:" dp
+		else if (dproto == "tcp6") DIAL = "TCP6:" dial_host(dip) ":" dp
+		else                      DIAL = "UDP6:" dial_host(dip) ":" dp
 
 		RA = ""
 		if (ra == "" || ra == "1")
 			RA = ",reuseaddr"
 
-		if (proto == "tcp") {
-			if (fam != "6")
-				emit(sid, "tcp", lp, socat " TCP-LISTEN:" lp ",fork" RA "," KA " " DIAL "," KA)
-			if (fam != "4" && ipv6 != "")
-				emit(sid, "tcp6", lp, socat " TCP6-LISTEN:" lp ",fork" RA ",bind=" ipv6 ",ip-freebind=1," KA " " DIAL "," KA)
-			if (fam == "6" && ipv6 == "")
-				warn(sid, "IPv6-only listen but no WAN IPv6 address")
-		}
-		else {
-			if (fam != "6")
-				emit(sid, "udp", lp, socat " UDP-LISTEN:" lp ",fork " DIAL)
-			# NB: socat rejects bind= on UDP6-LISTEN ("port specification not
-			# allowed in this bind option"), and a plain UDP6-LISTEN binds the
-			# v6 wildcard (v6only), so it coexists with the v4 listener.
-			if (fam != "4" && ipv6 != "")
-				emit(sid, "udp6", lp, socat " UDP6-LISTEN:" lp ",fork " DIAL)
-			if (fam == "6" && ipv6 == "")
-				warn(sid, "IPv6-only listen but no WAN IPv6 address")
-		}
+		# per-port warnings only once per rule, not once per port
+		if (fam == "6" && ipv6 == "")
+			warn(sid, "IPv6-only listen but no WAN IPv6 address")
 
-		if (fa != "0")
-			print proto "\t" lp > fwf
+		# one listener per port in the (single-port or ranged) span
+		for (lp = LP_FROM; lp <= LP_TO; lp++) {
+			if (proto == "tcp") {
+				if (fam != "6")
+					emit(sid, "tcp", lp, socat " TCP-LISTEN:" lp ",fork" RA "," KA " " DIAL "," KA)
+				if (fam != "4" && ipv6 != "")
+					emit(sid, "tcp6", lp, socat " TCP6-LISTEN:" lp ",fork" RA ",bind=" ipv6 ",ip-freebind=1," KA " " DIAL "," KA)
+			}
+			else {
+				if (fam != "6")
+					emit(sid, "udp", lp, socat " UDP-LISTEN:" lp ",fork " DIAL)
+				# NB: socat rejects bind= on UDP6-LISTEN ("port specification not
+				# allowed in this bind option"), and a plain UDP6-LISTEN binds the
+				# v6 wildcard (v6only), so it coexists with the v4 listener.
+				if (fam != "4" && ipv6 != "")
+					emit(sid, "udp6", lp, socat " UDP6-LISTEN:" lp ",fork " DIAL)
+			}
+
+			if (fa != "0")
+				print proto "\t" lp > fwf
+		}
 	}
 }

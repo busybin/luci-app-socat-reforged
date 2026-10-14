@@ -5,6 +5,38 @@ the last tag; version numbers only change when a release is requested.
 
 ## Unreleased
 
+### Upstream-parity round: features and the same bugs, fixed (2026-10-14)
+
+Read the other `luci-app-socat` implementations on GitHub (chenmozhijin,
+WROIATE, mylucien, 4IceG) as a bug class list — their open issues must not
+become ours — and took the parts worth having:
+
+* **Port ranges** (their issue "port range forwarding does not work").
+  `listen_port` now accepts `30000-30010`; the generator expands the span into
+  one listener per port (same validation as a single port: no padding, no
+  out-of-range, from ≤ to), the firewall rule aggregates the ports, and a span
+  longer than 256 ports is clamped with a warning — a typo can no longer fork
+  tens of thousands of workers. The view field uses LuCI's `portrange` datatype
+  (single port or `a-b`), the import validator accepts the same shapes, and
+  conflict detection expands ranges so an overlapping range is flagged.
+* **IPv6 hostname targets** (their issue "a domain that resolves to IPv6 does
+  not forward"). socat accepts brackets only around a *literal* IPv6 address;
+  the old `TCP6:[host]:port` made every hostname target unresolvable. Brackets
+  are now only used when the target itself contains a colon, for the engine's
+  dial and the Test button alike; the Test button also enforces the same
+  character whitelist the generator uses.
+* **Per-rule runtime files.** stderr and the pid registry were keyed by
+  `kind-port`, so two rules sharing a listen port overwrote each other's
+  bookkeeping (and a `restart-rule` could wipe the other rule's error text).
+  Both are now keyed by `sid-kind-port`. Covered by a new simulator scenario.
+* **Event-driven reconcile** (hotplug hook on `ifup`/`ifdown`/`ifupdate`):
+  a WAN redial or address change is reconciled in seconds instead of up to one
+  engine cycle. Reconcile is a no-op when nothing changed (same lock and fast
+  path as the main loop), so extra events cost a few forks at most.
+* Tests: +22 host cases (generator ranges/brackets/clamping, view datatype +
+  range row, simulator scenario 8 with a range rule and a real port clash), all
+  verified by mutation (reintroducing each bug turns the new assertions red).
+
 ### Audit round: three latent defects (2026-10-14)
 
 A full read-through of the engine, the generator, the zone detector, the backend

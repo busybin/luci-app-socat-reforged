@@ -58,6 +58,7 @@ function flatten(kids) {
 const document = {
 	getElementById: (id) => byId[id] || null,
 	createElement: (t) => E(t, {}, []),
+	createTextNode: (t) => E('span', {}, [ String(t) ]),
 	addEventListener: () => {},
 	querySelector: () => null,
 	querySelectorAll: () => [],
@@ -84,17 +85,25 @@ const RULES = [
 	  firewall_accept: '1', proxy: '', proxy_server: '', proxy_port: '', reuseaddr: '1' },
 	{ '.name': 'cfg2222', enable: '1', remarks: 'dns', proto: 'udp', listen_port: '53',
 	  dest_proto: 'udp4', dest_ip: '192.168.1.11', dest_port: '53', family: '',
-	  firewall_accept: '0', proxy: '', proxy_server: '', proxy_port: '', reuseaddr: '1' }
+	  firewall_accept: '0', proxy: '', proxy_server: '', proxy_port: '', reuseaddr: '1' },
+	/* a port-range rule must render like any other (expected count comes from
+	 * the engine state, the listen column shows the range text) */
+	{ '.name': 'cfg4444', enable: '1', remarks: 'media', proto: 'tcp', listen_port: '30000-30002',
+	  dest_proto: 'tcp4', dest_ip: '192.168.1.12', dest_port: '80', family: '',
+	  firewall_accept: '1', proxy: '', proxy_server: '', proxy_port: '', reuseaddr: '1' }
 ];
 const STATUS = {
-	engine: { running: true, loop_pid: 4242, listeners: 2, workers: 2, age: 3,
+	engine: { running: true, loop_pid: 4242, listeners: 6, workers: 6, age: 3,
 	          version: '2', build: 'deadbee', built: '2026-10-13T00:00:00Z' },
-	counts: { total: 2, enabled: 2, listening: 2, down: 0, errors: 0 },
+	counts: { total: 3, enabled: 3, listening: 2, down: 1, errors: 1 },
 	connections: 0,
 	config_missing: false,
 	rules: RULES.map((r) => ({ sid: r['.name'], name: r.remarks, enable: true, proto: r.proto,
-		listen: +r.listen_port, dest_proto: r.dest_proto, dest_ip: r.dest_ip, dest_port: +r.dest_port,
-		family: '', proxy: '', firewall_accept: true, status: 'listening', conns: 0, error: null }))
+		listen: (r.listen_port === '30000-30002') ? 30000 : +r.listen_port,
+		dest_proto: r.dest_proto, dest_ip: r.dest_ip, dest_port: +r.dest_port,
+		family: '', proxy: '', firewall_accept: true,
+		status: (r.listen_port === '30000-30002') ? 'partial' : 'listening',
+		conns: 0, error: (r.listen_port === '30000-30002') ? 'address already in use' : null }))
 };
 const store = {};
 for (const r of RULES) store[r['.name']] = Object.assign({}, r);
@@ -122,7 +131,7 @@ global.form = {
 };
 class Section {
 	constructor() { this.children = []; }
-	option() {
+	option(type, name) {
 		const o = new Proxy(function () {}, {
 			get: (t, k) => (k === 'depends' || k === 'value') ? () => o : o[k],
 			set: (t, k, v) => { o[k] = v; return true; }
@@ -136,8 +145,16 @@ class Section {
 		for (const m of ['depends', 'value', 'rmempty', 'datatype', 'modalonly', 'description'])
 			proxy[m] = () => proxy;
 		this.children.push(proxy);
+		/* the tests read back option configuration by field name */
+		if (name)
+			OPTS.push({ name: name, opt: real });
 		return proxy;
 	}
+}
+const OPTS = [];
+function optOf(name) {
+	const hits = OPTS.filter((e) => e.name === name);
+	return hits.length ? hits[hits.length - 1].opt : null;
 }
 global.poll = { add: () => {} };
 global.ui = {
@@ -229,11 +246,21 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('log clear uses the log_clear ubus method', "method: 'log_clear'", src);
 	has('log poll only runs while open', '_logOpen', src);
 	has('import/export buttons carry the accent class', 'socat-io', all);
+	has('meta line carries the GitHub link', 'GitHub', all);
+
+	/* the listen field must accept a port range (single port or a-b) */
+	const lp = optOf('listen_port');
+	ck('listen_port datatype allows a range', 'portrange', lp && lp.datatype);
+	const dp = optOf('dest_port');
+	ck('dest_port stays a single port', 'port', dp && dp.datatype);
+	const dip = optOf('dest_ip');
+	ck('dest_ip datatype still host-or-v6', 'or(host, ip6addr)', dip && dip.datatype);
+	has('range hint shown to the user', '30000-30010', src);
+	has('import validation accepts a port range', '([0-9]{1,5})(?:-([0-9]{1,5}))?$', src);
 
 	const metaText = byId['socat-t-version'] ? byId['socat-t-version'].textContent : '(none)';
 	has('version text after recount', 'v2', metaText);
 	has('build id after recount', 'deadbee', metaText);
-	has('meta line carries the GitHub link', 'GitHub', all);
 
 	const logText = byId['socat-log'] ? byId['socat-log'].textContent : '(none)';
 	has('log box shows the backend lines', 'engine started', logText);

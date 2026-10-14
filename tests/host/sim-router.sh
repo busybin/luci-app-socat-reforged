@@ -267,6 +267,56 @@ firewall.@zone[1].network=wanb
 firewall.@zone[1].input=REJECT
 EOF
 		;;
+	8)
+		# a port range must turn into one listener per port, and two rules
+		# that share one port must not share their runtime bookkeeping
+		cat > "$SIM/etc/network" <<'EOF'
+network.loopback=interface
+network.loopback.device=lo
+network.lan=interface
+network.lan.device=br-lan
+network.wan=interface
+network.wan.device=eth0.2
+network.wan.proto=dhcp
+EOF
+		cat > "$SIM/etc/socat" <<'EOF'
+socat.reforged=internal
+socat.simrange=config
+socat.simrange.enable='1'
+socat.simrange.proto=tcp
+socat.simrange.listen_port='21090-21092'
+socat.simrange.dest_proto='tcp4'
+socat.simrange.dest_ip=192.168.1.10
+socat.simrange.dest_port='80'
+socat.simrange.firewall_accept='1'
+socat.simclashA=config
+socat.simclashA.enable='1'
+socat.simclashA.proto=tcp
+socat.simclashA.listen_port='21075'
+socat.simclashA.dest_proto='tcp4'
+socat.simclashA.dest_ip=192.168.1.10
+socat.simclashA.dest_port='80'
+socat.simclashA.firewall_accept='0'
+socat.simclashB=config
+socat.simclashB.enable='1'
+socat.simclashB.proto=tcp
+socat.simclashB.listen_port='21075'
+socat.simclashB.dest_proto='tcp4'
+socat.simclashB.dest_ip=192.168.1.20
+socat.simclashB.dest_port='80'
+socat.simclashB.firewall_accept='0'
+EOF
+		cat > "$SIM/etc/firewall" <<'EOF'
+firewall.@zone[0]=zone
+firewall.@zone[0].name=lan
+firewall.@zone[0].network=lan
+firewall.@zone[0].input=ACCEPT
+firewall.@zone[1]=zone
+firewall.@zone[1].name=wan
+firewall.@zone[1].network=wan
+firewall.@zone[1].input=REJECT
+EOF
+		;;
 	*)
 		cat > "$SIM/etc/firewall" <<'EOF'
 firewall.@defaults[0]=defaults
@@ -335,6 +385,33 @@ run_one 4 'wan wanb' 'tcp tcp6 udp udp6' 'wan wanb'
 run_one 5 ''        'tcp tcp6 udp udp6' ''
 run_one 6 'wan'     'tcp tcp6'          'wan'
 run_one 7 ''        'tcp tcp6 udp udp6' ''
+
+# scenario 8: a port range (one listener per port) + two rules sharing one
+# port.  Run inline (not via run_one) so the per-rule runtime files can be
+# inspected before the sandbox is torn down.
+SC=8
+prepare "$SC"
+fixtures "$SC"
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+LOOP=$!
+sleep "$SECS"
+kill "$LOOP" 2>/dev/null
+wait "$LOOP" 2>/dev/null
+for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+sleep 1
+IFS='|' read -r Z L S E <<EOF
+$(results)
+EOF
+check 'scenario 8: zones' 'wan' "$Z"
+check 'scenario 8: range + clash listeners' 'tcp tcp tcp tcp tcp6 tcp6 tcp6 tcp6' "$L"
+check 'scenario 8: firewall src zones' 'wan' "$S"
+check 'scenario 8: exactly one clash error' 1 \
+	"$(awk 'NR>1 && $5!="-"{print $1}' "$SIM/run/state" 2>/dev/null | sort -u | grep -c .)"
+check 'scenario 8: per-rule pid files for a shared port' 4 \
+	"$(ls "$SIM/run/pids" 2>/dev/null | grep -c '21075')"
+check 'scenario 8: per-rule stderr files for a shared port' 4 \
+	"$(ls "$SIM/run/err" 2>/dev/null | grep -c '21075')"
+cleanup
 
 # ---- the engine keeps a persistent, capped log file ------------------------
 # syslog's ring buffer is small and wiped on reboot, so every line also goes to

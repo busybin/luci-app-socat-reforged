@@ -257,6 +257,38 @@ function engine_rules() {
 
 /* -------------------------------------------------------------- config */
 
+/* Character whitelist for anything that ends up in a socat address
+ * (mirrors ok_host() in socat-reforged-gen.awk). */
+function host_ok(s) {
+	if (!s || length(s) > 253)
+		return false;
+	for (let i = 0; i < length(s); i++) {
+		const c = substr(s, i, 1);
+		const ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		           (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' || c == ':';
+		if (!ok)
+			return false;
+	}
+	return true;
+}
+
+/* socat address host part: brackets only around a *literal* IPv6 address.
+ * A hostname must go in unbracketed ("TCP6:example.org:80") or socat cannot
+ * resolve it — the "IPv6 domain does not forward" class of bug. */
+function dial_host(h) {
+	const i = index(h, ':');
+	return (i != null && i >= 0) ? `[${h}]` : h;
+}
+
+/* first port of a listen_port value that may be "443" or "30000-30010".
+ * Used where a single number is needed (socket-table fallback lookup). */
+function first_port(v) {
+	if (v == null)
+		return 0;
+	const i = index(v, '-');
+	return to_int((i != null && i > 0) ? substr(v, 0, i) : v);
+}
+
 function read_rules() {
 	const rules = [];
 
@@ -279,7 +311,7 @@ function read_rules() {
 			name: uci.get(UCI_CFG, sid, 'remarks') ?? '',
 			enable: (uci.get(UCI_CFG, sid, 'enable') ?? '1') != '0',
 			proto: uci.get(UCI_CFG, sid, 'proto') ?? 'tcp',
-			listen: to_int(uci.get(UCI_CFG, sid, 'listen_port')),
+			listen: first_port(uci.get(UCI_CFG, sid, 'listen_port')),
 			dest_proto: uci.get(UCI_CFG, sid, 'dest_proto') ?? 'tcp4',
 			dest_ip: uci.get(UCI_CFG, sid, 'dest_ip') ?? '',
 			dest_port: to_int(uci.get(UCI_CFG, sid, 'dest_port')),
@@ -400,6 +432,11 @@ function do_test(args) {
 	if (host == '' || port <= 0)
 		return { ok: false, detail: 'destination IP and port are required' };
 
+	/* same character whitelist the generator enforces: this string reaches a
+	 * command line, so it must not carry anything exotic */
+	if (!host_ok(host))
+		return { ok: false, detail: 'destination contains invalid characters' };
+
 	/* connect-timeout bounds the dial itself; -T only bounds the transfer.
 	 * Without it a black-holed target hangs the ubus call (and the UI). */
 	let ro = '';
@@ -421,8 +458,8 @@ function do_test(args) {
 	}
 	else if (dproto == 'tcp4') { dial = `TCP4:${host}:${port}`; ro = ',connect-timeout=5'; }
 	else if (dproto == 'udp4') dial = `UDP4:${host}:${port}`;
-	else if (dproto == 'tcp6') { dial = `TCP6:[${host}]:${port}`; ro = ',connect-timeout=5'; }
-	else if (dproto == 'udp6') dial = `UDP6:[${host}]:${port}`;
+	else if (dproto == 'tcp6') { dial = `TCP6:${dial_host(host)}:${port}`; ro = ',connect-timeout=5'; }
+	else if (dproto == 'udp6') dial = `UDP6:${dial_host(host)}:${port}`;
 	else return { ok: false, detail: `unknown destination protocol '${dproto}'` };
 
 	dial += ro;

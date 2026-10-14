@@ -152,10 +152,10 @@ FIX
 	contains "$1 (warned)" "a:$3" "$(warns)"
 }
 
-val_case 'bad listen_port 99999'  "socat.a.listen_port=99999"  'bad listen_port, skip'
-val_case 'bad listen_port 0'      "socat.a.listen_port=0"      'bad listen_port, skip'
-val_case 'bad listen_port abc'    "socat.a.listen_port=abc"    'bad listen_port, skip'
-val_case 'bad listen_port empty'  "socat.a.listen_port="       'bad listen_port, skip'
+val_case 'bad listen_port 99999'  "socat.a.listen_port=99999"  'bad listen port, skip'
+val_case 'bad listen_port 0'      "socat.a.listen_port=0"      'bad listen port, skip'
+val_case 'bad listen_port abc'    "socat.a.listen_port=abc"    'bad listen port, skip'
+val_case 'bad listen_port empty'  "socat.a.listen_port="       'bad listen port, skip'
 val_case 'bad proto sctp'         "socat.a.proto=sctp"         'bad proto, skip'
 val_case 'bad dest_proto sctp'    "socat.a.dest_proto=sctp"    'bad dest_proto, skip'
 val_case 'bad family x'           "socat.a.family=x"           'bad family, skip'
@@ -288,6 +288,111 @@ socat.a.firewall_accept=0
 FIX
 run_gen "$V6"
 check 'firewall_accept=0 -> no fw port' '' "$(fwls)"
+
+# ---- listen_port as a range (one listener per port) ------------------------
+cat > "$WORK/in.show" <<'FIX'
+socat.r=config
+socat.r.enable=1
+socat.r.proto=tcp
+socat.r.listen_port=30000-30002
+socat.r.dest_proto=tcp4
+socat.r.dest_ip=10.0.0.9
+socat.r.dest_port=80
+socat.r.firewall_accept=1
+FIX
+run_gen ''
+check 'range -> one listener per port' 'r/tcp r/tcp r/tcp ' "$(kinds)"
+check 'range -> firewall ports' 'tcp:30000 tcp:30001 tcp:30002 ' "$(fwls)"
+check 'range -> desired commands carry each port' 'TCP-LISTEN:30000 TCP-LISTEN:30001 TCP-LISTEN:30002 ' \
+	"$(cut -f5 "$WORK/out.des" | grep -o 'TCP-LISTEN:[0-9]*' | tr '\n' ' ')"
+
+run_gen "$V6"
+check 'range dual-stack -> v4+v6 per port' 'r/tcp r/tcp6 r/tcp r/tcp6 r/tcp r/tcp6 ' "$(kinds)"
+
+# an over-long span is clamped (and said so) instead of forking listeners
+cat > "$WORK/in.show" <<'FIX'
+socat.big=config
+socat.big.enable=1
+socat.big.proto=tcp
+socat.big.listen_port=10000-10300
+socat.big.dest_proto=tcp4
+socat.big.dest_ip=10.0.0.9
+socat.big.dest_port=80
+socat.big.firewall_accept=0
+FIX
+run_gen ''
+contains 'over-long range is clamped' 'clamped' "$(warns)"
+check 'clamped range starts exactly 256 listeners' 256 "$(awk -F'\t' 'END{print NR}' "$WORK/out.des")"
+
+# nonsense ranges are rejected outright
+for bad in '5000-1000' '70000-70010' '0-10' '3000-' '-3000' 'abc'; do
+	cat > "$WORK/in.show" <<FIX
+socat.b=config
+socat.b.enable=1
+socat.b.proto=tcp
+socat.b.listen_port=$bad
+socat.b.dest_proto=tcp4
+socat.b.dest_ip=10.0.0.9
+socat.b.dest_port=80
+FIX
+	run_gen ''
+	check "bad listen port '$bad' -> skipped" 'b:bad listen port, skip ' "$(warns)"
+done
+
+# ---- destination that is a hostname must not be bracketed ------------------
+# socat only accepts brackets around a literal IPv6 address; "[example.org]"
+# is treated as an address and never resolves.
+cat > "$WORK/in.show" <<'FIX'
+socat.h4=config
+socat.h4.enable=1
+socat.h4.proto=tcp
+socat.h4.listen_port=8080
+socat.h4.dest_proto=tcp4
+socat.h4.dest_ip=example.org
+socat.h4.dest_port=80
+socat.h6=config
+socat.h6.enable=1
+socat.h6.proto=tcp
+socat.h6.listen_port=8081
+socat.h6.dest_proto=tcp6
+socat.h6.dest_ip=example.org
+socat.h6.dest_port=80
+socat.l6=config
+socat.l6.enable=1
+socat.l6.proto=udp
+socat.l6.listen_port=8082
+socat.l6.dest_proto=udp6
+socat.l6.dest_ip=2001:db8::1
+socat.l6.dest_port=53
+socat.l6u=config
+socat.l6u.enable=1
+socat.l6u.proto=udp
+socat.l6u.listen_port=8083
+socat.l6u.dest_proto=udp6
+socat.l6u.dest_ip=example.org
+socat.l6u.dest_port=53
+socat.l6t=config
+socat.l6t.enable=1
+socat.l6t.proto=tcp
+socat.l6t.listen_port=8084
+socat.l6t.dest_proto=tcp6
+socat.l6t.dest_ip=2001:db8::1
+socat.l6t.dest_port=443
+FIX
+# h4 dials v4, h6 dials a v6-resolving hostname, l6/l6t are literal v6
+# addresses, l6u is a v6-resolving hostname over udp; every dual-stack rule
+# expects its v4 and v6 listeners to dial the same target
+run_gen "$V6"
+check 'tcp6 hostname dialed unbracketed' 2 \
+	"$(grep -c 'TCP6:example.org:80' "$WORK/out.des" || true)"
+check 'tcp6 literal stays bracketed' 2 \
+	"$(grep -c 'TCP6:\[2001:db8::1\]:443' "$WORK/out.des" || true)"
+check 'udp6 hostname dialed unbracketed' 2 \
+	"$(grep -c 'UDP6:example.org:53' "$WORK/out.des" || true)"
+check 'udp6 literal stays bracketed' 2 \
+	"$(grep -c 'UDP6:\[2001:db8::1\]:53' "$WORK/out.des" || true)"
+check 'no bracketed hostname in any command' '' \
+	"$(grep -o '\[[a-zA-Z0-9._-]*\]' "$WORK/out.des" | sort -u | tr -d '\n')"
 
 # ---- second awk implementation: the tests must hold there too -------------
 if command -v busybox >/dev/null 2>&1; then
