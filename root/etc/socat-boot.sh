@@ -15,8 +15,10 @@
 #  * Workers we start carry SOCAT_REFORGED=1 in their environment and are
 #    matched by reading /proc/<pid>/environ (zero forks), so we only ever
 #    kill our own listeners, never somebody else's socat.
-#  * Per-listener stderr is captured in $RUNDIR/err/<kind>-<port>.log and
-#    published in $RUNDIR/state, so the UI can say WHY a rule is down.
+#  * Per-listener stderr is captured in $RUNDIR/err/<sid>-<kind>-<port>.log
+#    (named after the rule, not just the port: two rules that share a port
+#    must not share one stderr file) and published in $RUNDIR/state, so the
+#    UI can say WHY a rule is down.
 #
 #  The engine log goes to syslog *and* to a size-capped file
 #  (/var/log/socat-reforged.log): syslog's ring buffer is small and is wiped
@@ -449,9 +451,11 @@ EOF
 # scan (a process that still owns its own listening socket) and fall back to
 # the pid recorded when we started it: that closes the tiny race right after a
 # spawn, when the fresh worker is not in the LISTEN table yet.
+# The registry/err files are keyed by (sid, kind, port): two rules may share
+# a listen port, and they must not overwrite each other's bookkeeping.
 # Sets $LL_PID.
-live_listener_pid() { # live_listener_pid <kind> <port> <key>
-	local reg rc f="$PIDDIR/$1-$2" want="$3"
+live_listener_pid() { # live_listener_pid <sid> <kind> <port> <key>
+	local reg rc f="$PIDDIR/$1-$2-$3" want="$4"
 	LL_PID=""
 	find_pid "$want" && { LL_PID="$RUN_PID"; return 0; }
 	reg=""
@@ -523,7 +527,7 @@ all_listeners_alive() {
 	while IFS="$TAB" read -r sid kind port key cmd; do
 		[ -n "$sid" ] || continue
 		p=""
-		[ -f "$PIDDIR/$kind-$port" ] && read -r p < "$PIDDIR/$kind-$port" 2>/dev/null
+		[ -f "$PIDDIR/$sid-$kind-$port" ] && read -r p < "$PIDDIR/$sid-$kind-$port" 2>/dev/null
 		if [ -z "$p" ] || ! kill -0 "$p" 2>/dev/null; then
 			return 1
 		fi
@@ -621,18 +625,18 @@ EOF
 	# start what is missing (and refresh stale pid bookkeeping)
 	while IFS="$TAB" read -r sid kind port key cmd; do
 		[ -n "$sid" ] || continue
-		live_listener_pid "$kind" "$port" "$key"
+		live_listener_pid "$sid" "$kind" "$port" "$key"
 		pid="$LL_PID"
 		if [ -n "$pid" ]; then
 			# keep the registry honest: a reused port must not keep a dead pid
-			echo "$pid" > "$PIDDIR/$kind-$port"
+			echo "$pid" > "$PIDDIR/$sid-$kind-$port"
 			continue
 		fi
-		errf="$ERRDIR/$kind-$port.log"
+		errf="$ERRDIR/$sid-$kind-$port.log"
 		: > "$errf" 2>/dev/null
 		# the assignment must be literal: $MARKER would expand to a command
 		SOCAT_REFORGED=1 $cmd >/dev/null 2>"$errf" &
-		echo $! > "$PIDDIR/$kind-$port"
+		echo $! > "$PIDDIR/$sid-$kind-$port"
 		spawned=$((spawned + 1))
 	done < "$DESF"
 
@@ -663,15 +667,15 @@ publish_state() {
 		echo "engine $lp $up $LIST_COUNT $PKG_VERSION $BUILD $BUILT"
 		while IFS="$TAB" read -r sid kind port key cmd; do
 			[ -n "$sid" ] || continue
-			live_listener_pid "$kind" "$port" "$key"
+			live_listener_pid "$sid" "$kind" "$port" "$key"
 			pid="$LL_PID"
 			e="-"
 			# only report a reason when the listener really is not running:
-			# the err file is per port+kind and could hold a previous
+			# the err file is per rule+kind+port and could hold a previous
 			# attempt's message for a healthy listener
 			if [ -z "$pid" ]; then
 				pid="-"
-				[ -s "$ERRDIR/$kind-$port.log" ] && read -r e < "$ERRDIR/$kind-$port.log" 2>/dev/null
+				[ -s "$ERRDIR/$sid-$kind-$port.log" ] && read -r e < "$ERRDIR/$sid-$kind-$port.log" 2>/dev/null
 				[ -n "$e" ] || e="-"
 			fi
 			echo "$sid $kind $port $pid $e"
@@ -1084,7 +1088,7 @@ if [ "$1" = "restart-rule" ]; then
 		while IFS="$TAB" read -r _sid _kind _port _key2 _cmd; do
 			[ "$_sid" = "$_sec" ] || continue
 			if [ "$_key2" = "$_key" ]; then
-				rm -f "$PIDDIR/$_kind-$_port" "$ERRDIR/$_kind-$_port.log" 2>/dev/null
+				rm -f "$PIDDIR/$_sid-$_kind-$_port" "$ERRDIR/$_sid-$_kind-$_port.log" 2>/dev/null
 				log "restart-rule $_sec: killed pid $_pid"
 				kill "$_pid" 2>/dev/null
 				_restarted=1
