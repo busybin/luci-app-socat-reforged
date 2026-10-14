@@ -91,7 +91,15 @@ function fieldVal(sid, opt) {
 /* ---- import validation (never let a malformed rule reach UCI) ---- */
 var HOST_RE = /^[A-Za-z0-9._:-]+$/;
 function importPortOk(v) {
-	return /^[0-9]+$/.test(String(v)) && parseInt(v, 10) >= 1 && parseInt(v, 10) <= 65535;
+	/* single port or "from-to" — the same shapes the generator accepts */
+	var m = /^([0-9]{1,5})(?:-([0-9]{1,5}))?$/.exec(String(v));
+	if (!m)
+		return false;
+	var a = parseInt(m[1], 10);
+	var b = m[2] !== undefined ? parseInt(m[2], 10) : a;
+	if (a < 1 || b > 65535 || a > b)
+		return false;
+	return true;
 }
 function importCheck(rule) {
 	if (!rule || typeof rule !== 'object')
@@ -190,8 +198,38 @@ return view.extend({
 			var key = (uci.get('socat', sid, 'proto') || 'tcp') + ':' + port;
 			(seen[key] = seen[key] || []).push(sid);
 		});
-		return Object.keys(seen).filter(function(k) { return seen[k].length > 1; })
-			.map(function(k) { return { key: k, sids: seen[k] }; });
+		/* exact port:port collisions are the common case; a range whose span
+		 * intersects another rule's port is reported as its own conflict */
+		function portsOf(p) {
+			var m = /^([0-9]{1,5})-([0-9]{1,5})$/.exec(String(p));
+			if (!m)
+				return [ String(p) ];
+			var a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+			if (!(a >= 1 && b <= 65535 && a <= b))
+				return [ String(p) ];
+			if (b - a + 1 > 512)
+				return [ String(p) ];
+			var out = [];
+			for (var i = a; i <= b; i++)
+				out.push(String(i));
+			return out;
+		}
+		var flat = {};
+		Object.keys(seen).forEach(function(k) {
+			var m = /^(.*?):(.*)$/.exec(k);
+			var proto = m[1], port = m[2];
+			portsOf(port).forEach(function(p) {
+				var fk = proto + ':' + p;
+				var have = flat[fk] || (flat[fk] = []);
+				seen[k].forEach(function(sid) {
+					if (have.indexOf(sid) < 0)
+						have.push(sid);
+				});
+			});
+		});
+		return Object.keys(flat).filter(function(k) {
+			return flat[k].length > 1;
+		}).map(function(k) { return { key: k, sids: flat[k] }; });
 	},
 
 	/* recompute tiles + every row status + flags; called on poll and after actions */
@@ -692,8 +730,10 @@ return view.extend({
 		o.rmempty = false;
 
 		o = s.option(form.Value, 'listen_port', _('Listen'));
-		o.datatype = 'port';
+		o.datatype = 'portrange';
 		o.rmempty = false;
+		o.placeholder = _('443 or 30000-30010');
+		o.description = _('Single port or a range (one listener is started per port, max 256).');
 
 		/* table-only: target IP (+ small proto suffix) */
 		o = s.option(form.DummyValue, '_target', _('Target'));

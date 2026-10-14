@@ -1,0 +1,13 @@
+#!/bin/sh
+# WAN event hook: reconcile the engine the moment an interface comes up, goes
+# down or changes address — instead of waiting for the next 60s cycle.  A
+# PPPoE redial or DHCP renew can otherwise leave a v6 listener bound to an
+# address that no longer exists for up to a minute.
+#
+# The engine's reconcile is cheap when nothing changed (fast path: one `uci
+# show` + one awk pass) and takes the same lock as the main loop, so extra
+# events cost nothing.
+[ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifdown" ] || [ "$ACTION" = "ifupdate" ] || exit 0
+[ -x /etc/socat-boot.sh ] || exit 0
+/etc/socat-boot.sh reconcile >/dev/null 2>&1
+exit 0

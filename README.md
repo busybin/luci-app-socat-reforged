@@ -16,6 +16,10 @@ drop-in replacement with a modern, ucode-native view.
   port-forward table with live listener status, a **search box** and
   **status filters** (all / listening / down / disabled), and a friendly
   empty state.
+* **Port ranges**: `listen_port` accepts `30000-30010` as well as a single
+  port — the engine starts (and reports) one listener per port, aggregates the
+  firewall rule, and caps a range at 256 ports so a typo cannot fork thousands
+  of workers.
 * **rpcd / ucode backend** (ubus object `luci.socat-reforged`): the page does
   **not** shell out from the browser. One RPC returns the whole state
   (engine, every rule, active connection counts) and the actions run
@@ -53,6 +57,9 @@ drop-in replacement with a modern, ucode-native view.
   guarantees only ever *one* engine loop reconciles — even if a competing init
   (e.g. a socat build shipping its own init for this engine) is present, the extra
   loop just idles, and the lock self-heals if the holder dies uncleanly.
+* **Event-driven**: a hotplug hook reconciles the engine when an interface comes
+  up, goes down or changes address, so a PPPoE redial or DHCP renew is applied
+  in seconds instead of waiting up to one cycle.
 * **Theme-aware** UI (uses the LuCI CSS variables, so light and dark themes both
   look right).
 

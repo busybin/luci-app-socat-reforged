@@ -85,6 +85,7 @@ else
   exit 1
 fi
 inst root/etc/init.d/socat-reforged /etc/init.d/socat-reforged 755
+inst root/etc/hotplug.d/iface/99-socat-reforged /etc/hotplug.d/iface/99-socat-reforged 755
 
 # --- make sure the config exists (menu/form expect it) ---
 if [ ! -f /etc/config/socat ]; then
