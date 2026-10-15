@@ -249,6 +249,14 @@ English for anything a catalogue does not cover. The backend's own error strings
 (the `Test` button, the log) are mapped onto translatable messages in the view,
 and `tests/host/view-smoke.js` keeps that mapping and the backend in sync.
 
+The prebuilt language package is attached to the Releases next to the app
+package (`apk add --allow-untrusted ./luci-i18n-socat-reforged-zh-cn-*.apk`, or
+`opkg install` the `.ipk`). It **depends on the app package**, so install that
+first — and note that a hand-installed tree (`install.sh`) is not a package, so
+the language package will refuse to install until you install the `.apk`/`.ipk`
+itself. After installing a language, pick it in *System → System → Language and
+Style* and hard-refresh the browser.
+
 ## How different architectures are handled
 
 * **This app is architecture-independent.** `LUCI_PKGARCH:=all`; the payload is
