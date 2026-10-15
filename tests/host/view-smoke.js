@@ -254,6 +254,35 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('the page is wrapped in socat-page', '"class":"socat-page"', all);
 	has('Start uses the affirmative style', "cbi-button-positive', 'click': ui.createHandlerFn(this, 'handleStart')", src);
 	ck('Start is not the dirty-clearing class', false, /cbi-button-apply', 'click': ui.createHandlerFn\(this, 'handleStart'\)/.test(src));
+
+	/* The backend (ucode) reports failures with plain English detail/error
+	 * strings — the translation catalogue only exists in the browser — so the
+	 * view maps the fixed set onto translatable msgids in trDetail().  That is a
+	 * cross-file contract: check it in both directions so neither side can drift
+	 * (a new backend message must be taught to the table, and a dropped one must
+	 * not linger in it). */
+	const back = fs.readFileSync(path.join(REPO, 'root', 'usr', 'share', 'rpcd', 'ucode', 'luci.socat-reforged.uc'), 'utf8');
+	const srcPlain = src.replace(/\\(.)/g, '$1');   /* strip regex escapes */
+	const bl = back.split('\n');
+	const msgs = new Set();
+	bl.forEach((line, i) => {
+		if (!/\b(detail|error)\s*:/.test(line))
+			return;
+		/* a ternary may put the two messages on the next line */
+		const win = [line, bl[i + 1] || ''].join('\n');
+		const keep = (m) => m.length >= 8 && /^[A-Za-z]/.test(m) && /\s/.test(m) && /[a-z]/.test(m);
+		for (const m of win.matchAll(/'([^'\n]*)'/g)) if (keep(m[1])) msgs.add(m[1]);
+		for (const m of win.matchAll(/`([^`\n]*)`/g)) if (keep(m[1])) msgs.add(m[1]);
+	});
+	const unmapped = [...msgs].filter((m) => {
+		if (src.indexOf("'" + m + "'") >= 0) return false;                    /* a case label */
+		const prefix = m.split('${')[0];                                     /* literal head of a template */
+		return !(prefix.length > 3 && srcPlain.indexOf('^' + prefix) >= 0);  /* or a regex */
+	});
+	ck('every backend message is mapped for translation', 'none', unmapped.length ? unmapped.join(' | ') : 'none');
+	const cases = [...src.matchAll(/case '([^']+)':/g)].map((m) => m[1]);
+	const stale = cases.filter((c) => back.indexOf("'" + c + "'") < 0);
+	ck('no stale translation mapping', 'none', stale.length ? stale.join(' | ') : 'none');
 	has('log box has a pre element to fill', '"id":"socat-log"', all);
 	has('refresh button is wired', 'handleLogRefresh', src);
 	has('clear button is wired', 'handleLogClear', src);
