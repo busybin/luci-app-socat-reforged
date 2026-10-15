@@ -5,6 +5,14 @@ the last tag; version numbers only change when a release is requested.
 
 ## Unreleased
 
+* **Simplified Chinese translation**, shipped the LuCI way as its own package
+  (`luci-i18n-socat-reforged-zh_Hans`, built from `po/zh_Hans/`): installing a
+  language does not touch the app package, and anything a catalogue misses falls
+  back to English.  The backend's own `detail`/`error` strings (the Test button,
+  the log) are mapped onto translatable messages in the view, and
+  `tests/host/view-smoke.js` now checks that mapping against the backend source
+  in both directions so neither side can drift.  From
+  [@ntbowen](https://github.com/ntbowen)'s PR #2.
 * The **Start** button uses the affirmative style instead of `cbi-button-apply`.
   Sharing that class with "Save & Apply" meant a click on Start ran the
   unsaved-changes tracker and cleared the dirty marker without saving anything.
