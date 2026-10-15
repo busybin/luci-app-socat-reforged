@@ -384,3 +384,22 @@ Engine and packaging rewrite of V2, driven by a full code audit (2026-10-13):
 * Verified with an OpenWrt layout simulator: DHCP eth0.2, PPPoE pppoe-wan,
   renamed zone, device-only zone, multi-WAN, no-IPv6, anonymous-nameless zone,
   unmappable zone, and a restricted `PATH=/bin` start.
+
+### New: a command-matrix suite and a fuzz suite (2026-10-15)
+
+Two suites whose job is to catch what the string comparison cannot:
+
+* **`tests/host/matrix.sh`** — one rule per listener kind with every option
+  switched on, then each generated command is *started* and its listener
+  verified in `/proc/net/{tcp,tcp6,udp,udp6}` or as a unix socket file. 18/18
+  with `user=`, `retry=`, `keepalive`, `nodelay`, `backlog`, `max-children`,
+  `timeout` and port-range expansion on at once.
+* **`tests/host/fuzz.sh`** — ~100 hostile values (shell metacharacters, spikes,
+  octal-looking and out-of-range numbers) fed to every option, each in the
+  profile that actually reaches it, asserting that the generator never crashes,
+  never writes to stderr, never starts a listener for a value it should have
+  refused, and that no command, key or firewall line contains a shell
+  metacharacter. Verified by mutation: loosening `ok_host` by one character
+  turns two of the checks red.
+
+Both are part of `sh tests/run.sh` (6 suites now) and the CI host-tests job.

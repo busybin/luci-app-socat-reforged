@@ -8,6 +8,8 @@ an OpenWrt box.
 sh tests/run.sh                 # everything that needs no router (~1 min)
 sh tests/run.sh --router router # also install on + test the router (~3 min)
 sh tests/run.sh --sim           # just the layout simulator
+sh tests/run.sh --matrix        # just the command matrix (real socat)
+sh tests/run.sh --fuzz          # just the hostile-value fuzz
 sh tests/run.sh --gen           # just the generator unit tests
 sh tests/run.sh --zones         # just the zone detection tests
 ```
@@ -22,14 +24,16 @@ Exit code is non-zero if any check fails, so this can go straight into CI.
 | --- | --- |
 | `gen-cases.sh` | the desired-state generator: dual-stack vs IPv6-less, `family`, `enable` defaults, `firewall_accept`, dotted section names, and **every** validation path (port range, protocol, family, proxy, and injection attempts like `1.2.3.4;reboot`, `$(id)`, backticks, pipes, globs). Also cross-checks the host awk against BusyBox awk. |
 | `zones-cases.sh` | WAN zone detection for 12 firewall layouts: default zone, PPPoE device list, renamed zone (named *and* anonymous), device-only zone, multi-WAN, nameless anonymous zone (must be skipped), unmappable layout, no firewall config, `ifname` variant, quoted values. |
-| `sim-router.sh` | the **whole engine**, booted against 7 different OpenWrt layouts with a fake `uci`/`ip` and a real `socat`. Asserts which listeners came up, which firewall zone(s) the accept rules went to, and that unmappable zones produce no rules at all. Scenarios: classic DHCP, renamed zone, no IPv6, multi-WAN, unmappable, PPPoE, nameless anonymous zone. |
+| `sim-router.sh` | the **whole engine**, booted against 9 different OpenWrt layouts with a fake `uci`/`ip` and a real `socat`. Asserts which listeners came up, which firewall zone(s) the accept rules went to, and that unmappable zones produce no rules at all. Scenarios: classic DHCP, renamed zone, no IPv6, multi-WAN, unmappable, PPPoE, nameless anonymous zone, a port range plus a shared port, and multicast + unix. |
+| `matrix.sh` | every generated command, started for real: one rule per listener kind (TCP/TCP6/UDP/UDP6/TLS/unix/unix/unix/TCP/SOCKS4A/multicast) with every option on, then each command is launched and its listener verified in `/proc/net/{tcp,tcp6,udp,udp6}` or as a unix socket file. Catches "socat refuses this option on this address type". |
+| `fuzz.sh` | ~100 hostile values (shell metacharacters, spikes, out-of-range and octal-looking numbers) fed to every option, each in the profile that actually reaches it, asserting the generator never crashes, never starts a listener for a value it should have refused, and that no command/key/firewall line contains a shell metacharacter. |
 
 ### `router/` — needs a router
 
 | file | checks |
 | --- | --- |
 | `run.sh` | installs the working tree on the router (`tar \| ssh`, idempotent) and runs the three suites below; always cleans up. |
-| `engine-checks.sh` | runs on the router: one loop, all listeners alive, every worker is ours, a conflicting rule reports `Address in use`, out-of-range ports and metacharacter targets are refused, `udp family=6` behaviour, disable/remove, `restart-rule` (including a bad section id), and a foreign `socat` surviving a reconcile. Removes every rule it created. |
+| `engine-checks.sh` | runs on the router: one loop, all listeners alive, every worker is ours, a conflicting rule reports `Address in use`, out-of-range ports and metacharacter targets are refused, `udp family=6` behaviour, disable/remove, `restart-rule` (including a bad section id), a foreign `socat` surviving a reconcile, and the new protocol kinds — a unix listener comes up, leaves its socket file, and rebinds over a stale one; a multicast listener comes up and opens the IGMP rule; a TLS rule on a socat without OpenSSL is reported down with socat's own reason. |
 | `backend-checks.uc` | runs on the router: loads the real rpcd backend and calls every method — `status` shape and rule statuses, all four `test` validation paths, the connect timeout on a black-holed target, `reload`, and `rule_restart` guards. |
 | `perf.sh` | runs on the router: CPU of the loop over 120s (fail above 5% of a core), log churn (fail above 2 lines), and listener health. |
 

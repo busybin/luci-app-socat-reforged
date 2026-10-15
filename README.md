@@ -252,13 +252,13 @@ Each `config config` section is one forward:
 Everything that does not need a router runs anywhere (BusyBox/Linux + `socat`):
 
 ```sh
-sh tests/run.sh                  # view + generator + zones + simulator + matrix
+sh tests/run.sh                  # 6 suites: view, generator, zones, simulator, matrix, fuzz
 sh tests/run.sh --router router  # also install on a router, test engine/backend/perf
 ```
 
 See `tests/README.md` for what each suite covers. Exit codes are CI-friendly.
 
-Five suites, two of which start the **real** `socat`:
+Six suites; three of them do not trust the string comparison:
 
 * **layout simulator** — the real engine, the real `socat`, fake `uci`/`ip`: a
   full OpenWrt device in a sandbox, so reconcile, kill/respawn and the firewall
@@ -268,6 +268,10 @@ Five suites, two of which start the **real** `socat`:
   `/proc/net/{tcp,tcp6,udp,udp6}` or as a unix socket file. This is the suite
   that catches "socat refuses this option on this address type", which the
   string-comparing tests cannot see.
+* **fuzz** — ~100 hostile values (shell metacharacters, out-of-range and
+  octal-looking numbers) fed to every option, asserting that the generator
+  never starts a listener for a value it should have refused and that nothing
+  it writes is a shell metacharacter.
 
 The layout simulator is the one that matters for a generator change: the unit
 tests compare the *generated key* (deliberately stripped of spaces) and only
