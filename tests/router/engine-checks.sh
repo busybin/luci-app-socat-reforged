@@ -327,7 +327,9 @@ uci set "socat.$TL.dest_port=80" >/dev/null
 uci set "socat.$TL.firewall_accept=0" >/dev/null
 uci commit socat
 reconcile_now
+TL_HAS_SSL=0
 if socat -V 2>&1 | grep -q '#define WITH_OPENSSL'; then
+	TL_HAS_SSL=1
 	sleep 2
 	if [ "$(alive "$TL")" -ge 1 ]; then
 		PASS=$((PASS+1)); printf '  %-44s ok\n' "tls listener comes up"
@@ -349,6 +351,12 @@ fi
 uci -q delete "socat.$TL" >/dev/null
 uci commit socat
 reconcile_now
+# a TLS worker must be recognised like any other, or deleting its rule leaves
+# the listener running for good (the OpenSSL-LISTEN kind was in neither of the
+# engine's two kind lists, which no non-TLS router can show)
+if [ "$TL_HAS_SSL" = 1 ]; then
+	ck "the deleted tls listener is gone" 0 "$(alive "$TL")"
+fi
 rm -f "$UXP"
 # ---------------------------------------------------------------- cleanup ---
 for S in "$S" "$B" "$I" "$U" "$D" "$O" "$UX" "$MC" "$TL"; do uci delete "socat.$S" >/dev/null 2>&1; done

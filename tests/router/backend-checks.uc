@@ -99,6 +99,21 @@ const r2 = obj.test.call({ args: { dest_ip: '192.0.2.1', dest_port: 9, dest_prot
 ck('test: black-holed target fails fast', true, (time() - t1) < 8);
 ck('test: black-holed target is not ok', false, r2.ok);
 
+/* TLS / unix / multicast targets used to answer "unknown destination
+ * protocol", so the Test button of a perfectly valid rule just said so */
+function understood(r) { return index(r.detail ?? '', 'unknown destination protocol') < 0; }
+ck('test: a TLS target is understood', true,
+   understood(obj.test.call({ args: { dest_ip: '192.0.2.1', dest_port: 443, dest_proto: 'ssl' } })));
+ck('test: a unix target is understood', true,
+   understood(obj.test.call({ args: { dest_proto: 'unix', dest_unix_path: '/tmp/no-such-socket.sock' } })));
+ck('test: a multicast target is understood', true,
+   understood(obj.test.call({ args: { dest_proto: 'mcast', mcast_dst_group: '239.10.10.10', mcast_dst_port: 5000 } })));
+/* ...and a unix target with a relative path is refused, like the generator does */
+ck('test: a unix target needs an absolute path', false,
+   obj.test.call({ args: { dest_proto: 'unix', dest_unix_path: 'relative.sock' } }).ok);
+has('test: ...and says why', 'dst_unix_path',
+   obj.test.call({ args: { dest_proto: 'unix', dest_unix_path: 'relative.sock' } }).detail ?? '');
+
 /* ---- actions ---------------------------------------------------------- */
 ck('reload works', true, obj.reload.call().ok);
 ck('unknown action is refus- ... (rule_restart needs a sid)', false,

@@ -18,6 +18,19 @@ REPO=$(cd "$HERE/../.." && pwd)
 SIM=/tmp/opencode/socat-sim/repo-sim
 SECS=${SIM_SECS:-9}
 
+# A TLS listener needs a real certificate, and the scenario that exercises it is
+# skipped unless this socat has OpenSSL (the stock OpenWrt package does not).
+SOCAT_HAS_SSL=0
+socat -V 2>&1 | grep -q '#define WITH_OPENSSL' && SOCAT_HAS_SSL=1
+TLS_DIR=/tmp/opencode/socat-sim-tls
+TLS_C=$TLS_DIR/c.pem
+TLS_K=$TLS_DIR/k.pem
+mkdir -p "$TLS_DIR"
+if [ "$SOCAT_HAS_SSL" = 1 ]; then
+	openssl req -x509 -newkey rsa:2048 -keyout "$TLS_K" -out "$TLS_C" \
+		-days 2 -nodes -subj "/CN=socat-sim-tls" >/dev/null 2>&1
+fi
+
 prepare() { # prepare <scenario>
 	SC="$1"
 	rm -rf "$SIM"; mkdir -p "$SIM/bin" "$SIM/etc" "$SIM/run"
@@ -359,6 +372,33 @@ firewall.@zone[1].network=wan wan6
 firewall.@zone[1].input=REJECT
 EOF
 		;;
+	10)
+		# a TLS rule: the engine must see the OPENSSL-LISTEN worker like any
+		# other, or it can never stop it again
+		cat > "$SIM/etc/socat" <<EOF
+socat.reforged=internal
+socat.simtls=config
+socat.simtls.enable='1'
+socat.simtls.proto=ssl
+socat.simtls.listen_port='21095'
+socat.simtls.ssl_cert='$TLS_C'
+socat.simtls.ssl_key='$TLS_K'
+socat.simtls.dest_proto=tcp4
+socat.simtls.dest_ip=192.168.1.10
+socat.simtls.dest_port='80'
+socat.simtls.firewall_accept='1'
+EOF
+		cat > "$SIM/etc/firewall" <<'EOF'
+firewall.@zone[0]=zone
+firewall.@zone[0].name=lan
+firewall.@zone[0].network=lan
+firewall.@zone[0].input=ACCEPT
+firewall.@zone[1]=zone
+firewall.@zone[1].name=wan
+firewall.@zone[1].network=wan wan6
+firewall.@zone[1].input=REJECT
+EOF
+		;;
 	*)
 		cat > "$SIM/etc/firewall" <<'EOF'
 firewall.@defaults[0]=defaults
@@ -490,6 +530,45 @@ check 'scenario 9: the unix rule opens no port' 0 "$(grep -c 'socat_reforged_tcp
 check 'scenario 9: the unix listener socket exists' 1 "$([ -S "$SIM/run/sim.sock" ] && echo 1 || echo 0)"
 cleanup
 
+# ---- a TLS listener must be visible to the engine ---------------------------
+# OPENSSL-LISTEN was missing from both of the engine's listener-kind lists, so a
+# TLS worker was invisible: deleting its rule left the listener running, Stop
+# never killed it, and the worker count was short.  Only a socat built with
+# OpenSSL can show this, so the scenario is skipped without one.
+if [ "$SOCAT_HAS_SSL" = 1 ]; then
+	SC=10
+	prepare "$SC"
+	fixtures "$SC"
+	PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+	LOOP=$!
+	sleep "$SECS"
+	kill "$LOOP" 2>/dev/null
+	wait "$LOOP" 2>/dev/null
+	for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+	sleep 1
+	check 'scenario 10: the TLS listener is tracked' 1 \
+		"$(awk 'NR>1 && $2=="ssltcp" && $4!="-"' "$SIM/run/state" 2>/dev/null | grep -c .)"
+	# 21095 == 0x5267 in /proc/net/tcp
+	check 'scenario 10: ...and it is really listening' 1 \
+		"$(awk 'FNR>1 && toupper($2) ~ /:5267$/ && $4=="0A"' /proc/net/tcp /proc/net/tcp6 2>/dev/null | grep -c .)"
+	# drop the rule: the engine must stop the listener it started itself
+	cat > "$SIM/etc/socat" <<'EOF'
+socat.reforged=internal
+EOF
+	PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+	LOOP=$!
+	sleep "$SECS"
+	kill "$LOOP" 2>/dev/null
+	wait "$LOOP" 2>/dev/null
+	for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+	sleep 1
+	check 'scenario 10: the deleted TLS listener is gone' 0 \
+		"$(awk 'FNR>1 && toupper($2) ~ /:5267$/ && $4=="0A"' /proc/net/tcp /proc/net/tcp6 2>/dev/null | grep -c .)"
+	cleanup
+else
+	echo "  (scenario 10 skipped: this socat is built without OpenSSL)"
+fi
+
 # ---- the engine keeps a persistent, capped log file ------------------------
 # syslog's ring buffer is small and wiped on reboot, so every line also goes to
 # $LOGF (64 KiB cap, newest half kept).  The layout is irrelevant here, so this
@@ -567,5 +646,37 @@ sleep 1
 check "fw backoff: a fresh fail marker blocks a rebuild" '' "$(cat "$SIM/fw.log" 2>/dev/null)"
 cleanup
 
-rm -rf "$SIM"
+# ---- an emptied firewall port list must really be emptied -------------------
+# The generator opens its fw file only when it has a line to write, so the
+# engine has to truncate it itself.  Without that the previous ports survive,
+# the firewall signature never changes, and the WAN accept rule of a forward
+# whose firewall_accept was turned off stays open forever.
+prepare 3
+fixtures 3
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+LOOP=$!
+sleep "$SECS"
+kill "$LOOP" 2>/dev/null
+wait "$LOOP" 2>/dev/null
+for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+sleep 1
+check 'fw stale: the first run opened the port' 1 "$(grep -c 'dest_port=21081' "$SIM/fw.log" 2>/dev/null)"
+check 'fw stale: the port list holds it' 1 "$(grep -c '21081' "$SIM/run/fw" 2>/dev/null)"
+# stop wanting the accept rule; nothing else about the rule changes
+sed -i "s/^socat.simhttp.firewall_accept='1'/socat.simhttp.firewall_accept='0'/" "$SIM/etc/socat"
+: > "$SIM/fw.log"
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+LOOP=$!
+sleep "$SECS"
+kill "$LOOP" 2>/dev/null
+wait "$LOOP" 2>/dev/null
+for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+sleep 1
+check 'fw stale: the port list is emptied' '' "$(cat "$SIM/run/fw" 2>/dev/null)"
+check 'fw stale: the old accept rule is gone' 0 "$(grep -c 'dest_port=21081' "$SIM/fw.log" 2>/dev/null)"
+check 'fw stale: the engine deletes its own rules' 1 \
+	"$([ "$(grep -c 'delete firewall.socat_reforged_tcp' "$SIM/fw.log" 2>/dev/null)" -ge 1 ] && echo 1 || echo 0)"
+cleanup
+
+rm -rf "$SIM" "$TLS_DIR"
 summary 'OpenWrt layout simulator'

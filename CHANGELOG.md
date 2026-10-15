@@ -5,6 +5,65 @@ the last tag; version numbers only change when a release is requested.
 
 ## Unreleased
 
+### A bug sweep across the whole surface (2026-10-15)
+
+Six real defects, each reproduced before it was touched and each with a
+regression test whose assertion was verified to go red when the fix is
+reverted.  Two of them could only be found by exercising a *TLS-capable*
+socat and a *reused* runtime directory, so the suites grew accordingly:
+
+* **The engine was blind to `OPENSSL-LISTEN` workers.**  The address type was
+  in neither of the engine's two listener-kind lists (`scan_workers` and
+  `key_kind`), so a TLS worker was never seen: deleting (or disabling) its rule
+  left the listener running for good, Stop/Cleanup never killed it, "Restart
+  this rule" did nothing, and the worker count was short.  A new host suite
+  derives the listener kinds from the **generator** and asserts that the engine
+  knows every one of them, so a new listener type can no longer be added
+  without teaching the engine.
+* **A stale firewall port list kept a deleted forward's WAN port open.**  The
+  generator only opens its `fw` file when it has a line to write, and the
+  engine did not truncate it: emptying the list (last forward deleted, or
+  `firewall_accept` turned off everywhere) left the *previous* ports active and
+  the firewall signature unchanged, so the accept rule was never withdrawn.
+* **`nodelay` on a UDP rule killed the whole rule.**  socat refuses `,nodelay`
+  on `UDP-LISTEN` ("option "nodelay" not supported with this address type");
+  the option was gated per address type before (unix+keepalive, udp+retry) but
+  this one slipped through.  It is now only emitted for TCP/TLS listeners (the
+  dial side keeps it), and the command matrix turns it on for the UDP rule so
+  the same class cannot come back unnoticed.
+* **An IPv4 literal on a `tcp6`/`udp6` dial looks healthy and forwards
+  nothing.**  getaddrinfo with `AF_INET6` rejects `192.168.1.9` on every
+  connection, while the listener binds fine.  This is the mirror image of the
+  "IPv6 target needs tcp6" guard from the previous round; it is now refused
+  with a reason (a hostname is still accepted — it resolves to either family).
+* **`mcast_iface` reached the command line unvalidated on a relay rule.**  On a
+  `dest_proto=mcast` rule the interface name is part of the *dial* address, and
+  that path runs even when no group is joined — the validation lived only in
+  the multicast-*receive* branch, so a value with a space injected extra socat
+  arguments.  Validated unconditionally now (and on import).
+* **The `test` (reachability) rpc did not know TLS, unix or multicast
+  targets**, so the Test button of a valid rule answered "unknown destination
+  protocol".  All three are supported now (`OPENSSL` with `verify=0`,
+  `UNIX-CONNECT`, `UDP4-DATAGRAM`), the view names the target the way the rule
+  does, and a cross-file test keeps the view's rpc parameters in step with the
+  backend's `args`.
+
+Also in this round:
+
+* Two values that cannot be honoured are now **reported instead of silently
+  dropped**: a `listen_addr` on a TLS rule (socat's OpenSSL listener has no
+  IPv6, and the v4 path ignores a v6 bind) and `ssl_verify` without an
+  `ssl_cafile` (which silently meant "no verification at all").
+* **Conflict detection no longer cries wolf**: two rules may share one port if
+  they bind *different* addresses; a wildcard bind still conflicts with
+  everything.
+* The command matrix moved off the local ephemeral port range
+  (32768-60999): a port there can be taken by any outbound connection on the
+  machine, which made the matrix fail with `EADDRINUSE` through no fault of the
+  generator (a stray connection held 37112 once).
+* Import validation now also checks `mcast_iface`/`mcast_localip`, and the
+  `TCP_NODELAY` field says that a UDP listener ignores it.
+
 ### Feature parity with the other luci-app-socat forks (2026-10-14)
 
 Compared every live fork on GitHub (chenmozhijin, WROIATE, mylucien, 4IceG,
