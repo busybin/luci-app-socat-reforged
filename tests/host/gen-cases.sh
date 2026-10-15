@@ -14,6 +14,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 
 REPO=$(cd "$HERE/../.." && pwd)
 GEN="${1:-$REPO/root/usr/libexec/socat-reforged-gen.awk}"
+# The engine runs this generator with BusyBox awk on the router, so the whole
+# suite must hold there too.  Run it once more with AWK="busybox awk" (CI does).
+# Unquoted $AWK below on purpose: it has to word-split into "busybox awk".
+AWK=${AWK:-awk}
+command -v $AWK >/dev/null 2>&1 || { echo "no \"$AWK\""; exit 1; }
 WORK=$HERE/.work
 rm -rf "$WORK"; mkdir -p "$WORK"
 
@@ -21,7 +26,7 @@ V6="2001:db8:1::55"
 
 run_gen() { # run_gen <mode>  →  writes $WORK/out.des / out.warn / out.fw
 	: > "$WORK/out.des"; : > "$WORK/out.warn"; : > "$WORK/out.fw"
-	awk -v ipv6="$1" -v socat=/usr/bin/socat \
+	$AWK -v ipv6="$1" -v socat=/usr/bin/socat \
 		-v desf="$WORK/out.des" -v warnf="$WORK/out.warn" -v fwf="$WORK/out.fw" \
 		-f "$GEN" < "$WORK/in.show"
 }
@@ -213,6 +218,12 @@ contains 'tcp6 target uses [addr]:port' 'TCP6:[2001:db8:2:::5]:80' "$(cat "$WORK
 # padded listen_port would never match a listener back to its socket: the
 # listener-identity check (and with it duplicate detection) would be dead for
 # that rule while everything still looked healthy.
+#
+# Also the regression test for a BusyBox-awk-only bug: BusyBox reads a
+# leading-zero string as OCTAL ("0443" -> 291) where gawk/mawk read 443, and the
+# engine runs BusyBox awk on the router.  With `v + 0` normalisation a padded
+# port came out as 291 on the device and 443 on a desktop — right in every test
+# on a PC, wrong on the router.  Now normalised as a string.
 cat > "$WORK/in.show" <<'FIX'
 socat.a=config
 socat.a.enable=1
@@ -221,12 +232,18 @@ socat.a.listen_port=00443
 socat.a.dest_proto=tcp4
 socat.a.dest_ip=192.168.1.7
 socat.a.dest_port=00080
+socat.a.proxy=socks4a
+socat.a.proxy_server=127.0.0.1
+socat.a.proxy_port=01080
+socat.a.retry=00005
 socat.a.firewall_accept=1
 FIX
 run_gen "$V6"
 check 'padded ports still yield listeners' 'a/tcp a/tcp6 ' "$(kinds)"
 contains 'listener uses the plain port' 'TCP-LISTEN:443,' "$(cat "$WORK/out.des")"
-contains 'dial uses the plain dest port' 'TCP4:192.168.1.7:80' "$(cat "$WORK/out.des")"
+contains 'dial uses the plain dest port' 'SOCKS4A:127.0.0.1:192.168.1.7:80,' "$(cat "$WORK/out.des")"
+contains 'proxy port is plain decimal' 'socksport=1080' "$(cat "$WORK/out.des")"
+contains 'retry is plain decimal' ',retry=5,' "$(cat "$WORK/out.des")"
 check 'firewall lists the plain port' 'tcp:443 ' "$(fwls)"
 
 # proxy=proxy is the legacy spelling of HTTP CONNECT: the engine, the ubus
@@ -852,15 +869,22 @@ socat.z.retry=0
 socat.z.dest_proto=tcp4
 socat.z.dest_ip=10.0.0.9
 socat.z.dest_port=80
-socat.bad=config
-socat.bad.enable=1
-socat.bad.proto=tcp
-socat.bad.listen_port=6504
-socat.bad.user='nobody;reboot'
-socat.bad.retry='5x'
-socat.bad.dest_proto=tcp4
-socat.bad.dest_ip=10.0.0.9
-socat.bad.dest_port=80
+socat.badu=config
+socat.badu.enable=1
+socat.badu.proto=tcp
+socat.badu.listen_port=6504
+socat.badu.user='nobody;reboot'
+socat.badu.dest_proto=tcp4
+socat.badu.dest_ip=10.0.0.9
+socat.badu.dest_port=80
+socat.badr=config
+socat.badr.enable=1
+socat.badr.proto=tcp
+socat.badr.listen_port=6505
+socat.badr.retry='5x'
+socat.badr.dest_proto=tcp4
+socat.badr.dest_ip=10.0.0.9
+socat.badr.dest_port=80
 FIX
 run_gen "$V6"
 check 'user= reaches the tcp listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6500,fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5,user=nobody ')"
@@ -870,28 +894,24 @@ check 'retry= reaches the unix dial' 1 "$(cmdgrep 1 'UNIX-CONNECT:/var/run/b.soc
 check 'a udp rule keeps user= but drops retry=' 1 "$(cmdgrep 1 'UDP-LISTEN:6501,fork,user=nobody UDP4:10.0.0.9:53')"
 check 'a multicast rule keeps user= but drops retry=' 1 "$(cmdgrep 1 'bind=239.1.1.1,reuseaddr,fork,user=nobody UDP4-DATAGRAM')"
 check 'retry=0 means no retry option' 0 "$(cmdgrep 1 'TCP4:10.0.0.9:80,retry=0')"
-has 'a metacharacter user is refused, whole rule' 'bad:bad user, skip' "$(warns)"
-has 'a non-numeric retry is refused, whole rule' 'bad:bad retry, skip' "$(warns)"
-check 'the refused rule starts nothing' 0 "$(awk -F'\t' '$1=="bad"' "$WORK/out.des" | grep -c .)"
-# ---- second awk implementation: the tests must hold there too -------------
-if command -v busybox >/dev/null 2>&1; then
+# two separate rules on purpose: one rule with both faults stops at the first
+has 'a metacharacter user is refused, whole rule' 'badu:bad user, skip' "$(warns)"
+has 'a non-numeric retry is refused, whole rule' 'badr:bad retry, skip' "$(warns)"
+check 'the refused rules start nothing' 0 "$(awk -F'\t' '$1=="badu" || $1=="badr"' "$WORK/out.des" | grep -c .)"
+# ---- second awk implementation: the whole suite must hold there too ---------
+# The engine on the router runs this generator with BusyBox awk, which is not
+# byte-identical to gawk/mawk in its regex handling.  So the entire suite runs
+# again from the top under BusyBox: run it with "AWK=busybox sh gen-cases.sh"
+# (CI does exactly that).  A single fixture would prove nothing.
+	if [ "$AWK" = "awk" ] && command -v busybox >/dev/null 2>&1; then
 	echo
-	echo "cross-check with BusyBox awk"
-	cat > "$WORK/in.show" <<'FIX'
-socat.a=config
-socat.a.enable=1
-socat.a.proto=tcp
-socat.a.listen_port=8080
-socat.a.dest_proto=tcp4
-socat.a.dest_ip=10.0.0.9
-socat.a.dest_port=80
-socat.a.firewall_accept=1
-FIX
-	busybox awk -v ipv6="$V6" -v socat=/usr/bin/socat \
-		-v desf="$WORK/b.des" -v warnf="$WORK/b.warn" -v fwf="$WORK/b.fw" \
-		-f "$GEN" < "$WORK/in.show"
-	BK=$(awk -F'\t' '{printf "%s/%s ", $1, $2}' "$WORK/b.des")
-	check 'busybox: same listeners as the host awk' 'a/tcp a/tcp6' "${BK% }"
+	echo "cross-check with BusyBox awk: re-running the whole suite"
+	if AWK="busybox awk" sh "$0" "$GEN" < /dev/null; then
+		PASS=$((PASS + 1)); printf '  %-46s ok\n' "busybox: whole suite green"
+	else
+		FAIL=$((FAIL + 1)); printf '  %-46s FAIL\n' "busybox: whole suite green"
+		echo "    the BusyBox run above reported failures"
+	fi
 fi
 
 rm -rf "$WORK"

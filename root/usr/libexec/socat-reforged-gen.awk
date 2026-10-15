@@ -40,8 +40,8 @@ function ok_host(v)  { return (v ~ /^[A-Za-z0-9._:-]+$/) }
 function ok_user(v)  { return (v ~ /^[A-Za-z_][A-Za-z0-9_-]*$/ && length(v) <= 32) }
 function ok_name(v)  { return (v ~ /^[A-Za-z0-9_.-]+$/) }
 function ok_flag(v)  { return (v == "" || v == "0" || v == "1") }
-function ipport(v)   { return (v ~ /^[0-9]+$/ && v + 0 >= 1 && v + 0 <= 65535) }
-function ok_uint(v, lo, hi) { return (v ~ /^[0-9]+$/ && v + 0 >= lo && v + 0 <= hi) }
+function ipport(v)   { v = plain_num(v); return (v ~ /^[0-9]+$/ && v + 0 >= 1 && v + 0 <= 65535) }
+function ok_uint(v, lo, hi) { v = plain_num(v); return (v ~ /^[0-9]+$/ && v + 0 >= lo && v + 0 <= hi) }
 # absolute filesystem path (certificate/key/unix socket), no traversal
 function ok_path(v) {
 	return (v ~ /^\//) && (v ~ /^[A-Za-z0-9._\/-]+$/) && (index(v, "..") == 0)
@@ -55,6 +55,16 @@ function ok_mgroup(v,  o) {
 	return 1
 }
 
+# awk's numeric coercion of a leading-zero string is implementation-defined:
+# gawk and mawk read "0443" as 443, BusyBox awk as octal 291.  The router runs
+# BusyBox awk, so a padded port must be normalised as a *string* - with "+ 0"
+# it would silently become a different port on the device.
+function plain_num(v) {
+	sub(/^0+/, "", v)
+	if (v == "") v = "0"
+	return v
+}
+
 # listen_port may be a single port ("443") or a range ("30000-30010").
 # Returns 0 and sets LP_FROM/LP_TO (plain decimals) on success.
 # A range is expanded into one listener per port, so the span is capped: a
@@ -66,13 +76,17 @@ function lport_parse(v,  a, b, n) {
 	if (n > 0) {
 		a = substr(v, 1, n - 1); b = substr(v, n + 1)
 		if (a !~ /^[0-9]+$/ || b !~ /^[0-9]+$/) return 1
+		a = plain_num(a); b = plain_num(b)
+		# plain_num() returns a string, so coerce for the bounds check:
+		# without this "8080" > 65535 is a lexical comparison
 		a = a + 0; b = b + 0
 		if (a < 1 || b > 65535 || a > b) return 1
 		if (b - a + 1 > LPORT_CAP) { b = a + LPORT_CAP - 1; LP_CLAMPED = 1 }
 	}
 	else {
 		if (v !~ /^[0-9]+$/) return 1
-		a = v + 0; b = a
+		a = plain_num(v) + 0
+		b = a
 		if (a < 1 || b > 65535) return 1
 	}
 	LP_FROM = a; LP_TO = b
@@ -268,7 +282,7 @@ END {
 		else if (dproto == "mcast") {
 			if (!ok_mgroup(mcdgrp)) { warn(sid, "bad mcast_dst_group, skip"); continue }
 			if (!ipport(mcdp))      { warn(sid, "bad mcast_dst_port, skip"); continue }
-			mcdp = mcdp + 0
+			mcdp = plain_num(mcdp) + 0
 			# UDP4-DATAGRAM is send-only, so a relayed stream expects nothing back
 			DIAL = "UDP4-DATAGRAM:" mcdgrp ":" mcdp
 			if (mcif != "")
@@ -280,7 +294,7 @@ END {
 		else if (dproto == "ssl") {
 			if (dip == "" || !ok_host(dip)) { warn(sid, "bad dest_ip, skip"); continue }
 			if (!ipport(dp))                { warn(sid, "bad dest_port, skip"); continue }
-			dp = dp + 0
+			dp = plain_num(dp) + 0
 			DIAL = "OPENSSL:" dial_host(dip) ":" dp
 			if (uverify == "1" && ucafile != "") {
 				if (!ok_path(ucafile)) { warn(sid, "bad ssl_cafile, skip"); continue }
@@ -291,7 +305,7 @@ END {
 		}
 		else {
 			if (dp == "" || !ipport(dp))    { warn(sid, "bad dest_port, skip"); continue }
-			dp = dp + 0
+			dp = plain_num(dp) + 0
 			if (dip == "" || !ok_host(dip)) { warn(sid, "bad dest_ip, skip"); continue }
 
 			if (prox != "" && prox != "none") {
@@ -299,7 +313,7 @@ END {
 				if (pserv == "") pserv = "127.0.0.1"
 				if (pport == "") pport = "1080"
 				if (!ipport(pport))          { warn(sid, "bad proxy_port, skip"); continue }
-				pport = pport + 0
+				pport = plain_num(pport) + 0
 				if (!ok_host(pserv))         { warn(sid, "bad proxy_server, skip"); continue }
 				if (prox == "socks4" || prox == "socks4a")
 					DIAL = "SOCKS4A:" pserv ":" dip ":" dp ",socksport=" pport
@@ -330,9 +344,9 @@ END {
 		# UDP address ("retry not supported with this address type"), which
 		# would kill every udp rule that set it.
 		RTY = ""
-		if (rtry != "" && rtry + 0 > 0 &&
+		if (rtry != "" && plain_num(rtry) + 0 > 0 &&
 		    dproto != "udp4" && dproto != "udp6" && dproto != "mcast")
-			RTY = ",retry=" (rtry + 0)
+			RTY = ",retry=" plain_num(rtry)
 
 		RA = ""
 		if (ra == "" || ra == "1")
