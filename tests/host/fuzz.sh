@@ -76,6 +76,15 @@ emit_case() { # emit_case <sid> <profile> <option> <value>
 		printf "socat.f%s.mcast_dst_group='239.10.10.20'\n" "$sid" >> "$WORK/in.show"
 		printf 'socat.f%s.mcast_dst_port=5000\n' "$sid" >> "$WORK/in.show"
 		;;
+	mcastdial)
+		# relays INTO a group without joining one: mcast_iface reaches the dial
+		# address here, and the receive-side validation never runs
+		printf 'socat.f%s.proto=udp\n' "$sid" >> "$WORK/in.show"
+		printf 'socat.f%s.listen_port=8%03d\n' "$sid" "$sid" >> "$WORK/in.show"
+		printf 'socat.f%s.dest_proto=mcast\n' "$sid" >> "$WORK/in.show"
+		printf "socat.f%s.mcast_dst_group='239.10.10.20'\n" "$sid" >> "$WORK/in.show"
+		printf 'socat.f%s.mcast_dst_port=5000\n' "$sid" >> "$WORK/in.show"
+		;;
 	v6tcp)
 		printf 'socat.f%s.proto=tcp\n' "$sid" >> "$WORK/in.show"
 		printf 'socat.f%s.listen_port=8%03d\n' "$sid" "$sid" >> "$WORK/in.show"
@@ -196,6 +205,12 @@ add_bad 83 proxy 'proxy_server' '2001:db8::1'
 add_bad 84 proxy 'dest_ip'   '2001:db8::99'
 # multicast receive is UDP4-only, so an IPv6-only multicast rule has no listener
 add_bad 85 mcast 'family'    '6'
+# ...and the mirror image of 72: a v4 literal in a tcp6/udp6 dial is refused by
+# getaddrinfo on every connect, so the rule would bind and forward nothing
+add_bad 87 v6tcp 'dest_ip'   '10.0.0.9'
+# a relay rule (dest_proto=mcast, no joined group) still puts mcast_iface in the
+# dial address: it must be checked there too, not only on the receive side
+add_bad 86 mcastdial 'mcast_iface' 'eth0 -T99 evil'
 
 
 # ---- values that must be ACCEPTED (the whitelist is not a blanket no) ------
@@ -230,6 +245,7 @@ add_ok 127 ssl 'ssl_verify'  '1'
 add_ok 130 mcast 'mcast_dst_group' '239.0.0.0'
 add_ok 128 mcast 'mcast_ttl'  '32'
 add_ok 129 unix 'unix_path'  '/var/run/ok.sock'
+add_ok 132 ssl 'listen_addr' '2001:db8::9'
 
 # the unix rule needs its paths, the ssl rule its files, or it is refused for a
 # reason that has nothing to do with the value under test
@@ -286,8 +302,15 @@ check 'a clean ssl rule survives the fuzz' 1 "$(awk -F'\t' '$1=="fssl"{n++} END{
 # emits nothing either way, so removing its guard passed the first version of
 # this check.  The warning is the reason, so it is asserted too.
 has 'a v6 literal on a v4 target is refused with a reason' 'f72:an IPv6 target needs dest_proto tcp6/udp6/tls, skip' "$(warns)"
+has 'a v4 literal on a v6 target is refused with a reason' 'f87:an IPv4 target needs dest_proto tcp4/udp4, skip' "$(warns)"
 has 'a v6 proxy server is refused with a reason' 'f83:proxy_server cannot be an IPv6 address, skip' "$(warns)"
 has 'an IPv6-only multicast rule is refused with a reason' 'f85:multicast cannot listen on IPv6, rule skipped' "$(warns)"
+has 'a hostile mcast_iface on a relay rule is refused' 'f86:bad mcast_iface, skip' "$(warns)"
+# a value that cannot be honoured must not be dropped in silence, either
+has 'ssl_verify without a CA file is reported' \
+	'f127:ssl_verify is on but ssl_cafile is empty (the target certificate is not verified)' "$(warns)"
+has 'a v6 listen_addr on a TLS rule is reported' \
+	'f132:listen_addr is ignored on a TLS listener (IPv4 only)' "$(warns)"
 
 rm -rf "$WORK"
 summary 'generator fuzz'

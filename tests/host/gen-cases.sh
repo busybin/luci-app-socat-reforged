@@ -941,6 +941,127 @@ check 'retry=0 means no retry option' 0 "$(cmdgrep 1 'TCP4:10.0.0.9:80,retry=0')
 has 'a metacharacter user is refused, whole rule' 'badu:bad user, skip' "$(warns)"
 has 'a non-numeric retry is refused, whole rule' 'badr:bad retry, skip' "$(warns)"
 check 'the refused rules start nothing' 0 "$(awk -F'\t' '$1=="badu" || $1=="badr"' "$WORK/out.des" | grep -c .)"
+# ---- TCP_NODELAY must not reach a UDP listener -----------------------------
+# socat refuses the option on UDP-LISTEN ("option "nodelay" not supported with
+# this address type"), which killed the whole rule on start — the same class as
+# unix+keepalive and udp+retry before it.  The matrix suite starts the generated
+# command for real, so it is the second half of this regression.
+cat > "$WORK/in.show" <<'FIX'
+socat.nd=config
+socat.nd.enable=1
+socat.nd.proto=udp
+socat.nd.listen_port=6601
+socat.nd.nodelay=1
+socat.nd.dest_proto=udp4
+socat.nd.dest_ip=10.0.0.9
+socat.nd.dest_port=53
+socat.tn=config
+socat.tn.enable=1
+socat.tn.proto=tcp
+socat.tn.listen_port=6600
+socat.tn.nodelay=1
+socat.tn.dest_proto=tcp4
+socat.tn.dest_ip=10.0.0.9
+socat.tn.dest_port=80
+FIX
+run_gen "$V6"
+check 'a udp rule with nodelay still listens' 'nd/udp nd/udp6 tn/tcp tn/tcp6 ' "$(kinds)"
+check 'a udp listener drops nodelay' 0 "$(cmdgrep 0 'UDP-LISTEN:6601,fork,nodelay')"
+check 'a udp6 listener drops nodelay' 0 "$(cmdgrep 0 'UDP6-LISTEN:6601,fork,nodelay')"
+check 'a tcp listener keeps nodelay' 1 "$(cmdgrep 1 'TCP-LISTEN:6600,fork,reuseaddr,nodelay')"
+
+# ---- an IPv4 literal cannot be a v6 target ---------------------------------
+# getaddrinfo with AF_INET6 rejects "192.168.1.9" on every connection, so the
+# listener binds fine and forwards nothing: the rule looks healthy.  The mirror
+# image of the "IPv6 target on a v4 dial" guard from the v6 round.  A hostname
+# is still fine — it resolves to whichever family the record has.
+cat > "$WORK/in.show" <<'FIX'
+socat.b6=config
+socat.b6.enable=1
+socat.b6.proto=tcp
+socat.b6.listen_port=6602
+socat.b6.dest_proto=tcp6
+socat.b6.dest_ip=192.168.1.9
+socat.b6.dest_port=80
+socat.b6u=config
+socat.b6u.enable=1
+socat.b6u.proto=udp
+socat.b6u.listen_port=6603
+socat.b6u.dest_proto=udp6
+socat.b6u.dest_ip=10.0.0.9
+socat.b6u.dest_port=53
+socat.ok6=config
+socat.ok6.enable=1
+socat.ok6.proto=tcp
+socat.ok6.listen_port=6604
+socat.ok6.dest_proto=tcp6
+socat.ok6.dest_ip=example.org
+socat.ok6.dest_port=80
+FIX
+run_gen "$V6"
+check 'a v4 literal target on a tcp6 dial starts nothing' 0 "$(cmdgrep 0 'TCP6:192.168.1.9:80')"
+check 'a v4 literal target on a udp6 dial starts nothing' 0 "$(cmdgrep 0 'UDP6:10.0.0.9:53')"
+has 'a v4 target on a v6 dial says why' 'b6:an IPv4 target needs dest_proto tcp4/udp4, skip' "$(warns)"
+# both the v4 and the v6 listener of that rule dial the same TCP6 target
+check 'a hostname target on a tcp6 dial is kept' 2 "$(cmdgrep 2 'TCP6:example.org:80')"
+
+# ---- mcast_iface is validated on a relay rule too --------------------------
+# On a dest_proto=mcast rule mcast_iface is part of the *dial* address, and that
+# path runs even when no group is joined: an unchecked value used to land in the
+# command line verbatim (the receive side validated it, this side did not).
+cat > "$WORK/in.show" <<'FIX'
+socat.mc=config
+socat.mc.enable=1
+socat.mc.proto=udp
+socat.mc.listen_port=6605
+socat.mc.dest_proto=mcast
+socat.mc.mcast_dst_group=239.10.10.20
+socat.mc.mcast_dst_port=5000
+socat.mc.mcast_iface='eth0 -T99 evil'
+FIX
+run_gen "$V6"
+check 'a hostile mcast_iface emits nothing' '' "$(kinds)"
+has 'a hostile mcast_iface is refused with a reason' 'mc:bad mcast_iface, skip' "$(warns)"
+
+# ---- a request that cannot be honoured must still say why ------------------
+cat > "$WORK/in.show" <<'FIX'
+socat.v1=config
+socat.v1.enable=1
+socat.v1.proto=ssl
+socat.v1.listen_port=6606
+socat.v1.ssl_cert=/etc/ssl/c.pem
+socat.v1.ssl_key=/etc/ssl/k.pem
+socat.v1.dest_proto=ssl
+socat.v1.dest_ip=10.0.0.9
+socat.v1.dest_port=443
+socat.v1.ssl_verify=1
+socat.v2=config
+socat.v2.enable=1
+socat.v2.proto=ssl
+socat.v2.listen_port=6607
+socat.v2.listen_addr=2001:db8::9
+socat.v2.ssl_cert=/etc/ssl/c.pem
+socat.v2.ssl_key=/etc/ssl/k.pem
+socat.v2.dest_proto=ssl
+socat.v2.dest_ip=10.0.0.9
+socat.v2.dest_port=443
+socat.u3=config
+socat.u3.enable=1
+socat.u3.proto=unix
+socat.u3.unix_path=/var/run/u3.sock
+socat.u3.dest_proto=tcp4
+socat.u3.dest_ip=10.0.0.9
+socat.u3.dest_port=80
+socat.u3.firewall_accept=1
+FIX
+run_gen "$V6"
+has 'ssl_verify without a CA file is reported' \
+	'v1:ssl_verify is on but ssl_cafile is empty (the target certificate is not verified)' "$(warns)"
+has 'a v6 listen_addr on a TLS rule is reported' \
+	'v2:listen_addr is ignored on a TLS listener (IPv4 only)' "$(warns)"
+check 'the TLS listener ignores the v6 bind' 0 "$(cmdgrep 0 'bind=2001:db8::9')"
+check 'a unix listener opens no firewall port' 0 "$(grep -c '^unix' "$WORK/out.fw")"
+
 # ---- second awk implementation: the whole suite must hold there too ---------
 # The engine on the router runs this generator with BusyBox awk, which is not
 # byte-identical to gawk/mawk in its regex handling.  So the entire suite runs

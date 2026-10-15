@@ -8,7 +8,7 @@
 
 /* backend (rpcd/ucode object "luci.socat-reforged") */
 var callStatus      = rpc.declare({ object: 'luci.socat-reforged', method: 'status' });
-var callTest        = rpc.declare({ object: 'luci.socat-reforged', method: 'test',        params: [ 'dest_ip', 'dest_port', 'dest_proto', 'proxy', 'proxy_server', 'proxy_port' ] });
+var callTest        = rpc.declare({ object: 'luci.socat-reforged', method: 'test',        params: [ 'dest_ip', 'dest_port', 'dest_proto', 'proxy', 'proxy_server', 'proxy_port', 'dest_unix_path', 'mcast_dst_group', 'mcast_dst_port' ] });
 var callStart       = rpc.declare({ object: 'luci.socat-reforged', method: 'start' });
 var callStop        = rpc.declare({ object: 'luci.socat-reforged', method: 'stop' });
 var callRestart     = rpc.declare({ object: 'luci.socat-reforged', method: 'restart' });
@@ -99,6 +99,9 @@ var HOST_RE = /^[A-Za-z0-9._:-]+$/;
 var USER_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 var PATH_RE = /^\/[A-Za-z0-9._\/-]+$/;
 var IPV4_RE = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
+/* the same character class the generator accepts for an interface name
+ * (ok_name in socat-reforged-gen.awk) */
+var NAME_RE = /^[A-Za-z0-9_.-]+$/;
 function importPortOk(v) {
 	/* single port or "from-to" — the same shapes the generator accepts */
 	var m = /^([0-9]{1,5})(?:-([0-9]{1,5}))?$/.exec(String(v));
@@ -159,6 +162,13 @@ function importCheck(rule) {
 		return 'bad mcast_dst_group';
 	if (rule.mcast_group != null && rule.mcast_group !== '' && !IPV4_RE.test(String(rule.mcast_group)))
 		return 'bad mcast_group';
+	/* mcast_iface ends up in the dial address on a dest_proto=mcast rule even
+	 * when no group is joined, so it is validated unconditionally */
+	if (rule.mcast_iface != null && rule.mcast_iface !== '' && !NAME_RE.test(String(rule.mcast_iface)))
+		return 'bad mcast_iface';
+	if (rule.mcast_group != null && rule.mcast_group !== '' &&
+	    rule.mcast_localip != null && rule.mcast_localip !== '' && !HOST_RE.test(String(rule.mcast_localip)))
+		return 'bad mcast_localip';
 	if (rule.backlog != null && rule.backlog !== '' && !importRangeOk(rule.backlog, 1, 65535))
 		return 'bad backlog';
 	if (rule.max_children != null && rule.max_children !== '' && !importRangeOk(rule.max_children, 1, 1000))
@@ -236,9 +246,11 @@ return view.extend({
 		return { total: total, enabled: enabled, listening: listening };
 	},
 
-	/* two enabled rules must not share the same proto:port */
+	/* two enabled rules on the same proto:port are only a real conflict when
+	 * their listen addresses overlap: two *different* specific addresses can
+	 * both bind that port, but a wildcard (no listen_addr) covers everything */
 	conflicts: function() {
-		var seen = {};
+		var groups = {};
 		(uci.sections('socat', 'config') || []).forEach(function(s) {
 			var sid = s['.name'];
 			if (uci.get('socat', sid, 'enable') === '0')
@@ -246,8 +258,10 @@ return view.extend({
 			var port = uci.get('socat', sid, 'listen_port');
 			if (!port)
 				return;
-			var key = (uci.get('socat', sid, 'proto') || 'tcp') + ':' + port;
-			(seen[key] = seen[key] || []).push(sid);
+			var proto = uci.get('socat', sid, 'proto') || 'tcp';
+			var addr = uci.get('socat', sid, 'listen_addr') || '';
+			var k = proto + ':' + port;
+			(groups[k] = groups[k] || []).push({ sid: sid, addr: addr });
 		});
 		/* exact port:port collisions are the common case; a range whose span
 		 * intersects another rule's port is reported as its own conflict */
@@ -266,21 +280,38 @@ return view.extend({
 			return out;
 		}
 		var flat = {};
-		Object.keys(seen).forEach(function(k) {
+		Object.keys(groups).forEach(function(k) {
 			var m = /^(.*?):(.*)$/.exec(k);
 			var proto = m[1], port = m[2];
 			portsOf(port).forEach(function(p) {
 				var fk = proto + ':' + p;
 				var have = flat[fk] || (flat[fk] = []);
-				seen[k].forEach(function(sid) {
-					if (have.indexOf(sid) < 0)
-						have.push(sid);
+				groups[k].forEach(function(e) {
+					if (!have.some(function(x) { return x.sid === e.sid; }))
+						have.push(e);
 				});
 			});
 		});
-		return Object.keys(flat).filter(function(k) {
-			return flat[k].length > 1;
-		}).map(function(k) { return { key: k, sids: flat[k] }; });
+		var out = [];
+		Object.keys(flat).forEach(function(fk) {
+			var list = flat[fk];
+			if (list.length < 2)
+				return;
+			var bad = {};
+			for (var i = 0; i < list.length; i++) {
+				for (var j = i + 1; j < list.length; j++) {
+					var a = list[i], b = list[j];
+					if (a.addr === '' || b.addr === '' || a.addr === b.addr) {
+						bad[a.sid] = true;
+						bad[b.sid] = true;
+					}
+				}
+			}
+			var sids = Object.keys(bad);
+			if (sids.length > 1)
+				out.push({ key: fk, sids: sids });
+		});
+		return out;
 	},
 
 	/* recompute tiles + every row status + flags; called on poll and after actions */
@@ -851,15 +882,24 @@ return view.extend({
 			var proxy = fieldVal(section_id, 'proxy');
 			var pserver = fieldVal(section_id, 'proxy_server');
 			var pport = parseInt(fieldVal(section_id, 'proxy_port'), 10) || 0;
+			var upath = fieldVal(section_id, 'dst_unix_path');
+			var mgroup = fieldVal(section_id, 'mcast_dst_group');
+			var mport = parseInt(fieldVal(section_id, 'mcast_dst_port'), 10) || 0;
+			/* a unix or multicast rule has no ip:port, so name the target the
+			 * way the rule does (the backend answers "unknown destination
+			 * protocol" for those otherwise) */
+			var label = (dproto === 'unix') ? upath
+				: (dproto === 'mcast') ? (mgroup + ':' + mport)
+				: (ip + ':' + port);
 			var btn = ev && ev.currentTarget;
 			if (btn)
 				btn.disabled = true;
-			return callTest(ip, port, dproto, proxy, pserver, pport).then(function(res) {
+			return callTest(ip, port, dproto, proxy, pserver, pport, upath, mgroup, mport).then(function(res) {
 				if (btn)
 					btn.disabled = false;
 				ui.addNotification(null, E('p', {}, (res && res.ok)
-					? _('Reachable (%s:%s): %s').format(ip, port, res.detail)
-					: _('NOT reachable (%s:%s): %s').format(ip, port, (res && res.detail) || '?')));
+					? _('Reachable (%s): %s').format(label, res.detail)
+					: _('NOT reachable (%s): %s').format(label, (res && res.detail) || '?')));
 			}).catch(function(e) {
 				if (btn)
 					btn.disabled = false;
@@ -990,7 +1030,7 @@ return view.extend({
 		o.default = '0';
 		o.rmempty = false;
 		o.modalonly = true;
-		o.description = _('Disable Nagle algorithm (lower latency, more packets).');
+		o.description = _('Disable Nagle algorithm (lower latency, more packets). Ignored on a UDP listener: socat does not support the option there.');
 
 		o = s.option(form.Value, 'backlog', _('Listen backlog'));
 		o.datatype = 'range(1,65535)';

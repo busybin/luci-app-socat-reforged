@@ -311,6 +311,32 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	ck('no exported field is unknown to the engine', 'none', orphan.length ? orphan.join(',') : 'none');
 	has('range hint shown to the user', '30000-30010', src);
 	has('import validation accepts a port range', '([0-9]{1,5})(?:-([0-9]{1,5}))?$', src);
+has('import validation checks mcast_iface', 'NAME_RE.test(String(rule.mcast_iface))', src);
+
+/* the Test rpc is a cross-file contract: the view declares the parameters
+ * positionally and rpcd type-checks them against the backend's `args` spec, so
+ * a name added on one side only would fail the call at runtime. */
+const backSrc = fs.readFileSync(path.join(REPO, 'root', 'usr', 'share', 'rpcd', 'ucode', 'luci.socat-reforged.uc'), 'utf8');
+const backArgs = (/\btest:\s*\{\s*args:\s*\{([^}]*)\}/.exec(backSrc)[1] || '')
+	.split(',').map((s) => s.trim().split(':')[0].trim()).filter(Boolean).sort();
+const viewParams = (/method: 'test',\s*params: \[([^\]]*)\]/.exec(src)[1] || '')
+	.split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).sort();
+ck('the test rpc matches the backend arguments', JSON.stringify(backArgs), JSON.stringify(viewParams));
+
+/* ---- conflict detection: one port on two *different* addresses is fine ----- */
+function addRule(rec) { RULES.push(rec); store[rec['.name']] = Object.assign({}, rec); }
+const flagged = (sid) => v.conflicts().some((x) => x.sids.indexOf(sid) >= 0);
+addRule({ '.name': 'cfgA1', enable: '1', proto: 'tcp', listen_port: '9090', listen_addr: '192.168.1.1' });
+addRule({ '.name': 'cfgA2', enable: '1', proto: 'tcp', listen_port: '9090', listen_addr: '192.168.1.2' });
+ck('two addresses on one port do not conflict', false, flagged('cfgA1'));
+addRule({ '.name': 'cfgA3', enable: '1', proto: 'tcp', listen_port: '9090' });   /* wildcard */
+ck('a wildcard bind conflicts with a specific one', true, flagged('cfgA1'));
+ck('...and the wildcard is flagged too', true, flagged('cfgA3'));
+addRule({ '.name': 'cfgA4', enable: '1', proto: 'udp', listen_port: '9091' });
+addRule({ '.name': 'cfgA5', enable: '1', proto: 'udp', listen_port: '9091' });
+ck('two identical binds still conflict', true, flagged('cfgA4'));
+addRule({ '.name': 'cfgA6', enable: '0', proto: 'tcp', listen_port: '9090' });
+ck('a disabled rule is never reported', false, flagged('cfgA6'));
 
 	const metaText = byId['socat-t-version'] ? byId['socat-t-version'].textContent : '(none)';
 	has('version text after recount', 'v2', metaText);

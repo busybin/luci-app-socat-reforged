@@ -221,6 +221,10 @@ END {
 		if (laddr != "" && !ok_host(laddr)) { warn(sid, "bad listen_addr, skip"); continue }
 		if (uuser != "" && !ok_user(uuser)) { warn(sid, "bad user, skip"); continue }
 		if (rtry != "" && !ok_uint(rtry, 0, 3600)) { warn(sid, "bad retry, skip"); continue }
+		# validated here, not only inside the multicast-receive branch: on a
+		# dest_proto=mcast rule mcast_iface reaches the *dial* address, and
+		# that branch is not taken when no group is joined
+		if (mcif != "" && !ok_name(mcif))  { warn(sid, "bad mcast_iface, skip"); continue }
 		if (!ok_flag(ra))                  { warn(sid, "bad reuseaddr, skip"); continue }
 		if (!ok_flag(uverify))             { warn(sid, "bad ssl_verify, skip"); continue }
 		if (!ok_flag(mcloop))              { warn(sid, "bad mcast_loop, skip"); continue }
@@ -252,7 +256,6 @@ END {
 				mcgrp = ""
 			}
 			else if (!ok_mgroup(mcgrp)) { warn(sid, "bad mcast_group, skip"); continue }
-			else if (mcif != "" && !ok_name(mcif)) { warn(sid, "bad mcast_iface, skip"); continue }
 			else if (mclip != "" && !ok_host(mclip)) { warn(sid, "bad mcast_localip, skip"); continue }
 			else {
 				# ip-add-membership=<group>:<local ip> joins the group (0.0.0.0 =
@@ -312,6 +315,15 @@ END {
 			# parameters"), so the rule would look healthy and forward nothing.
 			if (dip ~ /:/ && (dproto == "tcp4" || dproto == "udp4")) {
 				warn(sid, "an IPv6 target needs dest_proto tcp6/udp6/tls, skip")
+				continue
+			}
+			# ...and its mirror image: getaddrinfo with AF_INET6 rejects a v4
+			# literal on every connection ("Address family for hostname not
+			# supported"), so the listener binds fine and the rule forwards
+			# nothing while looking healthy.
+			if (dip !~ /:/ && dip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ \
+			    && (dproto == "tcp6" || dproto == "udp6")) {
+				warn(sid, "an IPv4 target needs dest_proto tcp4/udp4, skip")
 				continue
 			}
 
@@ -383,9 +395,12 @@ END {
 			else             BIND4 = ",bind=" laddr
 		}
 
-		# listener tuning options (tcp/ssl)
+		# listener tuning options (tcp/ssl).  ",nodelay" must not reach a UDP
+		# listener: socat refuses the option on UDP-LISTEN ("option "nodelay"
+		# not supported with this address type") and the whole rule would die
+		# on start, exactly like unix+keepalive and udp+retry before it.
 		LOPT = ""
-		if (nodelay == "1")
+		if (nodelay == "1" && (proto == "tcp" || proto == "ssl"))
 			LOPT = LOPT ",nodelay"
 		if (backlog != "" && (proto == "tcp" || proto == "ssl"))
 			LOPT = LOPT ",backlog=" backlog
@@ -419,6 +434,15 @@ END {
 			warn(sid, "multicast cannot listen on IPv6, rule skipped")
 			continue
 		}
+		# socat's OpenSSL listener has no IPv6 capability, so a v6 listen_addr
+		# on a TLS rule is dropped by the emit block; say so instead of binding
+		# every IPv4 address without a word
+		if (proto == "ssl" && BIND6 != "")
+			warn(sid, "listen_addr is ignored on a TLS listener (IPv4 only)")
+		# asking for certificate verification but giving no CA file would
+		# silently fall back to "no verification at all"
+		if (dproto == "ssl" && uverify == "1" && ucafile == "")
+			warn(sid, "ssl_verify is on but ssl_cafile is empty (the target certificate is not verified)")
 
 		for (lp = LP_FROM; lp <= LP_TO; lp++) {
 			if (proto == "unix") {
@@ -466,6 +490,8 @@ END {
 				}
 			}
 
+			# (a unix listener breaks out of this loop above, so it never
+			# reaches this line: it opens no port on the wire)
 			if (fa != "0")
 				print ((proto == "ssl") ? "tcp" : proto) "\t" lp > fwf
 		}

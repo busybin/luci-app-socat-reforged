@@ -245,9 +245,9 @@ Each `config config` section is one forward:
 | --- | --- |
 | `enable` | `1`/`0` |
 | `remarks` | label |
-| `proto` | `tcp` / `udp` |
-| `listen_port` | WAN-side listen port |
-| `dest_proto` | `tcp4` / `udp4` / `tcp6` / `udp6` |
+| `proto` | `tcp` / `udp` / `ssl` / `unix` |
+| `listen_port` | WAN-side listen port (single port or `from-to`) |
+| `dest_proto` | `tcp4` / `udp4` / `tcp6` / `udp6` / `ssl` / `unix` / `mcast` |
 | `dest_ip` / `dest_port` | target |
 | `family` | `''` = IPv4+IPv6, `4` = IPv4 only, `6` = IPv6 only |
 | `proxy` | `''` / `socks4a` / `http` (+ `proxy_server`, `proxy_port`) |
@@ -259,13 +259,13 @@ Each `config config` section is one forward:
 Everything that does not need a router runs anywhere (BusyBox/Linux + `socat`):
 
 ```sh
-sh tests/run.sh                  # 6 suites: view, generator, zones, simulator, matrix, fuzz
+sh tests/run.sh                  # 7 suites: view, generator, zones, simulator, matrix, fuzz, engine keys
 sh tests/run.sh --router router  # also install on a router, test engine/backend/perf
 ```
 
 See `tests/README.md` for what each suite covers. Exit codes are CI-friendly.
 
-Six suites; three of them do not trust the string comparison:
+Seven suites; four of them do not trust the string comparison:
 
 * **layout simulator** — the real engine, the real `socat`, fake `uci`/`ip`: a
   full OpenWrt device in a sandbox, so reconcile, kill/respawn and the firewall
@@ -279,6 +279,11 @@ Six suites; three of them do not trust the string comparison:
   octal-looking numbers) fed to every option, asserting that the generator
   never starts a listener for a value it should have refused and that nothing
   it writes is a shell metacharacter.
+* **engine keys** — derives the listener address types the *generator* can emit
+  and asserts the engine's worker scan and its port/family classifier know every
+  one of them, so a new listener type cannot be added without teaching the
+  engine (an unknown kind is invisible: it is never stopped, restarted or
+  counted).
 
 The layout simulator is the one that matters for a generator change: the unit
 tests compare the *generated key* (deliberately stripped of spaces) and only
