@@ -3,6 +3,15 @@
 `V<integer>` releases (see Releases). `main` carries unreleased work on top of
 the last tag; version numbers only change when a release is requested.
 
+## Unreleased
+
+* The **Start** button uses the affirmative style instead of `cbi-button-apply`.
+  Sharing that class with "Save & Apply" meant a click on Start ran the
+  unsaved-changes tracker and cleared the dirty marker without saving anything.
+  The page also owns its own padding now (a plain LuCI view has no CBI
+  container), so the content is not flush against the edges.  (From
+  [@ntbowen](https://github.com/ntbowen)'s PR #3, with the empty-state hint kept.)
+
 ## V4 (2026-10-15)
 
 ### Packaging fixes (2026-10-15)
