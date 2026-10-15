@@ -307,6 +307,13 @@ END {
 			if (dp == "" || !ipport(dp))    { warn(sid, "bad dest_port, skip"); continue }
 			dp = plain_num(dp) + 0
 			if (dip == "" || !ok_host(dip)) { warn(sid, "bad dest_ip, skip"); continue }
+			# A v6 literal in a v4 address is accepted by socat at bind time
+			# and then fails on every connection ("TCP4: wrong number of
+			# parameters"), so the rule would look healthy and forward nothing.
+			if (dip ~ /:/ && (dproto == "tcp4" || dproto == "udp4")) {
+				warn(sid, "an IPv6 target needs dest_proto tcp6/udp6/tls, skip")
+				continue
+			}
 
 			if (prox != "" && prox != "none") {
 				if (dproto != "tcp4") { warn(sid, "proxy only valid with tcp4 target, skip"); continue }
@@ -315,6 +322,10 @@ END {
 				if (!ipport(pport))          { warn(sid, "bad proxy_port, skip"); continue }
 				pport = plain_num(pport) + 0
 				if (!ok_host(pserv))         { warn(sid, "bad proxy_server, skip"); continue }
+				# the proxy address is "SOCKS4A:<proxy>:<host>:<port>", so a v6
+				# literal in the proxy field adds the colons the parser counts
+				# fields on and socat refuses the address outright
+				if (pserv ~ /:/)             { warn(sid, "proxy_server cannot be an IPv6 address, skip"); continue }
 				if (prox == "socks4" || prox == "socks4a")
 					DIAL = "SOCKS4A:" pserv ":" dip ":" dp ",socksport=" pport
 				else if (prox == "http" || prox == "proxy")
@@ -386,6 +397,11 @@ END {
 			warn(sid, "IPv6-only listen but no WAN IPv6 address")
 		if (laddr != "" && MC_RECV != "")
 			warn(sid, "listen_addr is ignored on a multicast listener (bind=group is used)")
+		# socat refuses bind= on a UDP6 listener ("port specification not allowed
+		# in this bind option"), so a v6 listen_addr on a udp rule cannot be
+		# honoured: say so instead of silently binding every v6 address
+		if (proto == "udp" && MC_RECV == "" && laddr != "" && BIND6 != "")
+			warn(sid, "listen_addr is ignored on an IPv6 UDP listener (socat limitation)")
 		# socat has no IPv6-capable OpenSSL listener (see the emit block), so an
 		# explicit family=6 TLS rule cannot be honoured at all: skipping it with a
 		# warning is better than starting a listener that dies on start.
@@ -396,6 +412,12 @@ END {
 			}
 			if (fam != "4")
 				warn(sid, "TLS listens on IPv4 only with this socat")
+		}
+		# multicast receive is UDP4-only (ip-add-membership on a v4 group), so
+		# an IPv6-only multicast rule would produce no listener at all
+		if (proto == "udp" && mcgrp != "" && fam == "6") {
+			warn(sid, "multicast cannot listen on IPv6, rule skipped")
+			continue
 		}
 
 		for (lp = LP_FROM; lp <= LP_TO; lp++) {
