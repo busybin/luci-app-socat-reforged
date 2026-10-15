@@ -130,6 +130,13 @@ that as "all rules disabled" (which would have stopped every forward).
   listen side (`ip-add-membership`) and relay it to a unicast target, a
   different group (`ip-multicast-if`/`-ttl`/`-loop`) or a TCP target. IGMP is
   accepted on the WAN zones while a multicast rule is active.
+  **TLS needs a socat built with OpenSSL.** The `socat` package that ships with
+  OpenWrt is built with `--disable-openssl`, so `socat -V` prints
+  `#undef WITH_OPENSSL` and a TLS rule cannot start — it is reported **down**
+  with socat's own message (`unknown device/address "OPENSSL-LISTEN"`, which is
+  exactly what you get). Check with `socat -V` before blaming the rule.
+  Everything else (unix sockets, multicast, socket options) works with the
+  stock package.
 * **Socket options** per rule: `TCP_NODELAY`, listen backlog, `max-children`
   (a cap on concurrent connection children), transfer timeout (`socat -T`),
   TCP `keepalive` (on by default; turn it off for a target that never closes

@@ -1023,22 +1023,22 @@ return view.extend({
 		o.depends('dest_proto', 'unix');
 
 		o = s.option(form.Value, 'ssl_cert', _('TLS certificate'));
-	o.placeholder = '/etc/ssl/certs/server.pem';
-	o.datatype = 'filepath';
-	o.rmempty = false;
-	o.modalonly = true;
-	o.depends('proto', 'ssl');
-	o.description = _('PEM certificate presented to incoming TLS clients.');
+		o.placeholder = '/etc/ssl/certs/server.pem';
+		o.datatype = 'filepath';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('proto', 'ssl');
+		o.description = _('PEM certificate presented to incoming TLS clients. Requires a socat built with OpenSSL (the stock OpenWrt package is not) - check with socat -V.');
 
-	o = s.option(form.Value, 'ssl_key', _('TLS private key'));
-	o.placeholder = '/etc/ssl/private/server.key';
-	o.datatype = 'filepath';
-	o.rmempty = false;
-	o.modalonly = true;
-	o.depends('proto', 'ssl');
+		o = s.option(form.Value, 'ssl_key', _('TLS private key'));
+		o.placeholder = '/etc/ssl/private/server.key';
+		o.datatype = 'filepath';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('proto', 'ssl');
 
-	o = s.option(form.Flag, 'ssl_verify', _('Verify TLS certificate'));
-	o.default = '0';
+		o = s.option(form.Flag, 'ssl_verify', _('Verify TLS certificate'));
+		o.default = '0';
 		o.rmempty = false;
 		o.modalonly = true;
 		o.depends('dest_proto', 'ssl');

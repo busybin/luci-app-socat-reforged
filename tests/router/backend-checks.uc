@@ -152,21 +152,25 @@ for (let i = 0; i < length(st.rules); i++) {
 }
 if (clash_port != null) {
 	system(`uci set socat.backend_clash=config && uci set socat.backend_clash.proto=tcp && uci set socat.backend_clash.listen_port=${clash_port} && uci set socat.backend_clash.dest_proto=tcp4 && uci set socat.backend_clash.dest_ip=192.0.2.99 && uci set socat.backend_clash.dest_port=9 && uci set socat.backend_clash.firewall_accept=0 && uci set socat.backend_off=config && uci set socat.backend_off.proto=udp && uci set socat.backend_off.listen_port=18999 && uci set socat.backend_off.dest_proto=udp4 && uci set socat.backend_off.dest_ip=192.0.2.99 && uci set socat.backend_off.dest_port=9 && uci set socat.backend_off.enable=0 && uci commit socat && /etc/init.d/socat-reforged reload >/dev/null 2>&1`);
-	/* wait until the engine has published state for the new section */
-	let found = false;
-	for (let i = 0; i < 25 && !found; i++) {
+	/* The engine publishes its verdict on its own cycle.  Until it does, the
+	 * backend falls back to "is this port listening for someone", and the
+	 * rule we are clashing with makes that true — so wait for the *verdict*,
+	 * not for the section to appear in the config.  With the pid-column bug
+	 * the verdict never becomes 'down' and this check fails (as it did). */
+	let clash = null, off = null;
+	for (let i = 0; i < 45; i++) {
 		sleep(1000);
 		const s2 = obj.status.call();
-		for (let j = 0; j < length(s2.rules); j++)
-			if (s2.rules[j].sid == 'backend_clash')
-				found = true;
+		clash = null; off = null;
+		for (let j = 0; j < length(s2.rules); j++) {
+			if (s2.rules[j].sid == 'backend_clash') clash = s2.rules[j];
+			if (s2.rules[j].sid == 'backend_off') off = s2.rules[j];
+		}
+		if (clash != null && (clash.status == 'down' || clash.status == 'partial') &&
+		    off != null && off.status == 'disabled')
+			break;
 	}
 	const s3 = obj.status.call();
-	let clash = null, off = null;
-	for (let j = 0; j < length(s3.rules); j++) {
-		if (s3.rules[j].sid == 'backend_clash') clash = s3.rules[j];
-		if (s3.rules[j].sid == 'backend_off') off = s3.rules[j];
-	}
 	ck('a rule whose bind fails is not listening', true, clash != null && clash.status != 'listening');
 	ck('a rule whose bind fails is down/partial', true, clash != null && (clash.status == 'down' || clash.status == 'partial'));
 	has('...and carries socat\'s own reason', 'in use', clash ? (clash.error ?? '') : '');

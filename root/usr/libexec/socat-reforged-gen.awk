@@ -367,11 +367,11 @@ END {
 			}
 			else if (proto == "ssl") {
 				if (fam != "6")
-					emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",fork" RA BIND4 LOPT KAD " " DIAL ND KADL))
+					emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA BIND4 LOPT KAD " " DIAL ND KADL))
 				if (fam != "4" && (ipv6 != "" || BIND6 != "")) {
 					B6 = BIND6
 					if (B6 == "") B6 = ",bind=" ipv6 ",ip-freebind=1"
-					emit(sid, "ssltcp6", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",fork" RA LOPT B6 KAD " " DIAL ND KADL))
+					emit(sid, "ssltcp6", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA LOPT B6 KAD " " DIAL ND KADL))
 				}
 			}
 			else {
