@@ -284,6 +284,37 @@ function dial_host(h) {
 	return (i != null && i >= 0) ? `[${h}]` : h;
 }
 
+/* The absolute-path shape ok_path() enforces in the generator, so the Test
+ * button refuses exactly what the engine would refuse. */
+function path_ok(s) {
+	if (s == null || s == '' || substr(s, 0, 1) != '/')
+		return false;
+	if (index(s, '..') != null)
+		return false;
+	for (let i = 0; i < length(s); i++) {
+		const c = substr(s, i, 1);
+		const ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		           (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '/' || c == '-';
+		if (!ok)
+			return false;
+	}
+	return true;
+}
+
+/* 224.0.0.0 - 239.255.255.255, the range ok_mgroup() accepts */
+function mgroup_ok(s) {
+	const f = split(s ?? '', '.');
+	if (length(f) != 4)
+		return false;
+	for (let i = 0; i < 4; i++) {
+		const n = to_int(f[i]);
+		if (n < 0 || n > 255)
+			return false;
+	}
+	const first = to_int(f[0]);
+	return first >= 224 && first <= 239;
+}
+
 /* first port of a listen_port value that may be "443" or "30000-30010".
  * Used where a single number is needed (socket-table fallback lookup). */
 function first_port(v) {
@@ -432,6 +463,31 @@ function do_test(args) {
 	const proxy = args?.proxy ?? '';
 	let pserver = args?.proxy_server ?? '';
 	let pport = to_int(args?.proxy_port);
+	const upath = args?.dest_unix_path ?? '';
+	const mgroup = args?.mcast_dst_group ?? '';
+	const mport = to_int(args?.mcast_dst_port);
+
+	/* A unix target has no address: the only meaningful test is opening its
+	 * socket.  Without this the UI's Test button answered "unknown
+	 * destination protocol 'unix'" for a perfectly valid rule. */
+	if (dproto == 'unix') {
+		if (!path_ok(upath))
+			return { ok: false, detail: 'a unix target needs an absolute dst_unix_path' };
+		const rcu = shell_rc(`${SAFE_PATH}socat -T3 -u /dev/null ${shellquote('UNIX-CONNECT:' + upath)} 2>/dev/null`);
+		return (rcu == 0)
+			? { ok: true, detail: 'connected to the socket' }
+			: { ok: false, detail: `connection failed (socat exit ${rcu})` };
+	}
+	/* A multicast target is send-only: a datagram either leaves the box or
+	 * it does not, and socat cannot report anything back. */
+	if (dproto == 'mcast') {
+		if (!mgroup_ok(mgroup) || mport <= 0)
+			return { ok: false, detail: 'a multicast target needs mcast_dst_group and mcast_dst_port' };
+		const rcm = shell_rc(`${SAFE_PATH}socat -T3 -u /dev/null ${shellquote(`UDP4-DATAGRAM:${mgroup}:${mport}`)} 2>/dev/null`);
+		return (rcm == 0)
+			? { ok: true, detail: 'multicast datagram sent (no handshake to verify)' }
+			: { ok: false, detail: `send failed (socat exit ${rcm})` };
+	}
 
 	if (host == '' || port <= 0)
 		return { ok: false, detail: 'destination IP and port are required' };
@@ -464,6 +520,9 @@ function do_test(args) {
 	else if (dproto == 'udp4') dial = `UDP4:${host}:${port}`;
 	else if (dproto == 'tcp6') { dial = `TCP6:${dial_host(host)}:${port}`; ro = ',connect-timeout=5'; }
 	else if (dproto == 'udp6') dial = `UDP6:${dial_host(host)}:${port}`;
+	/* TLS targets were unsupported here too; verify=0 because the probe is a
+	 * reachability check and the user's CA file is not what we are testing */
+	else if (dproto == 'ssl') { dial = `OPENSSL:${dial_host(host)}:${port},verify=0`; ro = ',connect-timeout=5'; }
 	else return { ok: false, detail: `unknown destination protocol '${dproto}'` };
 
 	dial += ro;
@@ -502,7 +561,8 @@ return {
 			}
 		},
 		test: {
-			args: { dest_ip: '', dest_port: 0, dest_proto: 'tcp4', proxy: '', proxy_server: '', proxy_port: 0 },
+			args: { dest_ip: '', dest_port: 0, dest_proto: 'tcp4', proxy: '', proxy_server: '', proxy_port: 0,
+				dest_unix_path: '', mcast_dst_group: '', mcast_dst_port: 0 },
 			call: function(request) {
 				return do_test(request.args);
 			}

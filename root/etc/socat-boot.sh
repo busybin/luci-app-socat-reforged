@@ -273,6 +273,11 @@ gen_desired() {
 	fi
 	: > "$WARNF"
 	: > "$DESF"
+	# awk only opens its output file on the first print, so without this an
+	# empty result would leave the *previous* port list in place: deleting the
+	# last forward (or turning firewall_accept off everywhere) would keep its
+	# WAN port open forever.
+	: > "$FWF"
 	$UCI_BIN show socat 2>/dev/null | "$AWK_BIN" -v ipv6="$IPV6" -v socat="$SOCAT_BIN" \
 		-v desf="$DESF" -v warnf="$WARNF" -v fwf="$FWF" -f "$GPROG"
 	return 0
@@ -327,6 +332,7 @@ port_in_listen() { # port_in_listen <fam> <port>
 # Which kind of listener is this argv key?  Sets $FAM to tcp/tcp6/udp/udp6.
 key_kind() {
 	case "$1" in
+		*OPENSSL-LISTEN*) FAM=tcp ;;    # an OpenSSL listener is still a TCP socket
 		*TCP6-LISTEN*) FAM=tcp6 ;;
 		*TCP-LISTEN*)  FAM=tcp ;;
 		*UDP6-LISTEN*) FAM=udp6 ;;
@@ -400,7 +406,7 @@ scan_workers() {
 		read -r cmd < "/proc/$p/cmdline" 2>/dev/null
 		[ -n "$cmd" ] || continue
 		case "$cmd" in
-			*TCP-LISTEN*|*UDP-LISTEN*|*TCP6-LISTEN*|*UDP6-LISTEN*|*UDP-RECVFROM*|*UDP4-RECVFROM*|*UNIX-LISTEN*) ;;
+			*TCP-LISTEN*|*UDP-LISTEN*|*TCP6-LISTEN*|*UDP6-LISTEN*|*UDP-RECVFROM*|*UDP4-RECVFROM*|*UNIX-LISTEN*|*OPENSSL-LISTEN*) ;;
 			*) continue ;;
 		esac
 		SCAN="$SCAN$p$TAB$cmd$TAB$m
