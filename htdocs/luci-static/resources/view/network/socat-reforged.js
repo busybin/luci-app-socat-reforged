@@ -95,6 +95,48 @@ function fieldVal(sid, opt) {
 	return (v == null) ? '' : v;
 }
 
+/* The ucode backend (luci.socat-reforged.uc) reports failures with plain
+ * English `detail`/`error` strings, because the translation catalogue only
+ * exists in the browser.  Map the fixed set onto translatable msgids here so
+ * notifications follow the interface language; anything unknown (socat's own
+ * stderr, a new backend message we have not taught this table yet) passes
+ * through untouched.  tests/host/view-smoke.js checks this table against the
+ * backend source in both directions, so it cannot drift silently. */
+function trDetail(s) {
+	var m;
+	if (s == null)
+		return '';
+	s = String(s);
+	if ((m = s.match(/^unknown proxy type '(.+)'$/)))
+		return _("unknown proxy type '%s'").format(m[1]);
+	if ((m = s.match(/^unknown destination protocol '(.+)'$/)))
+		return _("unknown destination protocol '%s'").format(m[1]);
+	if ((m = s.match(/^connection failed \(socat exit (\d+)\)$/)))
+		return _('connection failed (socat exit %s)').format(m[1]);
+	if ((m = s.match(/^send failed \(socat exit (\d+)\)$/)))
+		return _('send failed (socat exit %s)').format(m[1]);
+	if ((m = s.match(/^socat exit (\d+)$/)))
+		return _('socat exited with status %s').format(m[1]);
+	if ((m = s.match(/^exit (\d+)$/)))
+		return _('exit status %s').format(m[1]);
+	switch (s) {
+	case 'destination IP and port are required':
+	case 'destination contains invalid characters':
+	case 'a proxy is only supported with a TCP/IPv4 target':
+	case 'a unix target needs an absolute dst_unix_path':
+	case 'a multicast target needs mcast_dst_group and mcast_dst_port':
+	case 'connection succeeded':
+	case 'connected to the socket':
+	case 'UDP probe sent (no handshake to verify)':
+	case 'multicast datagram sent (no handshake to verify)':
+	case 'section id is required':
+	case 'unknown action':
+	case 'log file not created yet':
+		return _(s);
+	}
+	return s;
+}
+
 /* ---- import validation (never let a malformed rule reach UCI) ---- */
 var HOST_RE = /^[A-Za-z0-9._:-]+$/;
 /* the same character class the generator accepts for socat's ",user=" */
@@ -126,65 +168,65 @@ function importRangeOk(v, lo, hi) {
 function importFlagOk(v) { return (v === undefined || v === '' || v === '0' || v === '1'); }
 function importCheck(rule) {
 	if (!rule || typeof rule !== 'object')
-		return 'not an object';
+		return _('not an object');
 	if (!importFlagOk(rule.enable) || rule.enable == null || rule.enable === '')
-		return 'bad enable';
+		return _('bad enable');
 	if (!importFlagOk(rule.nodelay) || !importFlagOk(rule.system_log) ||
 	    !importFlagOk(rule.ssl_verify) || !importFlagOk(rule.mcast_loop) ||
 	    !importFlagOk(rule.keepalive))
-		return 'a boolean option must be 0 or 1';
+		return _('a boolean option must be 0 or 1');
 	if (rule.listen_addr != null && rule.listen_addr !== '' && !HOST_RE.test(String(rule.listen_addr)))
-		return 'bad listen_addr';
+		return _('bad listen_addr');
 	if (rule.user != null && rule.user !== '' &&
 	    (!USER_RE.test(String(rule.user)) || String(rule.user).length > 32))
-		return 'bad user';
+		return _('bad user');
 	if (rule.retry != null && rule.retry !== '' && !importRangeOk(rule.retry, 0, 3600))
-		return 'bad retry';
+		return _('bad retry');
 	if (['tcp', 'udp', 'ssl', 'unix'].indexOf(rule.proto) < 0)
-		return 'bad proto';
+		return _('bad proto');
 	if (rule.proto === 'unix' && !importPathOk(rule.unix_path))
-		return 'unix_path must be an absolute path';
+		return _('unix_path must be an absolute path');
 	if (rule.proto === 'ssl' && (!importPathOk(rule.ssl_cert) || !importPathOk(rule.ssl_key)))
-		return 'ssl_cert and ssl_key must be absolute paths';
+		return _('ssl_cert and ssl_key must be absolute paths');
 	if (rule.proto !== 'unix' && !importPortOk(rule.listen_port))
-		return 'listen_port must be 1-65535 or a range';
+		return _('listen_port must be 1-65535 or a range');
 	if (['tcp4', 'udp4', 'tcp6', 'udp6', 'unix', 'ssl', 'mcast'].indexOf(rule.dest_proto) < 0)
-		return 'bad dest_proto';
+		return _('bad dest_proto');
 	if (rule.dest_proto === 'unix' && !importPathOk(rule.dst_unix_path))
-		return 'dst_unix_path must be an absolute path';
+		return _('dst_unix_path must be an absolute path');
 	if (rule.dest_proto !== 'unix' && rule.dest_proto !== 'mcast') {
 		if (!importPortOk(rule.dest_port))
-			return 'dest_port must be 1-65535';
+			return _('dest_port must be 1-65535');
 		if (rule.dest_ip == null || !HOST_RE.test(String(rule.dest_ip)))
-			return 'bad dest_ip';
+			return _('bad dest_ip');
 	}
 	if (rule.dest_proto === 'mcast' && !importPortOk(rule.mcast_dst_port))
-		return 'mcast_dst_port must be 1-65535';
+		return _('mcast_dst_port must be 1-65535');
 	if (rule.dest_proto === 'mcast' && !IPV4_RE.test(String(rule.mcast_dst_group)))
-		return 'bad mcast_dst_group';
+		return _('bad mcast_dst_group');
 	if (rule.mcast_group != null && rule.mcast_group !== '' && !IPV4_RE.test(String(rule.mcast_group)))
-		return 'bad mcast_group';
+		return _('bad mcast_group');
 	/* mcast_iface ends up in the dial address on a dest_proto=mcast rule even
 	 * when no group is joined, so it is validated unconditionally */
 	if (rule.mcast_iface != null && rule.mcast_iface !== '' && !NAME_RE.test(String(rule.mcast_iface)))
-		return 'bad mcast_iface';
+		return _('bad mcast_iface');
 	if (rule.mcast_group != null && rule.mcast_group !== '' &&
 	    rule.mcast_localip != null && rule.mcast_localip !== '' && !HOST_RE.test(String(rule.mcast_localip)))
-		return 'bad mcast_localip';
+		return _('bad mcast_localip');
 	if (rule.backlog != null && rule.backlog !== '' && !importRangeOk(rule.backlog, 1, 65535))
-		return 'bad backlog';
+		return _('bad backlog');
 	if (rule.max_children != null && rule.max_children !== '' && !importRangeOk(rule.max_children, 1, 1000))
-		return 'bad max_children';
+		return _('bad max_children');
 	if (rule.timeout != null && rule.timeout !== '' && !importRangeOk(rule.timeout, 1, 86400))
-		return 'bad timeout';
+		return _('bad timeout');
 	if (rule.mcast_ttl != null && rule.mcast_ttl !== '' && !importRangeOk(rule.mcast_ttl, 1, 255))
-		return 'bad mcast_ttl';
+		return _('bad mcast_ttl');
 	if (rule.family != null && rule.family !== '' && rule.family !== '4' && rule.family !== '6')
-		return 'bad family';
+		return _('bad family');
 	if (rule.proxy != null && rule.proxy !== '' && rule.proxy !== 'none' &&
 	    rule.proxy !== 'socks4' && rule.proxy !== 'socks4a' && rule.proxy !== 'http' &&
 	    rule.proxy !== 'proxy')
-		return 'bad proxy';
+		return _('bad proxy');
 	return null;
 }
 
@@ -216,15 +258,15 @@ return view.extend({
 	/* status descriptor for one rule */
 	statFor: function(sid) {
 		if (uci.get('socat', sid, 'enable') === '0')
-			return { cls: 'socat-off', dot: '\u25cb', label: _('disabled'), bucket: 'disabled', conns: 0 };
+			return { cls: 'socat-off', dot: '○', label: _('disabled'), bucket: 'disabled', conns: 0 };
 		var r = this.rulesById ? this.rulesById[sid] : null;
 		if (!r)
 			return { cls: '', dot: '?', label: _('unknown'), bucket: 'down', conns: 0 };
 		if (r.status === 'listening')
-			return { cls: 'socat-up', dot: '\u25cf', label: _('listening'), bucket: 'listening', conns: r.conns || 0 };
+			return { cls: 'socat-up', dot: '●', label: _('listening'), bucket: 'listening', conns: r.conns || 0 };
 		if (r.status === 'partial')
-			return { cls: 'socat-warn', dot: '\u25d1', label: _('partial'), bucket: 'down', conns: r.conns || 0, error: r.error };
-		return { cls: 'socat-down', dot: '\u25cb', label: _('down'), bucket: 'down', conns: 0, error: r.error };
+			return { cls: 'socat-warn', dot: '◑', label: _('partial'), bucket: 'down', conns: r.conns || 0, error: r.error };
+		return { cls: 'socat-down', dot: '○', label: _('down'), bucket: 'down', conns: 0, error: r.error };
 	},
 
 	/* "v2 (5b1f927)" out of what the installer stamped; "v?" when unknown */
@@ -233,7 +275,7 @@ return view.extend({
 		var b = es && es.build ? String(es.build) : '';
 		if (v === '' || v === 'devel')
 			return v === 'devel' ? 'devel' : 'v?';
-		return 'v' + v + (b && b !== v ? ' \u00b7 ' + b : '');
+		return 'v' + v + (b && b !== v ? ' · ' + b : '');
 	},
 
 	localCounts: function() {		var self = this, total = 0, enabled = 0, listening = 0;
@@ -335,7 +377,7 @@ return view.extend({
 			else
 				el.removeAttribute('title');
 			if (r.conns > 0)
-				el.appendChild(E('span', { 'class': 'conns' }, '\u00b7 ' + r.conns));
+				el.appendChild(E('span', { 'class': 'conns' }, '· ' + r.conns));
 		});
 
 		var set = function(id, text, cls) {
@@ -359,7 +401,7 @@ return view.extend({
 			if (es.running && es.age != null && es.age >= 0)
 				txt = _('reconciled %s s ago').format(es.age);
 			if (c.errors)
-				txt = (txt ? txt + ' \u00b7 ' : '') + _('%d rule(s) failing').format(c.errors);
+				txt = (txt ? txt + ' · ' : '') + _('%d rule(s) failing').format(c.errors);
 			age.textContent = txt;
 		}
 
@@ -392,7 +434,7 @@ return view.extend({
 			});
 			el.style.display = '';
 			el.textContent = '';
-			el.appendChild(E('strong', {}, _('\u26a0 Conflicting listen ports: ') + names.join('; ')));
+			el.appendChild(E('strong', {}, _('⚠ Conflicting listen ports: ') + names.join('; ')));
 		} else {
 			el.style.display = 'none';
 		}
@@ -412,12 +454,12 @@ return view.extend({
 			return;
 		}
 		var rows = bad.map(function(r) {
-			return (r.name || r.sid) + ' [' + (r.proto || 'tcp').toUpperCase() + ':' + r.listen + '] \u2014 ' + r.error;
+			return (r.name || r.sid) + ' [' + (r.proto || 'tcp').toUpperCase() + ':' + r.listen + '] — ' + r.error;
 		});
 		el.style.display = '';
 		el.textContent = '';
-		el.appendChild(E('strong', {}, _('\u26a0 %d rule(s) not running: ').format(bad.length)));
-		el.appendChild(document.createTextNode(rows.join('   \u00b7   ')));
+		el.appendChild(E('strong', {}, _('⚠ %d rule(s) not running: ').format(bad.length)));
+		el.appendChild(document.createTextNode(rows.join('   ·   ')));
 	},
 
 	applyFilter: function() {
@@ -528,7 +570,7 @@ return view.extend({
 				E('button', { 'class': 'btn cbi-button-apply', 'click': L.bind(function() {
 					ui.hideModal();
 					self.dirty = false;
-					ui.showModal(_('Saving'), [ E('p', { 'class': 'spinning' }, _('Applying changes\u2026')) ]);
+					ui.showModal(_('Saving'), [ E('p', { 'class': 'spinning' }, _('Applying changes…')) ]);
 					self._map.save().then(function() { return uci.apply(); }).catch(function() {}).then(function() {
 						ui.hideModal();
 						window.location.href = href;
@@ -544,7 +586,7 @@ return view.extend({
 		ui.showModal(_('Socat engine'), [ E('p', { 'class': 'spinning' }, msg) ]);
 		return fn().then(function(res) {
 			if (res && res.ok === false)
-				throw new Error(res.detail || _('failed'));
+				throw new Error(trDetail(res.detail) || _('failed'));
 			return new Promise(function(r) { window.setTimeout(r, wait); });
 		}).then(function() {
 			ui.hideModal();
@@ -557,8 +599,8 @@ return view.extend({
 		});
 	},
 
-	handleStart: function() { return this.doAction(callStart, _('Starting socat engine\u2026'), 5000); },
-	handleRestart: function() { return this.doAction(callRestart, _('Restarting socat engine\u2026'), 3000); },
+	handleStart: function() { return this.doAction(callStart, _('Starting socat engine…'), 5000); },
+	handleRestart: function() { return this.doAction(callRestart, _('Restarting socat engine…'), 3000); },
 
 	/* ---- engine log ----
 	 * The engine writes every line to /var/log/socat-reforged.log (syslog's
@@ -573,7 +615,7 @@ return view.extend({
 		return callLog(LOG_MAX_LINES).then(function(res) {
 			res = res || {};
 			if (!res.lines || !res.lines.length) {
-				el.textContent = res.error ? res.error : _('(log is empty)');
+				el.textContent = trDetail(res.error) || _('(log is empty)');
 				return;
 			}
 			el.textContent = res.lines.join('\n');
@@ -590,7 +632,7 @@ return view.extend({
 		return callLogClear().then(function(res) {
 			if (res && res.ok)
 				return self.loadLog();
-			ui.addNotification(null, E('p', {}, _('Could not clear the engine log: %s').format((res && res.detail) || 'failed')));
+			ui.addNotification(null, E('p', {}, _('Could not clear the engine log: %s').format(trDetail(res && res.detail) || _('failed'))));
 		}).catch(function() {
 			ui.addNotification(null, E('p', {}, _('Could not clear the engine log')));
 		});
@@ -605,7 +647,7 @@ return view.extend({
 				' ',
 				E('button', { 'class': 'btn cbi-button-negative', 'click': L.bind(function() {
 					ui.hideModal();
-					self.doAction(callStop, _('Stopping socat engine\u2026'), 2500);
+					self.doAction(callStop, _('Stopping socat engine…'), 2500);
 				}, this) }, [ _('Stop') ])
 			])
 		]);
@@ -676,7 +718,7 @@ return view.extend({
 				}
 				if (skipped.length)
 					ui.addNotification(null, E('p', {}, _('Import: skipped %d invalid entry/entries.').format(skipped.length)));
-				ui.showModal(_('Importing'), [ E('p', { 'class': 'spinning' }, _('Applying %s rule(s)\u2026').format(added)) ]);
+				ui.showModal(_('Importing'), [ E('p', { 'class': 'spinning' }, _('Applying %s rule(s)…').format(added)) ]);
 				uci.save().then(function() { return uci.apply(10); }).then(function() {
 					ui.hideModal();
 					window.location.reload();
@@ -701,15 +743,15 @@ return view.extend({
 		/* version of what is installed + a link back to the source: kept out of
 		 * the h2 so they do not inherit its (much larger) font size */
 		var metaEl = E('div', { 'class': 'socat-meta' }, [
-			E('span', { 'id': 'socat-t-version', 'class': 'socat-ver' }, '\u2026'),
+			E('span', { 'id': 'socat-t-version', 'class': 'socat-ver' }, '…'),
 			E('a', { 'class': 'socat-link', 'href': REPO_URL, 'target': '_blank', 'rel': 'noreferrer' },
-				E('span', { 'title': REPO_URL }, 'GitHub \u2197'))
+				E('span', { 'title': REPO_URL }, 'GitHub ↗'))
 		]);
 		var descEl = E('div', { 'class': 'cbi-map-descr' },
 			_('Port forwards handled by the custom socat engine (source of truth: /etc/config/socat).'));
 
 		var banner = E('div', { 'id': 'socat-dirty', 'class': 'socat-dirty', 'style': 'display:none' }, [
-			E('strong', {}, _('\u26a0 Unsaved changes')), ' ',
+			E('strong', {}, _('⚠ Unsaved changes')), ' ',
 			_('Click "Save & Apply" to apply them (leaving the page will prompt you).')
 		]);
 		var conflictBanner = E('div', { 'id': 'socat-conflicts', 'class': 'socat-alert', 'style': 'display:none' });
@@ -753,7 +795,7 @@ return view.extend({
 		]);
 
 		/* ---- engine log (persistent file, survives reboot) ---- */
-		var logPre = E('pre', { 'id': 'socat-log', 'class': 'socat-log' }, _('(loading\u2026)'));
+		var logPre = E('pre', { 'id': 'socat-log', 'class': 'socat-log' }, _('(loading…)'));
 		var logBox = E('details', { 'id': 'socat-logbox', 'class': 'socat-logbox' }, [
 			E('summary', {}, _('Engine log')),
 			E('div', { 'class': 'socat-hint' }, _('Every line also goes to syslog; this copy survives reboots (last %d lines).').format(LOG_MAX_LINES)),
@@ -772,7 +814,7 @@ return view.extend({
 		});
 
 		/* toolbar: search + status filter + import/export */
-		var search = E('input', { 'class': 'socat-search', 'type': 'text', 'placeholder': _('Search name / port / target\u2026') });
+		var search = E('input', { 'class': 'socat-search', 'type': 'text', 'placeholder': _('Search name / port / target…') });
 		search.addEventListener('input', L.bind(function() { this._search = search.value; this.applyFilter(); }, this));
 
 		var chipDefs = [ [ 'all', _('All') ], [ 'listening', _('Listening') ], [ 'down', _('Down') ], [ 'disabled', _('Disabled') ] ];
@@ -816,7 +858,7 @@ return view.extend({
 		o = s.option(form.ListValue, 'proto', _('Proto'));
 		o.value('tcp', 'TCP');
 		o.value('udp', 'UDP');
-		o.value('ssl', 'TLS (OpenSSL)');
+		o.value('ssl', _('TLS (OpenSSL)'));
 		o.value('unix', _('Unix socket'));
 		o.rmempty = false;
 
@@ -869,9 +911,9 @@ return view.extend({
 			var r = self.statFor(section_id);
 			var kids = [ r.dot + ' ' + r.label ];
 			if (r.conns > 0)
-				kids.push(E('span', { 'class': 'conns' }, '\u00b7 ' + r.conns));
+				kids.push(E('span', { 'class': 'conns' }, '· ' + r.conns));
 			if (r.error)
-				kids.push(E('div', { 'class': 'socat-reason', 'title': r.error }, '\u26a0 ' + r.error));
+				kids.push(E('div', { 'class': 'socat-reason', 'title': r.error }, '⚠ ' + r.error));
 			return E('span', { 'id': 'socat-st-' + section_id, 'class': 'socat-st ' + r.cls }, kids);
 		};
 
@@ -905,8 +947,8 @@ return view.extend({
 				if (btn)
 					btn.disabled = false;
 				ui.addNotification(null, E('p', {}, (res && res.ok)
-					? _('Reachable (%s): %s').format(label, res.detail)
-					: _('NOT reachable (%s): %s').format(label, (res && res.detail) || '?')));
+					? _('Reachable (%s): %s').format(label, trDetail(res.detail))
+					: _('NOT reachable (%s): %s').format(label, trDetail(res && res.detail) || '?')));
 			}).catch(function(e) {
 				if (btn)
 					btn.disabled = false;
@@ -930,7 +972,7 @@ return view.extend({
 						btn.disabled = false;
 					ui.addNotification(null, E('p', {}, (res && res.ok)
 						? _('Rule restarted.')
-						: _('Restart failed: %s').format((res && res.detail) || '?')));
+						: _('Restart failed: %s').format(trDetail(res && res.detail) || '?')));
 				});
 			}).then(L.bind(function() { return self.refreshStatus(); }, this))
 			  .then(L.bind(function() { self.recount(); }, this))
@@ -946,7 +988,7 @@ return view.extend({
 		o.value('tcp4', 'TCP / IPv4');
 		o.value('udp4', 'UDP / IPv4');
 		o.value('tcp6', 'TCP / IPv6');
-		o.value('ssl', 'TLS / OpenSSL');
+		o.value('ssl', _('TLS / OpenSSL'));
 		o.value('unix', _('Unix socket'));
 		o.value('mcast', _('Multicast (UDP)'));
 		o.value('udp6', 'UDP / IPv6');
@@ -960,7 +1002,7 @@ return view.extend({
 		o.depends('dest_proto', 'tcp6');
 		o.depends('dest_proto', 'udp6');
 		o.depends('dest_proto', 'ssl');
-		o.placeholder = '192.168.1.x or an IPv6 address with tcp6/udp6';
+		o.placeholder = _('192.168.1.x or an IPv6 address with tcp6/udp6');
 		o.datatype = 'or(host, ip6addr)';
 		o.rmempty = false;
 		o.modalonly = true;
@@ -1067,7 +1109,7 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.option(form.Value, 'user', _('Run listener as'));
-		o.placeholder = 'root (unchanged)';
+		o.placeholder = _('root (unchanged)');
 		o.datatype = 'uciname';
 		o.modalonly = true;
 		o.description =
@@ -1187,7 +1229,7 @@ return view.extend({
 			var port = uci.get('socat', section_id, 'listen_port') || '?';
 			var proto = (uci.get('socat', section_id, 'proto') || 'tcp').toUpperCase();
 			ui.showModal(_('Delete forward?'), [
-				E('p', {}, _('Remove \u201c%s\u201d (%s :%s)?').format(remarks, proto, port)),
+				E('p', {}, _('Remove “%s” (%s :%s)?').format(remarks, proto, port)),
 				E('p', { 'class': 'socat-hint' }, _('Save & Apply is still required to stop the listener.')),
 				E('div', { 'class': 'right' }, [
 					E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Cancel') ]),
@@ -1222,14 +1264,12 @@ return view.extend({
 		o = g.option(form.Flag, 'fix_v6_route', _('Maintain a 2000::/3 IPv6 route'));
 		o.default = '0';
 		o.rmempty = false;
-		o.description = _('Keep a static 2000::/3 route pointing at the current default gateway. ' +
-			'Only needed on ISPs whose delegation is broken \u2014 leave off unless you know you need it.');
+		o.description = _('Keep a static 2000::/3 route pointing at the current default gateway. Only needed on ISPs whose delegation is broken — leave off unless you know you need it.');
 
 		o = g.option(form.Flag, 'wg_dnat_guard', _('Watch the WireGuard 51820 DNAT rule'));
 		o.default = '0';
 		o.rmempty = false;
-		o.description = _('Reload the firewall if a 51820 DNAT rule you configured disappears. ' +
-			'Only relevant if you forward WireGuard, and it never touches connection tracking.');
+		o.description = _('Reload the firewall if a 51820 DNAT rule you configured disappears. Only relevant if you forward WireGuard, and it never touches connection tracking.');
 
 		o = g.option(form.Flag, 'debug', _('Verbose engine logging'));
 		o.default = '0';

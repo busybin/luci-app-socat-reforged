@@ -215,6 +215,16 @@ and the Releases page). Because the package is `Architecture: all`, **a single
 build works on every OpenWrt architecture** — only the `socat` dependency is
 per-architecture and is resolved from your own feeds.
 
+### 4. Translations
+
+Translations ship as **separate language packages** (the LuCI convention):
+`po/<lang>/` in this repository is compiled by `luci.mk` into
+`luci-i18n-socat-reforged-<lang>`, so installing one does not touch the app
+package. Simplified Chinese (`zh_Hans`) is included; the interface falls back to
+English for anything a catalogue does not cover. The backend's own error strings
+(the `Test` button, the log) are mapped onto translatable messages in the view,
+and `tests/host/view-smoke.js` keeps that mapping and the backend in sync.
+
 ## How different architectures are handled
 
 * **This app is architecture-independent.** `LUCI_PKGARCH:=all`; the payload is
