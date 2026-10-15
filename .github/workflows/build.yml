@@ -12,6 +12,24 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: host-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pkg
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y busybox socat nodejs procps
+
+      - name: Run the test suite (view, generator, zones, layout simulator)
+        run: |
+          cd pkg
+          sh tests/run.sh
+
   build:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
