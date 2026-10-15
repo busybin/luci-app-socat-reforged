@@ -130,6 +130,27 @@ as an applet name — it must be `AWK="busybox awk"`.
   `custom_opts`** (a command-injection vector; the whitelist exists so that a
   rule can never become a shell command).
 
+### Fixed: socat cannot listen for TLS on IPv6 at all
+
+Found by the new command-matrix suite, which starts **every** generated command
+for real instead of comparing strings: `OPENSSL-LISTEN` with `bind=<v6 literal>`
+fails with `getaddrinfo("...", "NULL", ...): Address family for hostname not
+supported`, and it fails the same way for `bind=::`, for the bracketed spelling,
+and for a hypothetical `OPENSSL6-LISTEN` (which does not exist). With no `bind=`
+at all it binds IPv4 only. So every dual-stack TLS rule had a v6 listener that
+died on start and left the rule **partial** forever with a getaddrinfo error.
+
+The generator now emits the IPv4 OpenSSL listener only. A rule left on the
+default family gets a warning in the log ("TLS listens on IPv4 only with this
+socat"), and a rule set to *IPv6 only* is **skipped** with a reason rather than
+starting something that cannot work. The TLS *dial* side is unaffected — a v6
+literal target resolves and connects fine.
+
+Also verified in the same matrix run: TCP/TCP6/UDP/UDP6, TLS, unix→unix,
+unix→tcp, tcp→unix, SOCKS4A and a multicast listener all start with
+`user=`, `retry=`, `keepalive`, `nodelay`, `backlog`, `max-children` and
+port-range expansion switched on at the same time.
+
 ### Verified live on an OpenWrt 25.12 router (2026-10-14)
 
 Engine 522012b, 15 rules / 30 listeners, socat 1.8.1.1:

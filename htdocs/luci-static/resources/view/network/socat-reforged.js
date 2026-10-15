@@ -934,7 +934,8 @@ return view.extend({
 		o.value('6', _('IPv6 only'));
 		o.default = '';
 		o.modalonly = true;
-		o.description = _('Which listen sockets to create. The default binds both IPv4 and IPv6.');
+		o.description = _('Which listen sockets to create. The default binds both IPv4 and IPv6.') +
+			'<br>' + _('TLS listens on IPv4 only: socat cannot bind an OpenSSL listener to an IPv6 address, so a TLS rule set to IPv6 only is skipped.');
 
 		o = s.option(form.Flag, 'firewall_accept', _('Open firewall port (WAN)'));
 		o.default = '1';

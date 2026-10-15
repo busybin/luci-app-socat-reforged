@@ -481,6 +481,49 @@ check 'tls listener does not demand a client certificate' 1 "$(cmdgrep 1 'key=/e
 check 'tls dial defaults to verify=0' 1 "$(cmdgrep 1 'OPENSSL:10.0.0.7:443,verify=0')"
 check 'tls opens the firewall as tcp' 'tcp:8443 ' "$(fwls)"
 
+# ---- socat's OPENSSL-LISTEN is IPv4-only -----------------------------------
+# Every v6 form of bind= (literal, bracketed, "::") fails with
+# getaddrinfo EAI_ADDRFAMILY, and with no bind it binds IPv4 only, so a second
+# OpenSSL listener for IPv6 would have made every dual-stack TLS rule look
+# "partial" forever with a getaddrinfo error.  The matrix suite starts every
+# generated command for real, which is what proved it.
+cat > "$WORK/in.show" <<'FIX'
+socat.d4=config
+socat.d4.enable=1
+socat.d4.proto=ssl
+socat.d4.listen_port=8445
+socat.d4.family=4
+socat.d4.ssl_cert=/etc/luci-cert.pem
+socat.d4.ssl_key=/etc/luci-key.pem
+socat.d4.dest_proto=ssl
+socat.d4.dest_ip=10.0.0.7
+socat.d4.dest_port=443
+socat.d6=config
+socat.d6.enable=1
+socat.d6.proto=ssl
+socat.d6.listen_port=8446
+socat.d6.family=6
+socat.d6.ssl_cert=/etc/luci-cert.pem
+socat.d6.ssl_key=/etc/luci-key.pem
+socat.d6.dest_proto=ssl
+socat.d6.dest_ip=10.0.0.7
+socat.d6.dest_port=443
+socat.d0=config
+socat.d0.enable=1
+socat.d0.proto=ssl
+socat.d0.listen_port=8447
+socat.d0.ssl_cert=/etc/luci-cert.pem
+socat.d0.ssl_key=/etc/luci-key.pem
+socat.d0.dest_proto=ssl
+socat.d0.dest_ip=10.0.0.7
+socat.d0.dest_port=443
+FIX
+run_gen ''
+check 'a family=4 tls rule yields one listener' 'd4/ssltcp d0/ssltcp ' "$(kinds)"
+check 'a family=6 tls rule starts nothing' '' "$(kinds | grep 'd6/' | grep . || echo '')"
+has 'a family=6 tls rule says why' 'd6:TLS cannot listen on IPv6 with this socat, rule skipped' "$(warns)"
+has 'a default-family tls rule says it is v4 only' 'd0:TLS listens on IPv4 only' "$(warns)"
+
 # tls dial with verification
 cat > "$WORK/in.show" <<'FIX'
 socat.t2=config
@@ -813,7 +856,7 @@ check 'ssl keeps the space before the target' 1 "$(cmdgrep 1 'fork,reuseaddr,kee
 check 'unix keeps the space before the target' 1 "$(cmdgrep 1 'unlink-early,reuseaddr TCP4:10.0.0.9:80,keepalive,keepidle=60,keepintvl=10,keepcnt=5')"
 check 'a unix listener carries no keepalive itself' 0 "$(cmdgrep 1 'unlink-early,reuseaddr,keepalive')"
 check 'multicast receive keeps the space before the target' 1 "$(cmdgrep 1 'bind=239.1.1.1,reuseaddr,fork UDP4-DATAGRAM:239.2.2.2:5000')"
-check 'ssl listener carries the cert and key' 2 "$(cmdgrep 1 'OPENSSL-LISTEN:6302,cert=/etc/ssl/c.pem,key=/etc/ssl/k.pem,verify=0,fork')"
+check 'ssl listener carries the cert and key' 1 "$(cmdgrep 1 'OPENSSL-LISTEN:6302,cert=/etc/ssl/c.pem,key=/etc/ssl/k.pem,verify=0,fork')"
 check 'tcp listener carries nodelay and backlog' 1 "$(cmdgrep 1 'TCP-LISTEN:6300,fork,reuseaddr,nodelay,backlog=8')"
 check 'the multicast rule opens udp on the wire' 'udp:6303 ' "$(fwls | tr ' ' '\n' | grep '^udp:6303' | tr '\n' ' ')"
 check 'the multicast rule also opens igmp' 'igmp:- ' "$(fwls | tr ' ' '\n' | grep '^igmp:' | tr '\n' ' ')"

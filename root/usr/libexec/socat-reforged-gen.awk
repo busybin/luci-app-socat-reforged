@@ -386,6 +386,17 @@ END {
 			warn(sid, "IPv6-only listen but no WAN IPv6 address")
 		if (laddr != "" && MC_RECV != "")
 			warn(sid, "listen_addr is ignored on a multicast listener (bind=group is used)")
+		# socat has no IPv6-capable OpenSSL listener (see the emit block), so an
+		# explicit family=6 TLS rule cannot be honoured at all: skipping it with a
+		# warning is better than starting a listener that dies on start.
+		if (proto == "ssl") {
+			if (fam == "6") {
+				warn(sid, "TLS cannot listen on IPv6 with this socat, rule skipped")
+				continue
+			}
+			if (fam != "4")
+				warn(sid, "TLS listens on IPv4 only with this socat")
+		}
 
 		for (lp = LP_FROM; lp <= LP_TO; lp++) {
 			if (proto == "unix") {
@@ -405,13 +416,15 @@ END {
 				}
 			}
 			else if (proto == "ssl") {
-				if (fam != "6")
-					emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
-				if (fam != "4" && (ipv6 != "" || BIND6 != "")) {
-					B6 = BIND6
-					if (B6 == "") B6 = ",bind=" ipv6 ",ip-freebind=1"
-					emit(sid, "ssltcp6", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA LOPT B6 KAD USR " " DIAL ND RTY KADL))
-				}
+				# socat's OPENSSL-LISTEN cannot listen on IPv6 at all: every v6
+				# form of bind= (a literal, bracketed, or "::") fails with
+				# getaddrinfo EAI_ADDRFAMILY, and without a bind it binds IPv4
+				# only.  A second OpenSSL listener for IPv6 would therefore die
+				# on start and leave the rule "partial" forever with a
+				# getaddrinfo error, so only the v4 listener is emitted and the
+				# narrowing is warned about (the listener block above turned an
+				# explicit family=6 into a skip, because that cannot be honoured).
+				emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
 			}
 			else {
 				if (MC_RECV != "") {

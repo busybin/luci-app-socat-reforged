@@ -129,14 +129,18 @@ that as "all rules disabled" (which would have stopped every forward).
   **Unix sockets** on either end, and **multicast** — join a group on the
   listen side (`ip-add-membership`) and relay it to a unicast target, a
   different group (`ip-multicast-if`/`-ttl`/`-loop`) or a TCP target. IGMP is
-  accepted on the WAN zones while a multicast rule is active.
+  accepted on
+  WAN zones while a multicast rule is active.
   **TLS needs a socat built with OpenSSL.** The `socat` package that ships with
   OpenWrt is built with `--disable-openssl`, so `socat -V` prints
   `#undef WITH_OPENSSL` and a TLS rule cannot start — it is reported **down**
   with socat's own message (`unknown device/address "OPENSSL-LISTEN"`, which is
   exactly what you get). Check with `socat -V` before blaming the rule.
-  Everything else (unix sockets, multicast, socket options) works with the
-  stock package.
+  **TLS also listens on IPv4 only**: socat has no IPv6-capable OpenSSL listener
+  (every `bind=` form fails with `getaddrinfo ... Address family for hostname
+  not supported`, and with no `bind=` it binds IPv4 only). A TLS rule left on
+  the default family therefore listens on IPv4, says so in the log, and a rule
+  set to *IPv6 only* is skipped rather than starting a listener that would die.
 * **Socket options** per rule: `TCP_NODELAY`, listen backlog, `max_children`,
   reuse-address, transfer timeout (`socat -T`), TCP `keepalive` (on by default;
   turn it off for a target that never closes its side), binding the listener to
@@ -248,11 +252,22 @@ Each `config config` section is one forward:
 Everything that does not need a router runs anywhere (BusyBox/Linux + `socat`):
 
 ```sh
-sh tests/run.sh                  # generator + zone detection + layout simulator
-sh tests/run.sh --router router # also install on a router, test engine/backend/perf
+sh tests/run.sh                  # view + generator + zones + simulator + matrix
+sh tests/run.sh --router router  # also install on a router, test engine/backend/perf
 ```
 
 See `tests/README.md` for what each suite covers. Exit codes are CI-friendly.
+
+Five suites, two of which start the **real** `socat`:
+
+* **layout simulator** — the real engine, the real `socat`, fake `uci`/`ip`: a
+  full OpenWrt device in a sandbox, so reconcile, kill/respawn and the firewall
+  rules are all exercised.
+* **command matrix** — one rule per listener kind with every option on; each
+  generated command is then started and its listener verified in
+  `/proc/net/{tcp,tcp6,udp,udp6}` or as a unix socket file. This is the suite
+  that catches "socat refuses this option on this address type", which the
+  string-comparing tests cannot see.
 
 The layout simulator is the one that matters for a generator change: the unit
 tests compare the *generated key* (deliberately stripped of spaces) and only
