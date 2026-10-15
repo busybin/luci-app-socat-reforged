@@ -25,7 +25,8 @@ var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto',
 	'unix_path', 'dst_unix_path',
 	'ssl_cert', 'ssl_key', 'ssl_cafile', 'ssl_verify',
 	'mcast_group', 'mcast_iface', 'mcast_localip', 'mcast_dst_group', 'mcast_dst_port', 'mcast_ttl', 'mcast_loop',
-	'nodelay', 'backlog', 'max_children', 'timeout', 'system_log', 'keepalive', 'listen_addr' ];
+	'nodelay', 'backlog', 'max_children', 'timeout', 'system_log', 'keepalive', 'listen_addr',
+	'user', 'retry' ];
 
 /* engine settings section (internal) + the options of one forward */
 var SETTING_FIELDS = [ 'fix_v6_route', 'wg_dnat_guard', 'debug' ];
@@ -94,6 +95,8 @@ function fieldVal(sid, opt) {
 
 /* ---- import validation (never let a malformed rule reach UCI) ---- */
 var HOST_RE = /^[A-Za-z0-9._:-]+$/;
+/* the same character class the generator accepts for socat's ",user=" */
+var USER_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 var PATH_RE = /^\/[A-Za-z0-9._\/-]+$/;
 var IPV4_RE = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
 function importPortOk(v) {
@@ -127,6 +130,11 @@ function importCheck(rule) {
 		return 'a boolean option must be 0 or 1';
 	if (rule.listen_addr != null && rule.listen_addr !== '' && !HOST_RE.test(String(rule.listen_addr)))
 		return 'bad listen_addr';
+	if (rule.user != null && rule.user !== '' &&
+	    (!USER_RE.test(String(rule.user)) || String(rule.user).length > 32))
+		return 'bad user';
+	if (rule.retry != null && rule.retry !== '' && !importRangeOk(rule.retry, 0, 3600))
+		return 'bad retry';
 	if (['tcp', 'udp', 'ssl', 'unix'].indexOf(rule.proto) < 0)
 		return 'bad proto';
 	if (rule.proto === 'unix' && !importPathOk(rule.unix_path))
@@ -998,10 +1006,37 @@ return view.extend({
 		o.depends('proto', 'ssl');
 		o.description = _('socat max-children; a cap protects a busy target from being flooded.');
 
+		o = s.option(form.Flag, 'reuseaddr', _('Reuse address'));
+		o.default = '1';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.description =
+			_('Let the listener rebind a port that is still in TIME_WAIT. Turning it off makes a second listener on the same port fail loudly.');
+
 		o = s.option(form.Value, 'timeout', _('Transfer timeout'));
 		o.datatype = 'range(1,86400)';
 		o.placeholder = _('socat default (0.5s)');
 		o.modalonly = true;
+
+		o = s.option(form.Value, 'user', _('Run listener as'));
+		o.placeholder = 'root (unchanged)';
+		o.datatype = 'uciname';
+		o.modalonly = true;
+		o.description =
+			_('The user the accepted connections run as, e.g. nobody. Privileges are dropped after the socket is open, so a low listen port still works. Only on the listen side.');
+
+		o = s.option(form.Value, 'retry', _('Retry the target'));
+		o.placeholder = _('do not retry');
+		o.datatype = 'range(0,3600)';
+		o.modalonly = true;
+		/* socat refuses ",retry=" on a UDP address, so the field must not be
+		 * offered for one.  depends() is positive-only: list what uses it. */
+		o.depends('dest_proto', 'tcp4');
+		o.depends('dest_proto', 'tcp6');
+		o.depends('dest_proto', 'ssl');
+		o.depends('dest_proto', 'unix');
+		o.description =
+			_('Seconds to keep trying a target that is not up yet instead of dropping the connection. TCP, TLS and unix targets only — socat rejects it on a UDP address.');
 
 		o = s.option(form.Flag, 'system_log', _('Log to syslog'));
 		o.default = '0';

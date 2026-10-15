@@ -137,11 +137,16 @@ that as "all rules disabled" (which would have stopped every forward).
   exactly what you get). Check with `socat -V` before blaming the rule.
   Everything else (unix sockets, multicast, socket options) works with the
   stock package.
-* **Socket options** per rule: `TCP_NODELAY`, listen backlog, `max-children`
-  (a cap on concurrent connection children), transfer timeout (`socat -T`),
-  TCP `keepalive` (on by default; turn it off for a target that never closes
-  its side), binding the listener to one local address (`bind=`) and
-  `system_log` (route that rule's socat log to syslog via `socat -ls -d`).
+* **Socket options** per rule: `TCP_NODELAY`, listen backlog, `max_children`,
+  reuse-address, transfer timeout (`socat -T`), TCP `keepalive` (on by default;
+  turn it off for a target that never closes its side), binding the listener to
+  one local address (`bind=`) and `system_log` (route that rule's socat log to
+  syslog via `socat -ls -d`).
+* **Process + connection options** per rule: `user` (the accepted connections
+  run as that user — privileges drop after the socket is open, so a low port
+  still works) and `retry` (keep dialling a target that is not up yet instead
+  of dropping the connection). `retry` is offered for TCP, TLS and unix targets
+  only: socat rejects it on a UDP address.
 
 
 * The LuCI view talks to the ubus object `luci.socat-reforged`; one call returns
@@ -248,6 +253,13 @@ sh tests/run.sh --router router # also install on a router, test engine/backend/
 ```
 
 See `tests/README.md` for what each suite covers. Exit codes are CI-friendly.
+
+The layout simulator is the one that matters for a generator change: the unit
+tests compare the *generated key* (deliberately stripped of spaces) and only
+match substrings, so a defect such as `UDP-LISTEN:53,forkUDP4:...`, `keepidle`
+on a unix socket or `retry` on a UDP address is invisible to them — while the
+simulator starts the real engine and the real `socat`, and the rule simply does
+not come up. Always run it after touching the generator.
 
 ## Engine log
 
