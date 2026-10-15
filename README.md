@@ -1,5 +1,22 @@
 # luci-app-socat-reforged
 
+> ### ⚠️ Early development — expect bugs
+>
+> This app is young and moves fast. The engine, the packaging and the interface
+> all change between releases, and defects keep turning up — several of them only
+> on a real router (a different `socat` build, BusyBox `awk` reading a padded
+> port as octal, IPv6 corners that only some socat versions have). It runs every
+> day on the author's own router, but treat it as **beta**:
+>
+> * keep a copy of `/etc/config/socat` and of your firewall config before
+>   upgrading, and read `CHANGELOG.md` first;
+> * a bug report is much more useful with the output of
+>   `logread -e socat-boot` and `socat -V` (the `socat` build decides what some
+>   rules can do at all — TLS needs OpenSSL, which the stock OpenWrt package
+>   does not have);
+> * nothing here is guaranteed; if a forward matters to you, test it after
+>   every upgrade.
+
 A **from-scratch ("reforged") socat port-forward manager for the modern LuCI**
 (ucode / JavaScript), for **OpenWrt 24.10 and newer** — including **25.10+**,
 where the classic Lua/CBI LuCI (and `luci-compat`) no longer exists.
@@ -214,6 +231,11 @@ CI can produce `luci-app-socat-reforged_*` packages (see `.github/workflows/buil
 and the Releases page). Because the package is `Architecture: all`, **a single
 build works on every OpenWrt architecture** — only the `socat` dependency is
 per-architecture and is resolved from your own feeds.
+
+**After upgrading, hard-refresh the browser** (Ctrl+Shift+R). LuCI serves the
+view's JavaScript under a version key that only changes with `luci-base`, so a
+cached copy of the old page keeps running until you force a reload — a fresh
+install usually looks unchanged until you do.
 
 ### 4. Translations
 
