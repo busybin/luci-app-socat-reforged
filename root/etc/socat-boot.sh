@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-#  socat-reforged forwarding engine  (V3)
+#  socat-reforged forwarding engine  (V4)
 # ============================================================================
 #  Reconciles /etc/config/socat against the running socat workers.
 #

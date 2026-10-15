@@ -3,7 +3,7 @@
 `V<integer>` releases (see Releases). `main` carries unreleased work on top of
 the last tag; version numbers only change when a release is requested.
 
-## Unreleased
+## V4 (2026-10-15)
 
 ### A bug sweep across the whole surface (2026-10-15)
 
@@ -63,6 +63,11 @@ Also in this round:
   generator (a stray connection held 37112 once).
 * Import validation now also checks `mcast_iface`/`mcast_localip`, and the
   `TCP_NODELAY` field says that a UDP listener ignores it.
+* **The listen-port hint no longer shows up inside the forward list.**  A LuCI
+  grid prints a description row under the header for every column that has a
+  description, so "Single port or a range (one listener is started per port,
+  max 256)." appeared as stray text between the column titles and the rows.
+  It still shows in the add/edit dialog.
 
 ### Feature parity with the other luci-app-socat forks (2026-10-14)
 
