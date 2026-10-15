@@ -169,6 +169,14 @@ EOF
 openssl req -x509 -newkey rsa:2048 -keyout /tmp/matrix-k.pem -out /tmp/matrix-c.pem \
 	-days 2 -nodes -subj "/CN=matrix" >/dev/null 2>&1
 
+# ",user=nobody" needs root: socat chowns a unix socket to that user, and some
+# builds need the privilege to resolve a datagram family.  Drop it (with a note)
+# when the suite runs unprivileged instead of failing there.
+if [ "$(id -u)" != "0" ]; then
+	sed -i '/\.user=nobody$/d' "$WORK/in.show"
+	printf '  %-42s %s\n' 'user=nobody cases' '(skipped: not root)'
+fi
+
 awk -v ipv6="2001:db8:1::2" -v socat="$SOCAT" \
 	-v desf="$WORK/des" -v warnf="$WORK/warn" -v fwf="$WORK/fw" \
 	-f "$GEN" < "$WORK/in.show"

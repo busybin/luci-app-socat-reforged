@@ -850,7 +850,9 @@ FIX
 run_gen "$V6"
 check 'no target address is glued to the option before it' 0 \
 	"$(cut -f5 "$WORK/out.des" | grep -cE '[^[:space:]](TCP|UDP|OPENSSL|UNIX-CONNECT|PROXY|SOCKS4)')"
-check 'udp v4 keeps the space before the target' 1 "$(cmdgrep 1 'UDP-LISTEN:6301,fork UDP4:10.0.0.9:53')"
+check 'udp v4 keeps the space before the target' 1 "$(cmdgrep 1 'UDP-LISTEN:6301,pf=ip4,fork UDP4:10.0.0.9:53')"
+# socat 1.8.0.0 refuses a bare UDP-LISTEN ("unknown address family 0")
+check 'the v4 udp listener pins its address family' 1 "$(cmdgrep 1 'UDP-LISTEN:6301,pf=ip4')"
 check 'udp v6 keeps the space before the target' 1 "$(cmdgrep 1 'UDP6-LISTEN:6301,fork UDP4:10.0.0.9:53')"
 check 'ssl keeps the space before the target' 1 "$(cmdgrep 1 'fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5 OPENSSL:10.0.0.9:443')"
 check 'unix keeps the space before the target' 1 "$(cmdgrep 1 'unlink-early,reuseaddr TCP4:10.0.0.9:80,keepalive,keepidle=60,keepintvl=10,keepcnt=5')"
@@ -934,7 +936,7 @@ check 'user= reaches the tcp listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6500,fork,reus
 check 'retry= reaches the tcp dial' 2 "$(cmdgrep 1 'TCP4:10.0.0.9:80,retry=5,keepalive')"
 check 'user= reaches the unix listener' 1 "$(cmdgrep 1 'unlink-early,reuseaddr,user=nobody UNIX-CONNECT')"
 check 'retry= reaches the unix dial' 1 "$(cmdgrep 1 'UNIX-CONNECT:/var/run/b.sock,retry=5')"
-check 'a udp rule keeps user= but drops retry=' 1 "$(cmdgrep 1 'UDP-LISTEN:6501,fork,user=nobody UDP4:10.0.0.9:53')"
+check 'a udp rule keeps user= but drops retry=' 1 "$(cmdgrep 1 'UDP-LISTEN:6501,pf=ip4,fork,user=nobody UDP4:10.0.0.9:53')"
 check 'a multicast rule keeps user= but drops retry=' 1 "$(cmdgrep 1 'bind=239.1.1.1,reuseaddr,fork,user=nobody UDP4-DATAGRAM')"
 check 'retry=0 means no retry option' 0 "$(cmdgrep 1 'TCP4:10.0.0.9:80,retry=0')"
 # two separate rules on purpose: one rule with both faults stops at the first
@@ -966,7 +968,7 @@ socat.tn.dest_port=80
 FIX
 run_gen "$V6"
 check 'a udp rule with nodelay still listens' 'nd/udp nd/udp6 tn/tcp tn/tcp6 ' "$(kinds)"
-check 'a udp listener drops nodelay' 0 "$(cmdgrep 0 'UDP-LISTEN:6601,fork,nodelay')"
+check 'a udp listener drops nodelay' 0 "$(cmdgrep 0 'UDP-LISTEN:6601,pf=ip4,fork,nodelay')"
 check 'a udp6 listener drops nodelay' 0 "$(cmdgrep 0 'UDP6-LISTEN:6601,fork,nodelay')"
 check 'a tcp listener keeps nodelay' 1 "$(cmdgrep 1 'TCP-LISTEN:6600,fork,reuseaddr,nodelay')"
 
