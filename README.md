@@ -241,8 +241,10 @@ install usually looks unchanged until you do.
 
 Translations ship as **separate language packages** (the LuCI convention):
 `po/<lang>/` in this repository is compiled by `luci.mk` into
-`luci-i18n-socat-reforged-<lang>`, so installing one does not touch the app
-package. Simplified Chinese (`zh_Hans`) is included; the interface falls back to
+`luci-i18n-socat-reforged-<locale>`, so installing one does not touch the app
+package. Simplified Chinese is included — the catalogue lives in `po/zh_Hans/`
+and the package is `luci-i18n-socat-reforged-zh-cn` (LuCI names the package after
+the locale alias, not the directory). The interface falls back to
 English for anything a catalogue does not cover. The backend's own error strings
 (the `Test` button, the log) are mapped onto translatable messages in the view,
 and `tests/host/view-smoke.js` keeps that mapping and the backend in sync.
