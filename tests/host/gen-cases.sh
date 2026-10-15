@@ -394,6 +394,412 @@ check 'udp6 literal stays bracketed' 2 \
 check 'no bracketed hostname in any command' '' \
 	"$(grep -o '\[[a-zA-Z0-9._-]*\]' "$WORK/out.des" | sort -u | tr -d '\n')"
 
+
+# ---- protocols carried over from the other forks: unix / tls / multicast --
+cmdgrep() { # cmdgrep <expected-count> <literal> ; greps the 5th column of out.des
+	cut -f5 "$WORK/out.des" | grep -cF "$2"
+}
+
+# unix listener -> unix target
+cat > "$WORK/in.show" <<'FIX'
+socat.u=config
+socat.u.enable=1
+socat.u.proto=unix
+socat.u.unix_path=/var/run/s1.sock
+socat.u.dest_proto=unix
+socat.u.dst_unix_path=/var/run/s2.sock
+socat.u.firewall_accept=1
+FIX
+run_gen ''
+check 'unix listener -> unix dial' 'u/unix ' "$(kinds)"
+check 'unix socket addresses' 1 "$(cmdgrep 1 'UNIX-LISTEN:/var/run/s1.sock')"
+check 'unix dial address' 1 "$(cmdgrep 1 'UNIX-CONNECT:/var/run/s2.sock')"
+check 'unix adds no firewall line' '' "$(fwls)"
+
+# unix listener -> tcp target
+cat > "$WORK/in.show" <<'FIX'
+socat.u2=config
+socat.u2.enable=1
+socat.u2.proto=unix
+socat.u2.unix_path=/var/run/s1.sock
+socat.u2.dest_proto=tcp4
+socat.u2.dest_ip=10.0.0.5
+socat.u2.dest_port=80
+FIX
+run_gen ''
+check 'unix listener -> tcp dial' 'u2/unix ' "$(kinds)"
+check 'unix listener dials tcp' 1 "$(cmdgrep 1 'TCP4:10.0.0.5:80')"
+
+# a relative or traversing socket path is refused
+for p in 's1.sock' '/var/../etc/s' '/var/run/.;;rm' '/var/run/spa ce.s'; do
+	cat > "$WORK/in.show" <<FIX
+socat.bp=config
+socat.bp.enable=1
+socat.bp.proto=unix
+socat.bp.unix_path=$p
+socat.bp.dest_proto=unix
+socat.bp.dst_unix_path=/var/run/s2.sock
+FIX
+	run_gen ''
+	check "bad unix_path '$p' -> skipped" 'bp:bad unix_path, skip ' "$(warns)"
+done
+
+# tls listener + tls dial without verification
+cat > "$WORK/in.show" <<'FIX'
+socat.t=config
+socat.t.enable=1
+socat.t.proto=ssl
+socat.t.listen_port=8443
+socat.t.ssl_cert=/etc/luci-cert.pem
+socat.t.ssl_key=/etc/luci-key.pem
+socat.t.dest_proto=ssl
+socat.t.dest_ip=10.0.0.7
+socat.t.dest_port=443
+socat.t.firewall_accept=1
+FIX
+run_gen ''
+check 'tls listener + tls dial' 't/ssltcp ' "$(kinds)"
+check 'tls listener carries cert+key' 1 "$(cmdgrep 1 'OPENSSL-LISTEN:8443,cert=/etc/luci-cert.pem,key=/etc/luci-key.pem')"
+check 'tls dial defaults to verify=0' 1 "$(cmdgrep 1 'OPENSSL:10.0.0.7:443,verify=0')"
+check 'tls opens the firewall as tcp' 'tcp:8443 ' "$(fwls)"
+
+# tls dial with verification
+cat > "$WORK/in.show" <<'FIX'
+socat.t2=config
+socat.t2.enable=1
+socat.t2.proto=tcp
+socat.t2.listen_port=8444
+socat.t2.dest_proto=ssl
+socat.t2.dest_ip=10.0.0.7
+socat.t2.dest_port=443
+socat.t2.ssl_verify=1
+socat.t2.ssl_cafile=/etc/ca.pem
+FIX
+run_gen ''
+check 'tls dial with verification' 1 "$(cmdgrep 1 'OPENSSL:10.0.0.7:443,verify=1,cafile=/etc/ca.pem')"
+
+# multicast receive joins a group on one interface
+cat > "$WORK/in.show" <<'FIX'
+socat.m=config
+socat.m.enable=1
+socat.m.proto=udp
+socat.m.listen_port=5000
+socat.m.mcast_group=239.10.10.10
+socat.m.mcast_iface=eth0.2
+socat.m.mcast_localip=192.168.1.1
+socat.m.dest_proto=tcp4
+socat.m.dest_ip=10.0.0.9
+socat.m.dest_port=1935
+socat.m.firewall_accept=1
+FIX
+run_gen ''
+check 'multicast receive listener' 'm/udp ' "$(kinds)"
+check 'multicast joins the group' 1 "$(cmdgrep 1 'ip-add-membership=239.10.10.10:192.168.1.1,bind=239.10.10.10,so-bindtodevice=eth0.2')"
+check 'multicast uses RECVFROM+fork' 1 "$(cmdgrep 1 'UDP4-RECVFROM:5000')"
+check 'multicast requests IGMP too' 'udp:5000 igmp:- ' "$(fwls)"
+
+# multicast receive -> multicast relay (ttl + interface)
+cat > "$WORK/in.show" <<'FIX'
+socat.m2=config
+socat.m2.enable=1
+socat.m2.proto=udp
+socat.m2.listen_port=5000
+socat.m2.mcast_group=239.10.10.10
+socat.m2.dest_proto=mcast
+socat.m2.mcast_dst_group=239.20.20.20
+socat.m2.mcast_dst_port=4000
+socat.m2.mcast_iface=eth0.2
+socat.m2.mcast_ttl=8
+socat.m2.mcast_loop=1
+FIX
+run_gen ''
+check 'multicast relay dial' 1 "$(cmdgrep 1 'UDP4-DATAGRAM:239.20.20.20:4000,ip-multicast-if=eth0.2,ip-multicast-ttl=8,ip-multicast-loop=1')"
+
+
+# bad multicast parameters, each in its own fixture (a good group on a later
+# line would override the value under test)
+for bad in 'mcast_dst_port=70000' 'mcast_ttl=999'; do
+	opt=${bad%%=*}; val=${bad#*=}
+	cat > "$WORK/in.show" <<EOF
+socat.bm=config
+socat.bm.enable=1
+socat.bm.proto=udp
+socat.bm.listen_port=5001
+socat.bm.$bad
+socat.bm.mcast_group=239.10.10.10
+socat.bm.dest_proto=mcast
+socat.bm.mcast_dst_group=239.20.20.20
+socat.bm.dest_ip=10.0.0.9
+socat.bm.dest_port=80
+EOF
+	run_gen ''
+	contains "bad $bad is refused" 'skip' "$(warns)"
+done
+
+cat > "$WORK/in.show" <<'EOF'
+socat.bm=config
+socat.bm.enable=1
+socat.bm.proto=udp
+socat.bm.listen_port=5001
+socat.bm.mcast_group=200.1.1.1
+socat.bm.dest_proto=tcp4
+socat.bm.dest_ip=10.0.0.9
+socat.bm.dest_port=80
+EOF
+run_gen ''
+check 'bad mcast_group=200.1.1.1 is refused' 'bm:bad mcast_group, skip ' "$(warns)"
+
+cat > "$WORK/in.show" <<'EOF'
+socat.bm=config
+socat.bm.enable=1
+socat.bm.proto=udp
+socat.bm.listen_port=5001
+socat.bm.mcast_group=239.10.10.10
+socat.bm.dest_proto=mcast
+socat.bm.mcast_dst_group=10.0.0.1
+socat.bm.dest_ip=10.0.0.9
+socat.bm.dest_port=80
+EOF
+run_gen ''
+check 'bad mcast_dst_group=10.0.0.1 is refused' 'bm:bad mcast_dst_group, skip ' "$(warns)"
+# bad multicast parameters
+
+# a group on a non-udp listener is ignored, not fatal
+cat > "$WORK/in.show" <<'FIX'
+socat.mt=config
+socat.mt.enable=1
+socat.mt.proto=tcp
+socat.mt.listen_port=5002
+socat.mt.mcast_group=239.10.10.10
+socat.mt.dest_proto=tcp4
+socat.mt.dest_ip=10.0.0.9
+socat.mt.dest_port=80
+FIX
+run_gen ''
+contains 'group on a tcp rule is ignored' 'multicast group needs proto=udp' "$(warns)"
+check 'the tcp rule still starts' 'mt/tcp ' "$(kinds)"
+
+# socket options: nodelay / backlog / max-children / timeout / system_log
+cat > "$WORK/in.show" <<'FIX'
+socat.o=config
+socat.o.enable=1
+socat.o.proto=tcp
+socat.o.listen_port=6000
+socat.o.dest_proto=tcp4
+socat.o.dest_ip=10.0.0.9
+socat.o.dest_port=80
+socat.o.nodelay=1
+socat.o.backlog=64
+socat.o.max_children=16
+socat.o.timeout=30
+socat.o.system_log=1
+FIX
+run_gen ''
+check 'nodelay on the listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6000,fork,reuseaddr,nodelay,backlog=64,max-children=16')"
+check 'nodelay on the dial' 1 "$(cmdgrep 1 'TCP4:10.0.0.9:80,nodelay')"
+check 'timeout becomes socat -T' 1 "$(cmdgrep 1 'socat -T30 ')"
+check 'system_log routes to syslog' 1 "$(cmdgrep 1 'socat -T30 -ls -d TCP-LISTEN:6000')"
+
+
+# keepalive can be switched off per rule
+cat > "$WORK/in.show" <<'FIX'
+socat.k=config
+socat.k.enable=1
+socat.k.proto=tcp
+socat.k.listen_port=6100
+socat.k.dest_proto=tcp4
+socat.k.dest_ip=10.0.0.9
+socat.k.dest_port=80
+socat.k.keepalive=0
+FIX
+run_gen ''
+check 'keepalive=0 drops it from the listener' 0 "$(cmdgrep 1 'TCP-LISTEN:6100,fork,reuseaddr,keepalive')"
+check 'keepalive=0 drops it from the dial too' 1 "$(cmdgrep 1 'TCP4:10.0.0.9:80')"
+check 'the listener is still built without keepalive' 'k/tcp ' "$(kinds)"
+
+# listen_addr binds the IPv4 listener to one local address
+cat > "$WORK/in.show" <<'FIX'
+socat.la=config
+socat.la.enable=1
+socat.la.proto=tcp
+socat.la.listen_addr=192.168.1.5
+socat.la.listen_port=6200
+socat.la.dest_proto=tcp4
+socat.la.dest_ip=10.0.0.9
+socat.la.dest_port=80
+FIX
+run_gen ''
+check 'listen_addr binds the v4 listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6200,fork,reuseaddr,bind=192.168.1.5')"
+
+# with IPv6 available the auto WAN bind stays on the v6 listener
+cat > "$WORK/in.show" <<'FIX'
+socat.la6=config
+socat.la6.enable=1
+socat.la6.proto=tcp
+socat.la6.listen_addr=192.168.1.5
+socat.la6.listen_port=6201
+socat.la6.dest_proto=tcp4
+socat.la6.dest_ip=10.0.0.9
+socat.la6.dest_port=80
+FIX
+run_gen "$V6"
+check 'v4 listener keeps its own bind' 1 "$(cmdgrep 1 'TCP-LISTEN:6201,fork,reuseaddr,bind=192.168.1.5')"
+check 'v6 listener keeps the WAN bind' 1 "$(cmdgrep 1 "TCP6-LISTEN:6201,fork,reuseaddr,bind=$V6")"
+
+# a v6 listen_addr moves the bind to the v6 listener (and needs ip-freebind)
+cat > "$WORK/in.show" <<'FIX'
+socat.la66=config
+socat.la66.enable=1
+socat.la66.proto=tcp
+socat.la66.listen_addr=fd00::5
+socat.la66.listen_port=6202
+socat.la66.dest_proto=tcp4
+socat.la66.dest_ip=10.0.0.9
+socat.la66.dest_port=80
+FIX
+run_gen "$V6"
+check 'v6 listen_addr binds the v6 listener' 1 "$(cmdgrep 1 'TCP6-LISTEN:6202,fork,reuseaddr,bind=fd00::5,ip-freebind=1')"
+check 'v4 listener has no bind then' 1 "$(cmdgrep 1 'TCP-LISTEN:6202,fork,reuseaddr,keepalive')"
+
+# a listen_addr on a multicast listener is ignored, with a warning
+cat > "$WORK/in.show" <<'FIX'
+socat.lam=config
+socat.lam.enable=1
+socat.lam.proto=udp
+socat.lam.listen_addr=192.168.1.5
+socat.lam.listen_port=6203
+socat.lam.mcast_group=239.10.10.10
+socat.lam.dest_proto=tcp4
+socat.lam.dest_ip=10.0.0.9
+socat.lam.dest_port=80
+FIX
+run_gen ''
+contains 'listen_addr is ignored on multicast' 'listen_addr is ignored' "$(warns)"
+check 'the multicast listener keeps bind=group' 1 "$(cmdgrep 1 'bind=239.10.10.10')"
+
+# a bad keepalive or listen_addr is refused
+cat > "$WORK/in.show" <<'FIX'
+socat.bk=config
+socat.bk.enable=1
+socat.bk.proto=tcp
+socat.bk.listen_port=6204
+socat.bk.keepalive=2
+socat.bk.dest_proto=tcp4
+socat.bk.dest_ip=10.0.0.9
+socat.bk.dest_port=80
+FIX
+run_gen ''
+check 'bad keepalive is refused' 'bk:bad keepalive, skip ' "$(warns)"
+
+cat > "$WORK/in.show" <<'FIX'
+socat.bl=config
+socat.bl.enable=1
+socat.bl.proto=tcp
+socat.bl.listen_addr=192.168.1.5;rm -rf /
+socat.bl.listen_port=6205
+socat.bl.dest_proto=tcp4
+socat.bl.dest_ip=10.0.0.9
+socat.bl.dest_port=80
+FIX
+run_gen ''
+check 'a shell metacharacter in listen_addr is refused' 'bl:bad listen_addr, skip ' "$(warns)"
+
+# a unix listener unlinks a stale socket file before binding
+cat > "$WORK/in.show" <<'FIX'
+socat.ux=config
+socat.ux.enable=1
+socat.ux.proto=unix
+socat.ux.unix_path=/var/run/x.sock
+socat.ux.dest_proto=tcp4
+socat.ux.dest_ip=10.0.0.5
+socat.ux.dest_port=80
+FIX
+run_gen ''
+check 'unix listener unlinks a stale socket' 1 "$(cmdgrep 1 'UNIX-LISTEN:/var/run/x.sock,fork,unlink-early')"
+
+# a unix socket has no TCP keepalive (socat rejects keepidle there): neither a
+# unix listener dialling unix, nor a tcp listener dialling unix, may carry it
+# on the unix side; the tcp listener itself still keeps its own copy.
+cat > "$WORK/in.show" <<'FIX'
+socat.xx=config
+socat.xx.enable=1
+socat.xx.proto=unix
+socat.xx.unix_path=/var/run/a.sock
+socat.xx.dest_proto=unix
+socat.xx.dst_unix_path=/var/run/b.sock
+socat.tx=config
+socat.tx.enable=1
+socat.tx.proto=tcp
+socat.tx.listen_port=6400
+socat.tx.dest_proto=unix
+socat.tx.dst_unix_path=/var/run/c.sock
+FIX
+run_gen ''
+check 'unix to unix carries no keepalive at all' 0 "$(awk -F'\t' '$1=="xx"{print $5}' "$WORK/out.des" | grep -c keepalive)"
+check 'unix to unix keeps reuseaddr and unlink-early' 1 "$(cmdgrep 1 'UNIX-LISTEN:/var/run/a.sock,fork,unlink-early,reuseaddr UNIX-CONNECT:/var/run/b.sock')"
+check 'tcp to unix keeps keepalive on the listener only' 1 "$(cmdgrep 1 'TCP-LISTEN:6400,fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5 UNIX-CONNECT:/var/run/c.sock')"
+
+# ---- command shape: no target address may run into the option before it -----
+# Regression this caught: "UDP-LISTEN:5000,forkUDP4:10.0.0.9:53" — the space
+# before the target was lost when the listener options became variables, and
+# every substring assertion (and the unit tests' key column, which strips
+# spaces on purpose) still matched, so only the real listener failed to start.
+cat > "$WORK/in.show" <<'FIX'
+socat.t=config
+socat.t.enable=1
+socat.t.proto=tcp
+socat.t.listen_port=6300
+socat.t.dest_proto=tcp4
+socat.t.dest_ip=10.0.0.9
+socat.t.dest_port=80
+socat.t.nodelay=1
+socat.t.backlog=8
+socat.u=config
+socat.u.enable=1
+socat.u.proto=udp
+socat.u.listen_port=6301
+socat.u.dest_proto=udp4
+socat.u.dest_ip=10.0.0.9
+socat.u.dest_port=53
+socat.s=config
+socat.s.enable=1
+socat.s.proto=ssl
+socat.s.listen_port=6302
+socat.s.ssl_cert=/etc/ssl/c.pem
+socat.s.ssl_key=/etc/ssl/k.pem
+socat.s.dest_proto=ssl
+socat.s.dest_ip=10.0.0.9
+socat.s.dest_port=443
+socat.x=config
+socat.x.enable=1
+socat.x.proto=unix
+socat.x.unix_path=/var/run/x.sock
+socat.x.dest_proto=tcp4
+socat.x.dest_ip=10.0.0.9
+socat.x.dest_port=80
+socat.m=config
+socat.m.enable=1
+socat.m.proto=udp
+socat.m.listen_port=6303
+socat.m.mcast_group=239.1.1.1
+socat.m.dest_proto=mcast
+socat.m.mcast_dst_group=239.2.2.2
+socat.m.mcast_dst_port=5000
+FIX
+run_gen "$V6"
+check 'no target address is glued to the option before it' 0 \
+	"$(cut -f5 "$WORK/out.des" | grep -cE '[^[:space:]](TCP|UDP|OPENSSL|UNIX-CONNECT|PROXY|SOCKS4)')"
+check 'udp v4 keeps the space before the target' 1 "$(cmdgrep 1 'UDP-LISTEN:6301,fork UDP4:10.0.0.9:53')"
+check 'udp v6 keeps the space before the target' 1 "$(cmdgrep 1 'UDP6-LISTEN:6301,fork UDP4:10.0.0.9:53')"
+check 'ssl keeps the space before the target' 1 "$(cmdgrep 1 'fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5 OPENSSL:10.0.0.9:443')"
+check 'unix keeps the space before the target' 1 "$(cmdgrep 1 'unlink-early,reuseaddr TCP4:10.0.0.9:80,keepalive,keepidle=60,keepintvl=10,keepcnt=5')"
+check 'a unix listener carries no keepalive itself' 0 "$(cmdgrep 1 'unlink-early,reuseaddr,keepalive')"
+check 'multicast receive keeps the space before the target' 1 "$(cmdgrep 1 'bind=239.1.1.1,reuseaddr,fork UDP4-DATAGRAM:239.2.2.2:5000')"
+check 'ssl listener carries the cert and key' 2 "$(cmdgrep 1 'OPENSSL-LISTEN:6302,cert=/etc/ssl/c.pem,key=/etc/ssl/k.pem')"
+check 'tcp listener carries nodelay and backlog' 1 "$(cmdgrep 1 'TCP-LISTEN:6300,fork,reuseaddr,nodelay,backlog=8')"
+check 'the multicast rule opens udp on the wire' 'udp:6303 ' "$(fwls | tr ' ' '\n' | grep '^udp:6303' | tr '\n' ' ')"
+check 'the multicast rule also opens igmp' 'igmp:- ' "$(fwls | tr ' ' '\n' | grep '^igmp:' | tr '\n' ' ')"
+check 'an ssl listener is opened as tcp on the wire' 'tcp:6302 ' "$(fwls | tr ' ' '\n' | grep '^tcp:6302' | tr '\n' ' ')"
 # ---- second awk implementation: the tests must hold there too -------------
 if command -v busybox >/dev/null 2>&1; then
 	echo

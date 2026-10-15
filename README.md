@@ -124,6 +124,19 @@ that as "all rules disabled" (which would have stopped every forward).
 
 ## How it works (short version)
 
+* **Protocol coverage**: TCP/UDP on IPv4 and IPv6, **TLS** (`OPENSSL-LISTEN`
+  with your certificate, `OPENSSL` dial with optional CA verification),
+  **Unix sockets** on either end, and **multicast** — join a group on the
+  listen side (`ip-add-membership`) and relay it to a unicast target, a
+  different group (`ip-multicast-if`/`-ttl`/`-loop`) or a TCP target. IGMP is
+  accepted on the WAN zones while a multicast rule is active.
+* **Socket options** per rule: `TCP_NODELAY`, listen backlog, `max-children`
+  (a cap on concurrent connection children), transfer timeout (`socat -T`),
+  TCP `keepalive` (on by default; turn it off for a target that never closes
+  its side), binding the listener to one local address (`bind=`) and
+  `system_log` (route that rule's socat log to syslog via `socat -ls -d`).
+
+
 * The LuCI view talks to the ubus object `luci.socat-reforged`; one call returns
   engine state, every rule's live status, connection counts and — new — **why a
   rule is down** (the listener's own error message).
@@ -157,24 +170,17 @@ service**, creates `/etc/config/socat` if missing, and migrates off a legacy
 engine init. It is idempotent, backs up before touching the engine, and never
 overwrites your existing `/etc/config/socat`.
 
+
+`uninstall.sh [--purge]` stops the engine, removes the package files and the
+firewall rules it created, and **keeps** `/etc/config/socat` (your forwarding
+rules) unless you pass `--purge`.
+
 The engine is managed as the procd service **`socat-reforged`**:
 
 ```sh
 /etc/init.d/socat-reforged enable     # start at boot
 /etc/init.d/socat-reforged start
 /etc/init.d/socat-reforged stop
-```
-
-### 2. Build from source (feed / package)
-
-Add this repository as a package or feed and build with your SDK / buildroot:
-
-```sh
-# point your OpenWrt tree at it, e.g. clone into package/ or add a feed
-git clone https://github.com/busybin/luci-app-socat-reforged \
-    package/luci-app-socat-reforged
-make menuconfig       # LuCI -> Applications -> luci-app-socat-reforged
-make package/luci-app-socat-reforged/compile V=s
 ```
 
 ### 3. Prebuilt packages

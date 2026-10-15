@@ -234,7 +234,11 @@ function engine_rules() {
 		const f = split(l, ' ');              /* sid kind port pid error... */
 		if (length(f) < 5)
 			continue;
-		const sid = f[0], kind = f[1], pid = f[2];
+		/* NB: the pid is the FOURTH field — the third is the port.  Reading
+		 * f[2] here made every rule look alive (a dead rule kept its port
+		 * number in that slot), which silently disabled down/partial
+		 * detection and error reporting. */
+		const sid = f[0], kind = f[1], pid = f[3];
 		let err = '';
 		for (let j = 4; j < length(f); j++)
 			err += (j > 4 ? ' ' : '') + f[j];
