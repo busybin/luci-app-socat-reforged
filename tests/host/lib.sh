@@ -27,6 +27,17 @@ contains() { # contains <description> <needle> <haystack>
 	esac
 }
 
+# "the haystack must mention the needle".  Deliberately the same shape as
+# contains(): a suite that calls a helper which does not exist gets exit 127
+# printed to stderr and *no* check counted, which is how four assertions once
+# looked green while never running.  Every helper used by a suite lives here.
+has() { # has <description> <needle> <haystack>
+	case "$3" in
+		*"$2"*) begin "$1"; ok ;;
+		*)      begin "$1"; bad "missing $2" "$3" ;;
+	esac
+}
+
 absent() { # absent <description> <needle> <haystack>
 	case "$3" in
 		*"$2"*) begin "$1"; bad "must not contain $2" "$3" ;;

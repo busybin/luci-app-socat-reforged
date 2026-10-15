@@ -99,6 +99,24 @@ reads lacks a form field or an export entry — and the reverse, an exported fie
 the engine never reads (which silently saves but does nothing). `remarks` is
 exempt: it is the label the user sees, not an engine option.
 
+### Fixed: a padded port became a different port on the router
+
+The generator normalised ports with `v + 0`. BusyBox awk reads a leading-zero
+string as **octal** (`"0443"` → 291) where mawk/gawk read 443, and the engine runs
+**BusyBox awk on the router** — so `listen_port='0443'` came out as 291 on the
+device and 443 on a desktop. Every test on a PC passed, and the rule forwarded
+the wrong port. Ports (listen, range end, dest, proxy, mcast) and `retry` are now
+normalised as strings (`plain_num()`), and the guarded comparison is explicit.
+
+Found only because the generator suite now **re-runs itself entirely under
+BusyBox awk** instead of cross-checking a single fixture: with `+ 0` restored the
+mawk run stays green and the BusyBox run goes red, which is exactly the original
+bug. Two more test-harness defects surfaced at the same time: `has()` did not
+exist in `tests/host/lib.sh`, so four assertions were silent no-ops that printed
+exit 127 and counted nothing (a suite that looks green while four checks never
+ran), and `AWK=busybox` could not work because busybox reads its first argument
+as an applet name — it must be `AWK="busybox awk"`.
+
 ### Not copied, with reasons
 
 * **`src_port`** (mylucien's source port for the dial): tested and refused.
