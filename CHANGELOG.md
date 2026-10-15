@@ -6,7 +6,7 @@ the last tag; version numbers only change when a release is requested.
 ## Unreleased
 
 * **Simplified Chinese translation**, shipped the LuCI way as its own package
-  (`luci-i18n-socat-reforged-zh_Hans`, built from `po/zh_Hans/`): installing a
+  (`luci-i18n-socat-reforged-zh-cn`, built from `po/zh_Hans/`): installing a
   language does not touch the app package, and anything a catalogue misses falls
   back to English.  The backend's own `detail`/`error` strings (the Test button,
   the log) are mapped onto translatable messages in the view, and
