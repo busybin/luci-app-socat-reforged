@@ -481,7 +481,13 @@ END {
 				}
 				else {
 					if (fam != "6")
-						emit(sid, "udp", lp, build_cmd("UDP-LISTEN:" lp ",fork" BIND4 LOPT USR " " DIAL))
+						# ",pf=ip4" is not decoration: socat 1.8.0.0 (Ubuntu 24.04,
+						# Debian 13) refuses a bare "UDP-LISTEN:port" with
+						# "xioopen_ipdgram_listen(): unknown address family 0", while
+						# UDP6-LISTEN and UDP4-RECVFROM carry the family in their name.
+						# Pinning it costs nothing on 1.7.4 and 1.8.1 and keeps the
+						# command portable across the socat versions the suite runs on.
+						emit(sid, "udp", lp, build_cmd("UDP-LISTEN:" lp ",pf=ip4,fork" BIND4 LOPT USR " " DIAL))
 					# NB: socat rejects bind= on UDP6-LISTEN ("port specification not
 					# allowed in this bind option"), and a plain UDP6-LISTEN binds the
 					# v6 wildcard (v6only), so it coexists with the v4 listener.

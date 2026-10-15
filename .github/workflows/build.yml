@@ -14,7 +14,9 @@ permissions:
 jobs:
   test:
     name: host-tests
-    runs-on: ubuntu-latest
+    # Pinned on purpose: the suite runs real `socat`, and its behaviour differs
+    # between versions (1.8.0.0 needed an explicit `pf=ip4` on UDP-LISTEN).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,7 +30,15 @@ jobs:
       - name: Run the test suite (view, generator, zones, layout simulator)
         run: |
           cd pkg
-          sh tests/run.sh
+          echo "shell:  $(readlink -f /bin/sh)"
+          echo "socat:  $(socat -V 2>&1 | sed -n 2p)"
+          echo "awk:    $(awk -W version 2>&1 | head -1)"
+          echo "node:   $(node --version)"
+          # root on purpose: on a router the engine *is* root, and the suite
+          # deliberately covers `,user=nobody` and a unix socket it chowns —
+          # both need the privilege, and without it the run reports dead
+          # listeners that are fine in production.
+          sudo -E env "PATH=$PATH" sh tests/run.sh
 
   build:
     name: ${{ matrix.name }}

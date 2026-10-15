@@ -31,6 +31,10 @@ if [ "$SOCAT_HAS_SSL" = 1 ]; then
 		-days 2 -nodes -subj "/CN=socat-sim-tls" >/dev/null 2>&1
 fi
 
+# Some of what the engine must accept (",user=nobody", a unix socket it chowns)
+# only works as root.  Say so once instead of failing every scenario.
+[ "$(id -u)" = "0" ] || echo "  (unprivileged: user=nobody is stripped from the fixtures)"
+
 prepare() { # prepare <scenario>
 	SC="$1"
 	rm -rf "$SIM"; mkdir -p "$SIM/bin" "$SIM/etc" "$SIM/run"
@@ -413,6 +417,12 @@ firewall.@zone[1].input=REJECT
 EOF
 		;;
 	esac
+	# ",user=nobody" needs root: socat chowns a unix socket to that user, and
+	# some builds need the privilege to resolve a datagram family.  Drop it when
+	# the suite runs unprivileged instead of reporting a dead listener.
+	if [ "$(id -u)" != "0" ]; then
+		sed -i "/\.user='nobody'\$/d" "$SIM/etc/socat"
+	fi
 }
 
 results() { # results -> "zones|listeners|srcs|errors"
