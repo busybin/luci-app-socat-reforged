@@ -5,6 +5,36 @@ the last tag; version numbers only change when a release is requested.
 
 ## V4 (2026-10-15)
 
+### The released package itself was broken (2026-10-15)
+
+Found while reviewing a contribution against the built `.ipk`: **the packages we
+published never worked.**  Three defects, all in the packaging layer, all
+confirmed by unpacking the shipped V3 package:
+
+* **The engine, the procd init script and the ctl helper were committed without
+  the executable bit** (`0644`).  `luci.mk` installs `root/` with `cp -pR`, so
+  the package kept that mode: procd could not start the service,
+  `/etc/socat-boot.sh` could not be run and the LuCI Start/Stop/Restart buttons
+  failed with "permission denied".  The manual `install.sh` path `chmod 755`s
+  what it copies — which is why the router worked and nothing noticed.
+* **The postinst was not valid shell.**  It is a Makefile `define`, where the
+  three-dollar form expands to a make variable reference and a bare dollar
+  before a quote loses the dollar: the shipped script contained a literal
+  `init.d.socat.bak.$` and an unterminated quote, so `sh -n` reported
+  "Unterminated quoted string".  On a real install the postinst therefore never
+  created `/etc/config/socat`, never migrated the legacy init, never enabled the
+  service and never stamped the version.
+* **The package metadata was LuCI's default**: `luci.mk` reads
+  `LUCI_MAINTAINER`/`LUCI_URL`/`LUCI_DESCRIPTION`, so our `PKG_MAINTAINER` was
+  silently dropped and the package advertised "OpenWrt LuCI community" and the
+  LuCI feed URL.
+
+All three are fixed, and `tests/host/package-layout.sh` now guards the whole
+class: the tree bits, the `root/`+`htdocs/` layout, the metadata variables, and
+the postinst **expanded exactly the way make expands it** and syntax-checked.
+The empty state no longer offers a second "Add forward" button (the table
+already renders one).
+
 ### A bug sweep across the whole surface (2026-10-15)
 
 Six real defects, each reproduced before it was touched and each with a

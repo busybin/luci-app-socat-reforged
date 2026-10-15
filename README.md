@@ -259,13 +259,13 @@ Each `config config` section is one forward:
 Everything that does not need a router runs anywhere (BusyBox/Linux + `socat`):
 
 ```sh
-sh tests/run.sh                  # 7 suites: view, generator, zones, simulator, matrix, fuzz, engine keys
+sh tests/run.sh                  # 8 suites: view, generator, zones, simulator, matrix, fuzz, engine keys, package layout
 sh tests/run.sh --router router  # also install on a router, test engine/backend/perf
 ```
 
 See `tests/README.md` for what each suite covers. Exit codes are CI-friendly.
 
-Seven suites; four of them do not trust the string comparison:
+Eight suites; five of them do not trust the string comparison:
 
 * **layout simulator** — the real engine, the real `socat`, fake `uci`/`ip`: a
   full OpenWrt device in a sandbox, so reconcile, kill/respawn and the firewall
@@ -284,6 +284,12 @@ Seven suites; four of them do not trust the string comparison:
   one of them, so a new listener type cannot be added without teaching the
   engine (an unknown kind is invisible: it is never stopped, restarted or
   counted).
+* **package layout** — the thing users install: the executable bits (the engine,
+  the procd init script and the ctl helper must be `0755` or the package installs
+  a service that cannot start), the `root/`+`htdocs/` layout `luci.mk` expects,
+  the package metadata variables, and the postinst *as make expands it* (a
+  Makefile `define` turns `$$$(` into `$(` and eats a bare `$'`, which once
+  shipped a postinst that was a syntax error).
 
 The layout simulator is the one that matters for a generator change: the unit
 tests compare the *generated key* (deliberately stripped of spaces) and only
