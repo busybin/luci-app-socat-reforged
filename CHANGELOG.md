@@ -403,3 +403,28 @@ Two suites whose job is to catch what the string comparison cannot:
   turns two of the checks red.
 
 Both are part of `sh tests/run.sh` (6 suites now) and the CI host-tests job.
+
+### Fixed: four IPv6 defects (2026-10-15)
+
+Probed the whole IPv6 surface (every listener kind × v6 variable) against the real
+`socat` and fixed what could not work:
+
+* **An IPv6 target on a v4 dial** (`dest_proto=tcp4|udp4` + a v6 literal) was
+  emitted as `TCP4:2001:db8::99:80`. socat accepts that at bind time and then
+  fails on **every** connection (`TCP4: wrong number of parameters`) — a rule
+  that looks healthy and forwards nothing. Now refused with
+  "an IPv6 target needs dest_proto tcp6/udp6/tls".
+* **A v6 proxy server** (`proxy=…` + `proxy_server=2001:db8::1`): `SOCKS4A:` and
+  `PROXY:` take a hostname or an IPv4 literal, and a v6 literal supplies the
+  colons their parser counts fields on, so socat refuses the whole address
+  (`SOCKS4A: 3 parameters required`). The UI now types the field `ip4addr`.
+* **An IPv6-only multicast rule** emitted **no listener at all and no warning**:
+  multicast receive is UDP4-only. Now skipped with a reason.
+* **A v6 `listen_addr` on a UDP rule** was silently ignored (socat rejects `bind=`
+  on `UDP6-LISTEN`), unlike the multicast case which already warned. Now warns.
+
+Also removed one unreachable guard (the proxy/v6-target check) once the v4-dial
+guard above was in place — dead code that suggests a protection it does not give.
+Every guard is verified by mutation in `fuzz.sh` or `gen-cases.sh`, and the two
+IPv6-only listener forms (WAN-IPv6 bind, explicit `listen_addr`) are now started
+for real in `matrix.sh`.

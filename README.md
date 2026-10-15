@@ -136,6 +136,13 @@ that as "all rules disabled" (which would have stopped every forward).
   `#undef WITH_OPENSSL` and a TLS rule cannot start — it is reported **down**
   with socat's own message (`unknown device/address "OPENSSL-LISTEN"`, which is
   exactly what you get). Check with `socat -V` before blaming the rule.
+  Other IPv6 limits that are enforced rather than silently ignored: an IPv6
+  target needs `dest_proto` tcp6/udp6/tls (a v6 literal in a v4 address is
+  accepted by socat at bind time and then fails on every connection), a proxy
+  server cannot be an IPv6 address (`SOCKS4A:`/`PROXY:` cannot express one),
+  multicast is receive-side IPv4 only, and `listen_addr` is ignored on an
+  IPv6 UDP listener (socat refuses `bind=` there). Each of those is reported as
+  a warning or a skipped rule instead of a listener that cannot work.
   **TLS also listens on IPv4 only**: socat has no IPv6-capable OpenSSL listener
   (every `bind=` form fails with `getaddrinfo ... Address family for hostname
   not supported`, and with no `bind=` it binds IPv4 only). A TLS rule left on
