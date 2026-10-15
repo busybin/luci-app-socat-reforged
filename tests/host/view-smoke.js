@@ -13,8 +13,9 @@
 const fs = require('fs');
 const path = require('path');
 
+const REPO = path.join(__dirname, '..', '..');
 const VIEW = process.argv[2] ||
-	path.join(__dirname, '..', '..', 'htdocs', 'luci-static', 'resources', 'view', 'network', 'socat-reforged.js');
+	path.join(REPO, 'htdocs', 'luci-static', 'resources', 'view', 'network', 'socat-reforged.js');
 
 let pass = 0, fail = 0;
 function ck(label, expected, actual) {
@@ -261,6 +262,10 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	ck('keepalive defaults to on', '1', ka && ka.default);
 	const la = optOf('listen_addr');
 	ck('listen_addr accepts v4 or v6', 'or(ip4addr, ip6addr)', la && la.datatype);
+	const us = optOf('user');
+	ck('user is a name, not a free string', 'uciname', us && us.datatype);
+	const rt = optOf('retry');
+	ck('retry is a range', 'range(0,3600)', rt && rt.datatype);
 	const up = optOf('unix_path');
 	ck('unix_path is a file path', 'filepath', up && up.datatype);
 	const sc = optOf('ssl_cert');
@@ -276,6 +281,34 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('import validation knows ssl', "'ssl'", src);
 	has('import validation checks ssl_verify', 'importFlagOk(rule.ssl_verify)', src);
 	has('import validation checks keepalive', 'importFlagOk(rule.keepalive)', src);
+	has('import validation checks user', 'USER_RE.test(String(rule.user))', src);
+	has('import validation checks retry', 'importRangeOk(rule.retry, 0, 3600)', src);
+	has('user is offered for every protocol', "form.Value, 'user'", src);
+	has('retry depends on the tcp/ssl/unix targets', "depends('dest_proto', 'unix')", src);
+
+	/* ---- every engine option must be editable and exported ------------------
+	 * This is the check that catches "added to the engine, forgotten in the
+	 * dialog": ssl_cert/ssl_key were exported and validated but had no input,
+	 * so a TLS rule could only be created by hand-editing the config. */
+	const genSrc = fs.readFileSync(path.join(REPO, 'root', 'usr', 'libexec', 'socat-reforged-gen.awk'), 'utf8');
+	const genOpts = [...new Set((genSrc.match(/V\[sid,\s*"([a-z0-9_]+)"\]/g) || [])
+		.map(s => /"([a-z0-9_]+)"/.exec(s)[1]))].sort();
+	/* EXPORT_FIELDS is private to the view module, so read it back out of the
+	 * source rather than reaching into the closure */
+	const EXPORT_FIELDS = /var EXPORT_FIELDS = \[([^\]]*)\]/.exec(src)[1]
+		.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+	ck('the generator really was parsed', 34, genOpts.length);
+	const missingField = genOpts.filter(n => !optOf(n));
+	ck('every engine option has a form field', genOpts.length + ' fields',
+		missingField.length ? missingField.length + ' missing: ' + missingField.join(',') : genOpts.length + ' fields');
+	const missingExport = genOpts.filter(n => EXPORT_FIELDS.indexOf(n) < 0);
+	ck('every engine option is exported', genOpts.length + ' fields',
+		missingExport.length ? missingExport.length + ' missing: ' + missingExport.join(',') : genOpts.length + ' fields');
+	/* and the reverse: a form field the engine never reads is dead weight that
+	 * silently does nothing (it saves but has no effect).  `remarks` is exempt:
+	 * it is the label the user sees, the generator has no business with it. */
+	const orphan = EXPORT_FIELDS.filter(n => n !== 'remarks' && genOpts.indexOf(n) < 0);
+	ck('no exported field is unknown to the engine', 'none', orphan.length ? orphan.join(',') : 'none');
 	has('range hint shown to the user', '30000-30010', src);
 	has('import validation accepts a port range', '([0-9]{1,5})(?:-([0-9]{1,5}))?$', src);
 

@@ -28,6 +28,8 @@ hongyan3, 1522042029) and took what they had and we did not:
   target. IGMP is accepted on the WAN zones while a multicast rule is on.
 * **Socket options** (from mylucien/WROIATE): `nodelay`, `backlog`,
   `max_children`, `timeout` and `system_log` (per-rule `socat -ls -d`).
+* **`user`/`retry`/`reuseaddr`** (from mylucien): drop privileges per rule, keep dialling a
+  target that is not up yet, SO_REUSEADDR switch.
 * **uninstall.sh** (from mylucien): stops the engine, removes every installed
   file and the firewall rules; keeps `/etc/config/socat` unless `--purge`.
 
@@ -36,14 +38,9 @@ hongyan3, 1522042029) and took what they had and we did not:
 * **`listen_addr`** (from mylucien's `src_addr`): bind the listener to one
   local address instead of every address.  A v6 literal replaces the automatic
   WAN-IPv6 bind; a multicast listener ignores it (it must bind the group).
-* **`ssl_cert`/`ssl_key` form fields** — they were exported and validated but
-  had no input in the dialog, so a TLS rule could only be created by hand.
 
-Deliberately NOT copied, because our existing design is the stronger one:
-firewall3 (iptables) support (we are ucode-native 24.10+/25.x only; a Lua
-fallback would undo that) and the static `nftables.d` snippet mechanism
-(WROIATE: every rule change needs a full `fw4 reload`; our UCI rules are
-self-healing, survive backup/restore and reload only when needed).
+What was deliberately **not** copied, and why, is listed under "Not copied,
+with reasons" below.
 
 ### Fixed: three defects the real engine exposed (2026-10-14)
 
@@ -73,6 +70,47 @@ the real `socat`:
   listener now carries `verify=0` (no client authentication); the *dial* side
   still honours `ssl_verify`/`ssl_cafile`.  Verified with a round-trip on the
   generated command shape, on both sides.
+
+### Upstream parity round 2: `user`, `retry`, `reuseaddr` in the UI (2026-10-15)
+
+* **`user`** (mylucien) — the accepted connections run as that user; socat drops
+  privileges after the socket is open, so a low listen port still works. Verified
+  against the real socat for **every** listener kind (TCP/TCP6/UDP/UDP6/OpenSSL/
+  unix/UDP4-RECVFROM): socat accepts the option on all of them, unlike
+  `keepalive`.
+* **`retry`** (mylucien) — keep dialling a target that is not up yet instead of
+  dropping the connection. socat rejects `retry` on a UDP address
+  (`option "retry" not supported with this address type`), so it is only emitted
+  for connection-oriented dials (TCP/TCP6/TLS/unix/SOCKS/proxy). This was found
+  by testing the option against every address type *before* wiring it in — the
+  same mistake as the unix+keepalive one would have killed every udp rule.
+* **`reuseaddr`** now has a form field. The engine had always honoured it, but
+  there was no input for it, so it was UI-invisible.
+
+### Fixed: engine options that were invisible in the UI
+
+* `ssl_cert`/`ssl_key` were exported and validated by `importCheck` but had **no
+  input in the dialog**, so a TLS rule could only be created by hand-editing
+  `/etc/config/socat`.
+* `reuseaddr` was honoured by the engine but had no input either.
+
+Both are now covered by a structural test that fails if any option the generator
+reads lacks a form field or an export entry — and the reverse, an exported field
+the engine never reads (which silently saves but does nothing). `remarks` is
+exempt: it is the label the user sees, not an engine option.
+
+### Not copied, with reasons
+
+* **`src_port`** (mylucien's source port for the dial): tested and refused.
+  socat's `sourceport` must be bound by every forked child, so with `fork` a
+  second concurrent connection fails with `Address already in use` — measured,
+  not guessed. A single-connection rule would work, but a forwarder that breaks
+  on the second client is worse than no option.
+* **firewall3/iptables** (we are ucode-native, 24.10+/25.x only), **a static
+  `nftables.d` snippet** (every rule change needs a full `fw4 reload`, and the
+  snippet is invisible to `uci` and to backup/restore) and **free-form
+  `custom_opts`** (a command-injection vector; the whitelist exists so that a
+  rule can never become a shell command).
 
 ### Verified live on an OpenWrt 25.12 router (2026-10-14)
 
