@@ -35,6 +35,9 @@ function unq(v,  p) {
 # mawk, gawk and BusyBox awk, and a whitelist can never admit a metacharacter.
 function warn(sid, msg) { print sid "\t" msg > warnf }
 function ok_host(v)  { return (v ~ /^[A-Za-z0-9._:-]+$/) }
+# a user the listener's children run as (socat's ",user=").  Same character set
+# Linux usernames allow, no metacharacters, so it can never become an option.
+function ok_user(v)  { return (v ~ /^[A-Za-z_][A-Za-z0-9_-]*$/ && length(v) <= 32) }
 function ok_name(v)  { return (v ~ /^[A-Za-z0-9_.-]+$/) }
 function ok_flag(v)  { return (v == "" || v == "0" || v == "1") }
 function ipport(v)   { return (v ~ /^[0-9]+$/ && v + 0 >= 1 && v + 0 <= 65535) }
@@ -164,6 +167,10 @@ END {
 		syslog  = V[sid, "system_log"]
 		kalive  = V[sid, "keepalive"]
 		laddr   = V[sid, "listen_addr"]
+		# process + connection options (socat ",user=" on the listener,
+		# ",retry=" on the dial)
+		uuser   = V[sid, "user"]
+		rtry    = V[sid, "retry"]
 		# tls / unix paths
 		ucert   = V[sid, "ssl_cert"]
 		ukey    = V[sid, "ssl_key"]
@@ -198,6 +205,8 @@ END {
 		if (!ok_flag(syslog))              { warn(sid, "bad system_log, skip"); continue }
 		if (!ok_flag(kalive))              { warn(sid, "bad keepalive, skip"); continue }
 		if (laddr != "" && !ok_host(laddr)) { warn(sid, "bad listen_addr, skip"); continue }
+		if (uuser != "" && !ok_user(uuser)) { warn(sid, "bad user, skip"); continue }
+		if (rtry != "" && !ok_uint(rtry, 0, 3600)) { warn(sid, "bad retry, skip"); continue }
 		if (!ok_flag(ra))                  { warn(sid, "bad reuseaddr, skip"); continue }
 		if (!ok_flag(uverify))             { warn(sid, "bad ssl_verify, skip"); continue }
 		if (!ok_flag(mcloop))              { warn(sid, "bad mcast_loop, skip"); continue }
@@ -309,6 +318,22 @@ END {
 		if (nodelay == "1" && (dproto == "tcp4" || dproto == "tcp6"))
 			ND = ",nodelay"
 
+		# the listener's children run as this user (drop privileges after the
+		# socket is open).  Empty = leave it alone (root).
+		USR = ""
+		if (uuser != "")
+			USR = ",user=" uuser
+
+		# ",retry=N": keep dialling a target that is not up yet instead of
+		# giving up and dropping the connection.  Seconds, 0 = socat default.
+		# Only for connection-oriented dials: socat rejects the option on a
+		# UDP address ("retry not supported with this address type"), which
+		# would kill every udp rule that set it.
+		RTY = ""
+		if (rtry != "" && rtry + 0 > 0 &&
+		    dproto != "udp4" && dproto != "udp6" && dproto != "mcast")
+			RTY = ",retry=" (rtry + 0)
+
 		RA = ""
 		if (ra == "" || ra == "1")
 			RA = ",reuseaddr"
@@ -353,25 +378,25 @@ END {
 				# no port at all: one listener on the socket path, then done.
 				# unlink-early removes a socket file left behind by a crashed
 				# listener, which would otherwise make the rebind fail.
-				emit(sid, "unix", "-", build_cmd("UNIX-LISTEN:" upath ",fork,unlink-early" RA " " DIAL ND KADL))
+				emit(sid, "unix", "-", build_cmd("UNIX-LISTEN:" upath ",fork,unlink-early" RA USR " " DIAL ND RTY KADL))
 				break
 			}
 			if (proto == "tcp") {
 				if (fam != "6")
-					emit(sid, "tcp", lp, build_cmd("TCP-LISTEN:" lp ",fork" RA BIND4 LOPT KAD " " DIAL ND KADL))
+					emit(sid, "tcp", lp, build_cmd("TCP-LISTEN:" lp ",fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
 				if (fam != "4" && (ipv6 != "" || BIND6 != "")) {
 					B6 = BIND6
 					if (B6 == "") B6 = ",bind=" ipv6 ",ip-freebind=1"
-					emit(sid, "tcp6", lp, build_cmd("TCP6-LISTEN:" lp ",fork" RA LOPT B6 KAD " " DIAL ND KADL))
+					emit(sid, "tcp6", lp, build_cmd("TCP6-LISTEN:" lp ",fork" RA LOPT B6 KAD USR " " DIAL ND RTY KADL))
 				}
 			}
 			else if (proto == "ssl") {
 				if (fam != "6")
-					emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA BIND4 LOPT KAD " " DIAL ND KADL))
+					emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
 				if (fam != "4" && (ipv6 != "" || BIND6 != "")) {
 					B6 = BIND6
 					if (B6 == "") B6 = ",bind=" ipv6 ",ip-freebind=1"
-					emit(sid, "ssltcp6", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA LOPT B6 KAD " " DIAL ND KADL))
+					emit(sid, "ssltcp6", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA LOPT B6 KAD USR " " DIAL ND RTY KADL))
 				}
 			}
 			else {
@@ -379,16 +404,16 @@ END {
 					# multicast receive: RECVFROM + fork hands each datagram to a
 					# child while the listener itself keeps running
 					if (fam != "6")
-						emit(sid, "udp", lp, build_cmd("UDP4-RECVFROM:" lp MC_RECV ",fork " DIAL))
+						emit(sid, "udp", lp, build_cmd("UDP4-RECVFROM:" lp MC_RECV ",fork" USR " " DIAL))
 				}
 				else {
 					if (fam != "6")
-						emit(sid, "udp", lp, build_cmd("UDP-LISTEN:" lp ",fork" BIND4 LOPT " " DIAL))
+						emit(sid, "udp", lp, build_cmd("UDP-LISTEN:" lp ",fork" BIND4 LOPT USR " " DIAL))
 					# NB: socat rejects bind= on UDP6-LISTEN ("port specification not
 					# allowed in this bind option"), and a plain UDP6-LISTEN binds the
 					# v6 wildcard (v6only), so it coexists with the v4 listener.
 					if (fam != "4" && ipv6 != "")
-						emit(sid, "udp6", lp, build_cmd("UDP6-LISTEN:" lp ",fork " DIAL))
+						emit(sid, "udp6", lp, build_cmd("UDP6-LISTEN:" lp ",fork" USR " " DIAL))
 				}
 			}
 

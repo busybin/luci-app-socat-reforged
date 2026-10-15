@@ -152,12 +152,19 @@ socat.simhttp.dest_proto='tcp4'
 socat.simhttp.dest_ip='192.168.1.10'
 socat.simhttp.dest_port='80'
 socat.simhttp.firewall_accept='1'
+# user=/retry= must be accepted by the real socat for every listener kind.  A
+# "once" fixture value proves all of them, because the engine would otherwise
+# kill the listener every cycle and the scenario would not come up.
+socat.simhttp.user='nobody'
+socat.simhttp.retry='5'
 socat.simdns=config
 socat.simdns.enable='1'
 socat.simdns.remarks='dns'
 socat.simdns.proto='udp'
 socat.simdns.listen_port='21053'
 socat.simdns.dest_proto='udp4'
+socat.simdns.user='nobody'
+socat.simdns.retry='5'
 socat.simdns.dest_ip='192.168.1.11'
 socat.simdns.dest_port='53'
 socat.simdns.firewall_accept='1'

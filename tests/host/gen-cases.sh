@@ -801,6 +801,78 @@ check 'tcp listener carries nodelay and backlog' 1 "$(cmdgrep 1 'TCP-LISTEN:6300
 check 'the multicast rule opens udp on the wire' 'udp:6303 ' "$(fwls | tr ' ' '\n' | grep '^udp:6303' | tr '\n' ' ')"
 check 'the multicast rule also opens igmp' 'igmp:- ' "$(fwls | tr ' ' '\n' | grep '^igmp:' | tr '\n' ' ')"
 check 'an ssl listener is opened as tcp on the wire' 'tcp:6302 ' "$(fwls | tr ' ' '\n' | grep '^tcp:6302' | tr '\n' ' ')"
+
+# ---- drop privileges (socat ",user=") and retry (",retry=") ------------------
+# Copied from mylucien.  Both are single-token options, so unlike custom_opts
+# they cannot smuggle another option into the command line; the character set
+# is still validated (the ",user=;" test below).
+cat > "$WORK/in.show" <<'FIX'
+socat.t=config
+socat.t.enable=1
+socat.t.proto=tcp
+socat.t.listen_port=6500
+socat.t.user=nobody
+socat.t.retry=5
+socat.t.dest_proto=tcp4
+socat.t.dest_ip=10.0.0.9
+socat.t.dest_port=80
+socat.u=config
+socat.u.enable=1
+socat.u.proto=udp
+socat.u.listen_port=6501
+socat.u.user=nobody
+socat.u.retry=5
+socat.u.dest_proto=udp4
+socat.u.dest_ip=10.0.0.9
+socat.u.dest_port=53
+socat.m=config
+socat.m.enable=1
+socat.m.proto=udp
+socat.m.listen_port=6502
+socat.m.mcast_group=239.1.1.1
+socat.m.user=nobody
+socat.m.retry=5
+socat.m.dest_proto=mcast
+socat.m.mcast_dst_group=239.2.2.2
+socat.m.mcast_dst_port=5000
+socat.s=config
+socat.s.enable=1
+socat.s.proto=unix
+socat.s.unix_path=/var/run/x.sock
+socat.s.user=nobody
+socat.s.retry=5
+socat.s.dest_proto=unix
+socat.s.dst_unix_path=/var/run/b.sock
+socat.z=config
+socat.z.enable=1
+socat.z.proto=tcp
+socat.z.listen_port=6503
+socat.z.user=nobody
+socat.z.retry=0
+socat.z.dest_proto=tcp4
+socat.z.dest_ip=10.0.0.9
+socat.z.dest_port=80
+socat.bad=config
+socat.bad.enable=1
+socat.bad.proto=tcp
+socat.bad.listen_port=6504
+socat.bad.user='nobody;reboot'
+socat.bad.retry='5x'
+socat.bad.dest_proto=tcp4
+socat.bad.dest_ip=10.0.0.9
+socat.bad.dest_port=80
+FIX
+run_gen "$V6"
+check 'user= reaches the tcp listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6500,fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5,user=nobody ')"
+check 'retry= reaches the tcp dial' 2 "$(cmdgrep 1 'TCP4:10.0.0.9:80,retry=5,keepalive')"
+check 'user= reaches the unix listener' 1 "$(cmdgrep 1 'unlink-early,reuseaddr,user=nobody UNIX-CONNECT')"
+check 'retry= reaches the unix dial' 1 "$(cmdgrep 1 'UNIX-CONNECT:/var/run/b.sock,retry=5')"
+check 'a udp rule keeps user= but drops retry=' 1 "$(cmdgrep 1 'UDP-LISTEN:6501,fork,user=nobody UDP4:10.0.0.9:53')"
+check 'a multicast rule keeps user= but drops retry=' 1 "$(cmdgrep 1 'bind=239.1.1.1,reuseaddr,fork,user=nobody UDP4-DATAGRAM')"
+check 'retry=0 means no retry option' 0 "$(cmdgrep 1 'TCP4:10.0.0.9:80,retry=0')"
+has 'a metacharacter user is refused, whole rule' 'bad:bad user, skip' "$(warns)"
+has 'a non-numeric retry is refused, whole rule' 'bad:bad retry, skip' "$(warns)"
+check 'the refused rule starts nothing' 0 "$(awk -F'\t' '$1=="bad"' "$WORK/out.des" | grep -c .)"
 # ---- second awk implementation: the tests must hold there too -------------
 if command -v busybox >/dev/null 2>&1; then
 	echo
