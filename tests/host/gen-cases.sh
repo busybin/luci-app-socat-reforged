@@ -476,7 +476,7 @@ socat.t.firewall_accept=1
 FIX
 run_gen ''
 check 'tls listener + tls dial' 't/ssltcp ' "$(kinds)"
-check 'tls listener carries cert+key' 1 "$(cmdgrep 1 'OPENSSL-LISTEN:8443,cert=/etc/luci-cert.pem,key=/etc/luci-key.pem')"
+check 'tls listener carries cert+key' 1 "$(cmdgrep 1 'OPENSSL-LISTEN:8443,pf=ip4,cert=/etc/luci-cert.pem,key=/etc/luci-key.pem')"
 check 'tls listener does not demand a client certificate' 1 "$(cmdgrep 1 'key=/etc/luci-key.pem,verify=0,fork')"
 check 'tls dial defaults to verify=0' 1 "$(cmdgrep 1 'OPENSSL:10.0.0.7:443,verify=0')"
 check 'tls opens the firewall as tcp' 'tcp:8443 ' "$(fwls)"
@@ -656,7 +656,7 @@ socat.o.timeout=30
 socat.o.system_log=1
 FIX
 run_gen ''
-check 'nodelay on the listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6000,fork,reuseaddr,nodelay,backlog=64,max-children=16')"
+check 'nodelay on the listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6000,pf=ip4,fork,reuseaddr,nodelay,backlog=64,max-children=16')"
 check 'nodelay on the dial' 1 "$(cmdgrep 1 'TCP4:10.0.0.9:80,nodelay')"
 check 'timeout becomes socat -T' 1 "$(cmdgrep 1 'socat -T30 ')"
 check 'system_log routes to syslog' 1 "$(cmdgrep 1 'socat -T30 -ls -d TCP-LISTEN:6000')"
@@ -674,7 +674,7 @@ socat.k.dest_port=80
 socat.k.keepalive=0
 FIX
 run_gen ''
-check 'keepalive=0 drops it from the listener' 0 "$(cmdgrep 1 'TCP-LISTEN:6100,fork,reuseaddr,keepalive')"
+check 'keepalive=0 drops it from the listener' 0 "$(cmdgrep 1 'TCP-LISTEN:6100,pf=ip4,fork,reuseaddr,keepalive')"
 check 'keepalive=0 drops it from the dial too' 1 "$(cmdgrep 1 'TCP4:10.0.0.9:80')"
 check 'the listener is still built without keepalive' 'k/tcp ' "$(kinds)"
 
@@ -690,7 +690,7 @@ socat.la.dest_ip=10.0.0.9
 socat.la.dest_port=80
 FIX
 run_gen ''
-check 'listen_addr binds the v4 listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6200,fork,reuseaddr,bind=192.168.1.5')"
+check 'listen_addr binds the v4 listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6200,pf=ip4,fork,reuseaddr,bind=192.168.1.5')"
 
 # with IPv6 available the auto WAN bind stays on the v6 listener
 cat > "$WORK/in.show" <<'FIX'
@@ -704,7 +704,7 @@ socat.la6.dest_ip=10.0.0.9
 socat.la6.dest_port=80
 FIX
 run_gen "$V6"
-check 'v4 listener keeps its own bind' 1 "$(cmdgrep 1 'TCP-LISTEN:6201,fork,reuseaddr,bind=192.168.1.5')"
+check 'v4 listener keeps its own bind' 1 "$(cmdgrep 1 'TCP-LISTEN:6201,pf=ip4,fork,reuseaddr,bind=192.168.1.5')"
 check 'v6 listener keeps the WAN bind' 1 "$(cmdgrep 1 "TCP6-LISTEN:6201,fork,reuseaddr,bind=$V6")"
 
 # a v6 listen_addr moves the bind to the v6 listener (and needs ip-freebind)
@@ -720,7 +720,7 @@ socat.la66.dest_port=80
 FIX
 run_gen "$V6"
 check 'v6 listen_addr binds the v6 listener' 1 "$(cmdgrep 1 'TCP6-LISTEN:6202,fork,reuseaddr,bind=fd00::5,ip-freebind=1')"
-check 'v4 listener has no bind then' 1 "$(cmdgrep 1 'TCP-LISTEN:6202,fork,reuseaddr,keepalive')"
+check 'v4 listener has no bind then' 1 "$(cmdgrep 1 'TCP-LISTEN:6202,pf=ip4,fork,reuseaddr,keepalive')"
 
 # a listen_addr on a multicast listener is ignored, with a warning
 cat > "$WORK/in.show" <<'FIX'
@@ -798,7 +798,7 @@ FIX
 run_gen ''
 check 'unix to unix carries no keepalive at all' 0 "$(awk -F'\t' '$1=="xx"{print $5}' "$WORK/out.des" | grep -c keepalive)"
 check 'unix to unix keeps reuseaddr and unlink-early' 1 "$(cmdgrep 1 'UNIX-LISTEN:/var/run/a.sock,fork,unlink-early,reuseaddr UNIX-CONNECT:/var/run/b.sock')"
-check 'tcp to unix keeps keepalive on the listener only' 1 "$(cmdgrep 1 'TCP-LISTEN:6400,fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5 UNIX-CONNECT:/var/run/c.sock')"
+check 'tcp to unix keeps keepalive on the listener only' 1 "$(cmdgrep 1 'TCP-LISTEN:6400,pf=ip4,fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5 UNIX-CONNECT:/var/run/c.sock')"
 
 # ---- command shape: no target address may run into the option before it -----
 # Regression this caught: "UDP-LISTEN:5000,forkUDP4:10.0.0.9:53" — the space
@@ -858,8 +858,8 @@ check 'ssl keeps the space before the target' 1 "$(cmdgrep 1 'fork,reuseaddr,kee
 check 'unix keeps the space before the target' 1 "$(cmdgrep 1 'unlink-early,reuseaddr TCP4:10.0.0.9:80,keepalive,keepidle=60,keepintvl=10,keepcnt=5')"
 check 'a unix listener carries no keepalive itself' 0 "$(cmdgrep 1 'unlink-early,reuseaddr,keepalive')"
 check 'multicast receive keeps the space before the target' 1 "$(cmdgrep 1 'bind=239.1.1.1,reuseaddr,fork UDP4-DATAGRAM:239.2.2.2:5000')"
-check 'ssl listener carries the cert and key' 1 "$(cmdgrep 1 'OPENSSL-LISTEN:6302,cert=/etc/ssl/c.pem,key=/etc/ssl/k.pem,verify=0,fork')"
-check 'tcp listener carries nodelay and backlog' 1 "$(cmdgrep 1 'TCP-LISTEN:6300,fork,reuseaddr,nodelay,backlog=8')"
+check 'ssl listener carries the cert and key' 1 "$(cmdgrep 1 'OPENSSL-LISTEN:6302,pf=ip4,cert=/etc/ssl/c.pem,key=/etc/ssl/k.pem,verify=0,fork')"
+check 'tcp listener carries nodelay and backlog' 1 "$(cmdgrep 1 'TCP-LISTEN:6300,pf=ip4,fork,reuseaddr,nodelay,backlog=8')"
 check 'the multicast rule opens udp on the wire' 'udp:6303 ' "$(fwls | tr ' ' '\n' | grep '^udp:6303' | tr '\n' ' ')"
 check 'the multicast rule also opens igmp' 'igmp:- ' "$(fwls | tr ' ' '\n' | grep '^igmp:' | tr '\n' ' ')"
 check 'an ssl listener is opened as tcp on the wire' 'tcp:6302 ' "$(fwls | tr ' ' '\n' | grep '^tcp:6302' | tr '\n' ' ')"
@@ -932,7 +932,7 @@ socat.badr.dest_ip=10.0.0.9
 socat.badr.dest_port=80
 FIX
 run_gen "$V6"
-check 'user= reaches the tcp listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6500,fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5,user=nobody ')"
+check 'user= reaches the tcp listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6500,pf=ip4,fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5,user=nobody ')"
 check 'retry= reaches the tcp dial' 2 "$(cmdgrep 1 'TCP4:10.0.0.9:80,retry=5,keepalive')"
 check 'user= reaches the unix listener' 1 "$(cmdgrep 1 'unlink-early,reuseaddr,user=nobody UNIX-CONNECT')"
 check 'retry= reaches the unix dial' 1 "$(cmdgrep 1 'UNIX-CONNECT:/var/run/b.sock,retry=5')"
@@ -970,7 +970,7 @@ run_gen "$V6"
 check 'a udp rule with nodelay still listens' 'nd/udp nd/udp6 tn/tcp tn/tcp6 ' "$(kinds)"
 check 'a udp listener drops nodelay' 0 "$(cmdgrep 0 'UDP-LISTEN:6601,pf=ip4,fork,nodelay')"
 check 'a udp6 listener drops nodelay' 0 "$(cmdgrep 0 'UDP6-LISTEN:6601,fork,nodelay')"
-check 'a tcp listener keeps nodelay' 1 "$(cmdgrep 1 'TCP-LISTEN:6600,fork,reuseaddr,nodelay')"
+check 'a tcp listener keeps nodelay' 1 "$(cmdgrep 1 'TCP-LISTEN:6600,pf=ip4,fork,reuseaddr,nodelay')"
 
 # ---- an IPv4 literal cannot be a v6 target ---------------------------------
 # getaddrinfo with AF_INET6 rejects "192.168.1.9" on every connection, so the

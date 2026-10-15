@@ -35,20 +35,37 @@ the postinst **expanded exactly the way make expands it** and syntax-checked.
 The empty state no longer offers a second "Add forward" button (the table
 already renders one).
 
-### socat 1.8.0.0 wants an explicit family on UDP-LISTEN (2026-10-15)
+### socat 1.8.0.0 wants an explicit protocol family (2026-10-15)
 
 The host suite runs against the distribution's `socat`, and Ubuntu 24.04 /
-Debian 13 ship **1.8.0.0**, which refuses a bare `UDP-LISTEN:<port>` with
-`xioopen_ipdgram_listen(): unknown address family 0` (1.8.1, the version OpenWrt
-ships, accepts it again — verified on the router).  The IPv4 UDP listener now
-pins `pf=ip4`, which is a no-op on 1.7.4 and 1.8.1 and makes the command
-portable across the versions the project is tested with.
+Debian 13 ship **1.8.0.0**, whose address types pick a different protocol family
+than 1.8.1's:
 
-That is also what the CI job needed, which had never actually run: it now runs
-the suite with the privilege the engine really has on a router (`sudo`, because
-`,user=nobody` makes socat chown a socket), and the job is pinned to
-`ubuntu-24.04` so a future runner image cannot silently change the socat under
-the tests.  Locally and in an Ubuntu 24.04 container the whole suite is green.
+* a bare `UDP-LISTEN:<port>` is refused outright with
+  `xioopen_ipdgram_listen(): unknown address family 0`;
+* a bare `TCP-LISTEN:<port>` becomes a **dual-stack** listener (AF_INET6 `::`
+  with `v6only=0`), which then owns that port for **every IPv6 address** too.  A
+  rule that also has an IPv6 listener therefore failed its `TCP6-LISTEN` with
+  `bind(...): Address already in use` and stayed *partial* forever — the engine
+  had started both workers, so the only symptom was a rule that never came up.
+* `OPENSSL-LISTEN` does the same.  That also made the engine's liveness check
+  blind to a TLS worker, because the engine looks for a TLS listener in the IPv4
+  table while this socket sits in the IPv6 one — so a *deleted* TLS rule kept
+  its listener running (and only a TLS-capable socat can show that, which is why
+  the simulator's TLS scenario caught it).
+
+All three IPv4 listener kinds now pin `pf=ip4`.  That is a no-op on 1.7.4 and on
+1.8.1 (the version OpenWrt ships; verified on a router, where `TCP-LISTEN`
+listens on `0.0.0.0`) and makes the generated commands mean the same thing on
+every socat the project is tested against.  `tests/host/matrix.sh` now also
+starts the v4 **and** the v6 listener of one rule at the same time: every other
+check starts a single command and could not see this.
+
+That is also what the CI job needed, which had never actually run before this
+release: it now runs the suite with the privilege the engine really has on a
+router (`sudo`, because `,user=nobody` makes socat chown a socket), and the job
+is pinned to `ubuntu-24.04` so a future runner image cannot silently change the
+socat under the tests.
 
 ### A bug sweep across the whole surface (2026-10-15)
 

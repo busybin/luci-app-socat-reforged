@@ -145,7 +145,9 @@ that as "all rules disabled" (which would have stopped every forward).
   a warning or a skipped rule instead of a listener that cannot work.
   **TLS also listens on IPv4 only**: socat has no IPv6-capable OpenSSL listener
   (every `bind=` form fails with `getaddrinfo ... Address family for hostname
-  not supported`, and with no `bind=` it binds IPv4 only). A TLS rule left on
+  not supported`, and with no `bind=` it binds IPv4 only — on 1.7.4/1.8.1; 1.8.0.0
+  would bind the whole IPv6 wildcard, so the generator pins `pf=ip4` and the rule
+  stays IPv4-only there too). A TLS rule left on
   the default family therefore listens on IPv4, says so in the log, and a rule
   set to *IPv6 only* is skipped rather than starting a listener that would die.
 * **Socket options** per rule: `TCP_NODELAY`, listen backlog, `max_children`,
