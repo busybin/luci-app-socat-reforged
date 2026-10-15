@@ -255,6 +255,27 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	ck('dest_port stays a single port', 'port', dp && dp.datatype);
 	const dip = optOf('dest_ip');
 	ck('dest_ip datatype still host-or-v6', 'or(host, ip6addr)', dip && dip.datatype);
+
+	/* the parity round added TLS, unix sockets, multicast and socket tuning */
+	const ka = optOf('keepalive');
+	ck('keepalive defaults to on', '1', ka && ka.default);
+	const la = optOf('listen_addr');
+	ck('listen_addr accepts v4 or v6', 'or(ip4addr, ip6addr)', la && la.datatype);
+	const up = optOf('unix_path');
+	ck('unix_path is a file path', 'filepath', up && up.datatype);
+	const sc = optOf('ssl_cert');
+	ck('ssl_cert is a file path', 'filepath', sc && sc.datatype);
+	const mg = optOf('mcast_group');
+	ck('mcast_group is an IPv4 address', 'ip4addr', mg && mg.datatype);
+	const tl = optOf('mcast_ttl');
+	ck('mcast_ttl is a small range', 'range(1,255)', tl && tl.datatype);
+	const nd = optOf('nodelay');
+	ck('nodelay is a flag', true, !!nd);
+	has('proto offers ssl and unix', "['tcp', 'udp', 'ssl', 'unix']", src);
+	has('dest_proto offers mcast', "'mcast'", src);
+	has('import validation knows ssl', "'ssl'", src);
+	has('import validation checks ssl_verify', 'importFlagOk(rule.ssl_verify)', src);
+	has('import validation checks keepalive', 'importFlagOk(rule.keepalive)', src);
 	has('range hint shown to the user', '30000-30010', src);
 	has('import validation accepts a port range', '([0-9]{1,5})(?:-([0-9]{1,5}))?$', src);
 

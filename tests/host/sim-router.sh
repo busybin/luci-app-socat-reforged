@@ -317,6 +317,41 @@ firewall.@zone[1].network=wan
 firewall.@zone[1].input=REJECT
 EOF
 		;;
+	9)
+		# a multicast listener and a unix-socket listener are both absent from
+		# /proc/net/tcp: the engine must still see them (otherwise it respawns
+		# them forever), and only the multicast rule may open an IGMP rule.
+		cat > "$SIM/etc/socat" <<'EOF'
+socat.reforged=internal
+socat.simmcast=config
+socat.simmcast.enable='1'
+socat.simmcast.proto=udp
+socat.simmcast.listen_port='21060'
+socat.simmcast.mcast_group=239.10.10.10
+socat.simmcast.dest_proto=tcp4
+socat.simmcast.dest_ip=192.168.1.10
+socat.simmcast.dest_port='80'
+socat.simmcast.firewall_accept='1'
+socat.simunix=config
+socat.simunix.enable='1'
+socat.simunix.proto=unix
+socat.simunix.unix_path='/tmp/opencode/socat-sim/repo-sim/run/sim.sock'
+socat.simunix.dest_proto=tcp4
+socat.simunix.dest_ip=192.168.1.10
+socat.simunix.dest_port='80'
+socat.simunix.firewall_accept='1'
+EOF
+		cat > "$SIM/etc/firewall" <<'EOF'
+firewall.@zone[0]=zone
+firewall.@zone[0].name=lan
+firewall.@zone[0].network=lan
+firewall.@zone[0].input=ACCEPT
+firewall.@zone[1]=zone
+firewall.@zone[1].name=wan
+firewall.@zone[1].network=wan wan6
+firewall.@zone[1].input=REJECT
+EOF
+		;;
 	*)
 		cat > "$SIM/etc/firewall" <<'EOF'
 firewall.@defaults[0]=defaults
@@ -342,11 +377,17 @@ results() { # results -> "zones|listeners|srcs|errors"
 }
 
 cleanup() {
-	for p in $($PG /proc/[0-9]*/cmdline 2>/dev/null); do :; done
-	# kill only the simulated listeners (210xx ports)
+	# Kill only our own workers: the engine stamps every socat it spawns with
+	# SOCAT_SIM_MARKER in the environment, so an unrelated socat (a real port
+	# forward on the test host) is never touched.  The old port-pattern list
+	# (2108/2105/2103/2101) missed the multicast (21060) and unix listeners,
+	# which leaked between scenarios and made later runs fail on EADDRINUSE.
 	for p in $(pgrep socat 2>/dev/null); do
-		read -r c < "/proc/$p/cmdline" 2>/dev/null
-		case "$c" in *2108*|*2105*|*2103*|*2101*) kill -9 "$p" 2>/dev/null ;; esac
+		grep -qs SOCAT_SIM_MARKER "/proc/$p/environ" 2>/dev/null && kill -9 "$p" 2>/dev/null
+	done
+	# a leftover sandbox engine (killed hard, no trap) must not survive either
+	for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do
+		kill -9 "$p" 2>/dev/null
 	done
 	rm -rf "$SIM"
 }
@@ -360,7 +401,7 @@ run_one() { # run_one <scenario> <expected zones> <expected listener kinds> <exp
 	sleep "$SECS"
 	kill "$LOOP" 2>/dev/null
 	wait "$LOOP" 2>/dev/null
-	for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+	for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 	sleep 1
 
 	IFS='|' read -r Z L S E <<EOF
@@ -397,7 +438,7 @@ LOOP=$!
 sleep "$SECS"
 kill "$LOOP" 2>/dev/null
 wait "$LOOP" 2>/dev/null
-for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 sleep 1
 IFS='|' read -r Z L S E <<EOF
 $(results)
@@ -411,6 +452,35 @@ check 'scenario 8: per-rule pid files for a shared port' 4 \
 	"$(ls "$SIM/run/pids" 2>/dev/null | grep -c '21075')"
 check 'scenario 8: per-rule stderr files for a shared port' 4 \
 	"$(ls "$SIM/run/err" 2>/dev/null | grep -c '21075')"
+cleanup
+
+# scenario 9: a multicast listener and a unix-socket listener.  Both kinds are
+# missing from /proc/net/tcp, so this is the regression test for the discovery
+# filter and the port parser: if they are not recognised the engine kills and
+# respawns them every cycle (and the state file flips between up and down).
+# Run inline: the firewall log and the state file are inspected directly.
+SC=9
+prepare "$SC"
+fixtures "$SC"
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+LOOP=$!
+sleep "$SECS"
+kill "$LOOP" 2>/dev/null
+wait "$LOOP" 2>/dev/null
+for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+sleep 1
+IFS='|' read -r Z L S E <<EOF
+$(results)
+EOF
+check 'scenario 9: zones' 'wan' "$Z"
+check 'scenario 9: multicast + unix listeners' 'udp unix' "$L"
+check 'scenario 9: firewall src zones' 'wan' "$S"
+check 'scenario 9: no rule errors' '' "$E"
+check 'scenario 9: the multicast rule opens a tcp/udp port' 1 "$(grep -c 'socat_reforged_udp\..*dest_port=21060' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 9: ...and an IGMP accept rule' 1 "$(grep -c 'socat_reforged_igmp=rule' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 9: the IGMP rule is proto igmp' 1 "$(grep -c 'socat_reforged_igmp.proto=igmp' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 9: the unix rule opens no port' 0 "$(grep -c 'socat_reforged_tcp\..*dest_port=21060' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 9: the unix listener socket exists' 1 "$([ -S "$SIM/run/sim.sock" ] && echo 1 || echo 0)"
 cleanup
 
 # ---- the engine keeps a persistent, capped log file ------------------------
@@ -427,7 +497,7 @@ LOOP=$!
 sleep 5
 kill "$LOOP" 2>/dev/null
 wait "$LOOP" 2>/dev/null
-for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 sleep 1
 
 TOTAL=$(wc -l < "$SIM/engine-logfile.log" 2>/dev/null | tr -d ' ')
@@ -446,7 +516,7 @@ LOOP=$!
 sleep 4
 kill "$LOOP" 2>/dev/null
 wait "$LOOP" 2>/dev/null
-for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 sleep 1
 SIZE=$(wc -c < "$SIM/engine-logfile.log" 2>/dev/null | tr -d ' ')
 check "engine log: capped at 64 KiB" 1 "$([ "${SIZE:-0}" -le 65536 ] && echo 1 || echo 0)"
@@ -470,7 +540,7 @@ i=0
 while [ ! -s "$SIM/run/fw.sig" ] && [ "$i" -lt 60 ]; do sleep 0.2; i=$((i + 1)); done
 kill "$LOOP" 2>/dev/null
 wait "$LOOP" 2>/dev/null
-for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 sleep 1
 check "fw fail: the marker records the attempt" 1 "$(grep -c '^fail ' "$SIM/run/fw.sig" 2>/dev/null)"
 # ... and it ends in the epoch (a trailing space means "no epoch written")
@@ -485,7 +555,7 @@ LOOP=$!
 sleep 4
 kill "$LOOP" 2>/dev/null
 wait "$LOOP" 2>/dev/null
-for p in $(pgrep -f 'socat-reforged-sim/socat-boot.sh' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 sleep 1
 check "fw backoff: a fresh fail marker blocks a rebuild" '' "$(cat "$SIM/fw.log" 2>/dev/null)"
 cleanup

@@ -5,7 +5,7 @@
 # -v socat=<path>  socat binary to use
 # -v desf=<file>   desired records : sid \t kind \t port \t key \t command
 # -v warnf=<file>  warnings        : sid \t message
-# -v fwf=<file>    firewall ports  : proto \t port
+# -v fwf=<file>    firewall ports  : proto \t port   ("igmp\t-" joins groups)
 #
 # "key" is the argv of the listener with spaces removed; it is what the shell
 # matches against the NUL-stripped /proc/<pid>/cmdline of a running worker, so
@@ -14,6 +14,13 @@
 # Everything that reaches a command line is validated here (whitelists, port
 # ranges, no shell metacharacters), so a bad UCI value can never produce a
 # broken or dangerous command.
+#
+# Protocol matrix:
+#   proto (listen)  : tcp | udp | ssl (OPENSSL-LISTEN) | unix (UNIX-LISTEN)
+#   dest_proto (dial: tcp4 | udp4 | tcp6 | udp6 | ssl (OPENSSL)
+#                      | unix (UNIX-CONNECT) | mcast (UDP4-DATAGRAM)
+#   udp + mcast_group    : join a multicast group (ip-add-membership)
+#   tcp4 + proxy         : SOCKS4a / HTTP CONNECT (the only proxy target)
 
 function unq(v,  p) {
 	if (length(v) >= 2 && substr(v, 1, 1) == sq && substr(v, length(v), 1) == sq) {
@@ -31,6 +38,19 @@ function ok_host(v)  { return (v ~ /^[A-Za-z0-9._:-]+$/) }
 function ok_name(v)  { return (v ~ /^[A-Za-z0-9_.-]+$/) }
 function ok_flag(v)  { return (v == "" || v == "0" || v == "1") }
 function ipport(v)   { return (v ~ /^[0-9]+$/ && v + 0 >= 1 && v + 0 <= 65535) }
+function ok_uint(v, lo, hi) { return (v ~ /^[0-9]+$/ && v + 0 >= lo && v + 0 <= hi) }
+# absolute filesystem path (certificate/key/unix socket), no traversal
+function ok_path(v) {
+	return (v ~ /^\//) && (v ~ /^[A-Za-z0-9._\/-]+$/) && (index(v, "..") == 0)
+}
+# IPv4 multicast group 224.0.0.0 - 239.255.255.255
+function ok_mgroup(v,  o) {
+	if (v !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) return 0
+	split(v, o, ".")
+	if (o[1] + 0 < 224 || o[1] + 0 > 239) return 0
+	if (o[2] + 0 > 255 || o[3] + 0 > 255 || o[4] + 0 > 255) return 0
+	return 1
+}
 
 # listen_port may be a single port ("443") or a range ("30000-30010").
 # Returns 0 and sets LP_FROM/LP_TO (plain decimals) on success.
@@ -66,6 +86,18 @@ function emit(sid, kind, port, cmd,  key) {
 	key = cmd
 	gsub(/ /, "", key)
 	print sid "\t" kind "\t" port "\t" key "\t" cmd > desf
+}
+
+# Global socat options go before the two addresses:
+#   -T<n>   transfer timeout (per rule)
+#   -ls -d  route socat's log through syslog (per rule "system_log")
+function build_cmd(addr,  o) {
+	o = socat
+	if (TMO != "")
+		o = o " -T" TMO
+	if (SYSLOG_ON == "1")
+		o = o " -ls -d"
+	return o " " addr
 }
 
 BEGIN {
@@ -124,6 +156,29 @@ END {
 		ra     = V[sid, "reuseaddr"]
 		fa     = V[sid, "firewall_accept"]
 		en     = V[sid, "enable"]
+		# socket options
+		nodelay = V[sid, "nodelay"]
+		backlog = V[sid, "backlog"]
+		maxkids = V[sid, "max_children"]
+		tmo     = V[sid, "timeout"]
+		syslog  = V[sid, "system_log"]
+		kalive  = V[sid, "keepalive"]
+		laddr   = V[sid, "listen_addr"]
+		# tls / unix paths
+		ucert   = V[sid, "ssl_cert"]
+		ukey    = V[sid, "ssl_key"]
+		ucafile = V[sid, "ssl_cafile"]
+		uverify = V[sid, "ssl_verify"]
+		upath   = V[sid, "unix_path"]
+		dupath  = V[sid, "dst_unix_path"]
+		# multicast
+		mcgrp   = V[sid, "mcast_group"]
+		mcif    = V[sid, "mcast_iface"]
+		mclip   = V[sid, "mcast_localip"]
+		mcdgrp  = V[sid, "mcast_dst_group"]
+		mcdp    = V[sid, "mcast_dst_port"]
+		mcttl   = V[sid, "mcast_ttl"]
+		mcloop  = V[sid, "mcast_loop"]
 
 		if (en == "")                      # missing enable == enabled (UI default)
 			en = "1"
@@ -133,69 +188,215 @@ END {
 			continue
 		}
 		if (!ok_name(sid))                 { warn(sid, "bad section id, skip"); continue }
-		if (proto != "tcp" && proto != "udp") { warn(sid, "bad proto, skip"); continue }
-		if (lport_parse(lp) != 0)          { warn(sid, "bad listen port, skip"); continue }
-		if (LP_CLAMPED)                    warn(sid, "port range larger than " LPORT_CAP " ports, clamped")
-		if (!ipport(dp))                   { warn(sid, "bad dest_port, skip"); continue }
-		# canonicalise the ports now that they are known good: a zero-padded
-		# value ("00443") must not reach the command line, because the socket
-		# tables (/proc/net) and the pid registry use the plain decimal form —
-		# a padded listener would never be recognised as owning its socket,
-		# which silently disables duplicate-listener detection for that rule.
-		dp = dp + 0
-		if (dip == "" || !ok_host(dip))    { warn(sid, "bad dest_ip, skip"); continue }
-		if (dproto != "tcp4" && dproto != "udp4" && dproto != "tcp6" && dproto != "udp6") {
+		if (proto != "tcp" && proto != "udp" && proto != "ssl" && proto != "unix") {
+			warn(sid, "bad proto, skip"); continue
+		}
+		if (proto == "unix" && (upath == "" || !ok_path(upath))) {
+			warn(sid, "bad unix_path, skip"); continue
+		}
+		if (!ok_flag(nodelay))             { warn(sid, "bad nodelay, skip"); continue }
+		if (!ok_flag(syslog))              { warn(sid, "bad system_log, skip"); continue }
+		if (!ok_flag(kalive))              { warn(sid, "bad keepalive, skip"); continue }
+		if (laddr != "" && !ok_host(laddr)) { warn(sid, "bad listen_addr, skip"); continue }
+		if (!ok_flag(ra))                  { warn(sid, "bad reuseaddr, skip"); continue }
+		if (!ok_flag(uverify))             { warn(sid, "bad ssl_verify, skip"); continue }
+		if (!ok_flag(mcloop))              { warn(sid, "bad mcast_loop, skip"); continue }
+		if (backlog != "" && !ok_uint(backlog, 1, 65535)) { warn(sid, "bad backlog, skip"); continue }
+		if (maxkids != "" && !ok_uint(maxkids, 1, 1000))  { warn(sid, "bad max_children, skip"); continue }
+		if (tmo != "" && !ok_uint(tmo, 1, 86400))          { warn(sid, "bad timeout, skip"); continue }
+		if (mcttl != "" && !ok_uint(mcttl, 1, 255))        { warn(sid, "bad mcast_ttl, skip"); continue }
+		if (mcttl == "") mcttl = "1"
+		if (proto == "ssl") {
+			if (ucert == "" || !ok_path(ucert)) { warn(sid, "bad ssl_cert, skip"); continue }
+			if (ukey  == "" || !ok_path(ukey))  { warn(sid, "bad ssl_key, skip"); continue }
+		}
+		# globals build_cmd prefixes
+		TMO = (tmo != "") ? tmo : ""
+		SYSLOG_ON = (syslog == "1") ? "1" : ""
+
+		# ---- listen ports: none for unix, single port or range otherwise ---
+		if (proto == "unix") {
+			LP_FROM = 0; LP_TO = 0
+		}
+		else if (lport_parse(lp) != 0) { warn(sid, "bad listen port, skip"); continue }
+		if (LP_CLAMPED) warn(sid, "port range larger than " LPORT_CAP " ports, clamped")
+
+		# ---- multicast receive (udp only) ----------------------------------
+		MC_RECV = ""
+		if (mcgrp != "") {
+			if (proto != "udp") {
+				warn(sid, "multicast group needs proto=udp, ignored")
+				mcgrp = ""
+			}
+			else if (!ok_mgroup(mcgrp)) { warn(sid, "bad mcast_group, skip"); continue }
+			else if (mcif != "" && !ok_name(mcif)) { warn(sid, "bad mcast_iface, skip"); continue }
+			else if (mclip != "" && !ok_host(mclip)) { warn(sid, "bad mcast_localip, skip"); continue }
+			else {
+				# ip-add-membership=<group>:<local ip> joins the group (0.0.0.0 =
+				# let the kernel pick); bind=<group> keeps two rules on the
+				# same port from receiving each other's stream;
+				# so-bindtodevice pins the receive interface.
+				lp_if = mclip
+				if (lp_if == "") lp_if = "0.0.0.0"
+				MC_RECV = ",ip-add-membership=" mcgrp ":" lp_if ",bind=" mcgrp
+				if (mcif != "")
+					MC_RECV = MC_RECV ",so-bindtodevice=" mcif
+				MC_RECV = MC_RECV RA
+			}
+		}
+
+		# ---- dial side ------------------------------------------------------
+		if (dproto != "tcp4" && dproto != "udp4" && dproto != "tcp6" && dproto != "udp6" \
+		    && dproto != "unix" && dproto != "ssl" && dproto != "mcast") {
 			warn(sid, "bad dest_proto, skip"); continue
 		}
 		if (fam != "" && fam != "4" && fam != "6") { warn(sid, "bad family, skip"); continue }
-		if (!ok_flag(ra))                  { warn(sid, "bad reuseaddr, skip"); continue }
 
-		if (prox != "" && prox != "none") {
-			if (dproto != "tcp4") { warn(sid, "proxy only valid with tcp4 target, skip"); continue }
-			if (pserv == "") pserv = "127.0.0.1"
-			if (pport == "") pport = "1080"
-			if (!ipport(pport))              { warn(sid, "bad proxy_port, skip"); continue }
-			pport = pport + 0
-			if (!ok_host(pserv))             { warn(sid, "bad proxy_server, skip"); continue }
-			if (prox == "socks4" || prox == "socks4a")
-				DIAL = "SOCKS4A:" pserv ":" dip ":" dp ",socksport=" pport
-			else if (prox == "http" || prox == "proxy")
-				DIAL = "PROXY:" pserv ":" dip ":" dp ",proxyport=" pport
-			else { warn(sid, "unknown proxy, skip"); continue }
+		if (dproto == "unix") {
+			if (dupath == "" || !ok_path(dupath)) { warn(sid, "bad dst_unix_path, skip"); continue }
+			DIAL = "UNIX-CONNECT:" dupath
 		}
-		else if (dproto == "tcp4") DIAL = "TCP4:" dip ":" dp
-		else if (dproto == "udp4") DIAL = "UDP4:" dip ":" dp
-		else if (dproto == "tcp6") DIAL = "TCP6:" dial_host(dip) ":" dp
-		else                      DIAL = "UDP6:" dial_host(dip) ":" dp
+		else if (dproto == "mcast") {
+			if (!ok_mgroup(mcdgrp)) { warn(sid, "bad mcast_dst_group, skip"); continue }
+			if (!ipport(mcdp))      { warn(sid, "bad mcast_dst_port, skip"); continue }
+			mcdp = mcdp + 0
+			# UDP4-DATAGRAM is send-only, so a relayed stream expects nothing back
+			DIAL = "UDP4-DATAGRAM:" mcdgrp ":" mcdp
+			if (mcif != "")
+				DIAL = DIAL ",ip-multicast-if=" mcif
+			DIAL = DIAL ",ip-multicast-ttl=" mcttl
+			if (mcloop == "1")
+				DIAL = DIAL ",ip-multicast-loop=1"
+		}
+		else if (dproto == "ssl") {
+			if (dip == "" || !ok_host(dip)) { warn(sid, "bad dest_ip, skip"); continue }
+			if (!ipport(dp))                { warn(sid, "bad dest_port, skip"); continue }
+			dp = dp + 0
+			DIAL = "OPENSSL:" dial_host(dip) ":" dp
+			if (uverify == "1" && ucafile != "") {
+				if (!ok_path(ucafile)) { warn(sid, "bad ssl_cafile, skip"); continue }
+				DIAL = DIAL ",verify=1,cafile=" ucafile
+			}
+			else
+				DIAL = DIAL ",verify=0"
+		}
+		else {
+			if (dp == "" || !ipport(dp))    { warn(sid, "bad dest_port, skip"); continue }
+			dp = dp + 0
+			if (dip == "" || !ok_host(dip)) { warn(sid, "bad dest_ip, skip"); continue }
+
+			if (prox != "" && prox != "none") {
+				if (dproto != "tcp4") { warn(sid, "proxy only valid with tcp4 target, skip"); continue }
+				if (pserv == "") pserv = "127.0.0.1"
+				if (pport == "") pport = "1080"
+				if (!ipport(pport))          { warn(sid, "bad proxy_port, skip"); continue }
+				pport = pport + 0
+				if (!ok_host(pserv))         { warn(sid, "bad proxy_server, skip"); continue }
+				if (prox == "socks4" || prox == "socks4a")
+					DIAL = "SOCKS4A:" pserv ":" dip ":" dp ",socksport=" pport
+				else if (prox == "http" || prox == "proxy")
+					DIAL = "PROXY:" pserv ":" dip ":" dp ",proxyport=" pport
+				else { warn(sid, "unknown proxy, skip"); continue }
+			}
+			else if (dproto == "tcp4") DIAL = "TCP4:" dip ":" dp
+			else if (dproto == "udp4") DIAL = "UDP4:" dip ":" dp
+			else if (dproto == "tcp6") DIAL = "TCP6:" dial_host(dip) ":" dp
+			else                      DIAL = "UDP6:" dial_host(dip) ":" dp
+		}
+
+		# TCP_NODELAY on the dial side too (the listener carries its own copy)
+		ND = ""
+		if (nodelay == "1" && (dproto == "tcp4" || dproto == "tcp6"))
+			ND = ",nodelay"
 
 		RA = ""
 		if (ra == "" || ra == "1")
 			RA = ",reuseaddr"
 
-		# per-port warnings only once per rule, not once per port
-		if (fam == "6" && ipv6 == "")
-			warn(sid, "IPv6-only listen but no WAN IPv6 address")
+		# keepalive is on by default (a rule may switch it off)
+		KAD = ""
+		if (kalive != "0")
+			KAD = "," KA
 
-		# one listener per port in the (single-port or ranged) span
+		# ...but a unix socket has no TCP keepalive: socat rejects the option
+		# ("keepidle not supported with this address type")
+		KADL = KAD
+		if (dproto == "unix")
+			KADL = ""
+
+		# bind the listener to one local address; a v6 literal replaces the
+		# automatic WAN IPv6 bind, a v4 literal is used as-is
+		BIND4 = ""
+		BIND6 = ""
+		if (laddr != "") {
+			if (laddr ~ /:/) BIND6 = ",bind=" laddr ",ip-freebind=1"
+			else             BIND4 = ",bind=" laddr
+		}
+
+		# listener tuning options (tcp/ssl)
+		LOPT = ""
+		if (nodelay == "1")
+			LOPT = LOPT ",nodelay"
+		if (backlog != "" && (proto == "tcp" || proto == "ssl"))
+			LOPT = LOPT ",backlog=" backlog
+		if (maxkids != "" && (proto == "tcp" || proto == "ssl"))
+			LOPT = LOPT ",max-children=" maxkids
+
+		# per-rule warnings: only once, not once per port
+		if (fam == "6" && ipv6 == "" && proto != "unix")
+			warn(sid, "IPv6-only listen but no WAN IPv6 address")
+		if (laddr != "" && MC_RECV != "")
+			warn(sid, "listen_addr is ignored on a multicast listener (bind=group is used)")
+
 		for (lp = LP_FROM; lp <= LP_TO; lp++) {
+			if (proto == "unix") {
+				# no port at all: one listener on the socket path, then done.
+				# unlink-early removes a socket file left behind by a crashed
+				# listener, which would otherwise make the rebind fail.
+				emit(sid, "unix", "-", build_cmd("UNIX-LISTEN:" upath ",fork,unlink-early" RA " " DIAL ND KADL))
+				break
+			}
 			if (proto == "tcp") {
 				if (fam != "6")
-					emit(sid, "tcp", lp, socat " TCP-LISTEN:" lp ",fork" RA "," KA " " DIAL "," KA)
-				if (fam != "4" && ipv6 != "")
-					emit(sid, "tcp6", lp, socat " TCP6-LISTEN:" lp ",fork" RA ",bind=" ipv6 ",ip-freebind=1," KA " " DIAL "," KA)
+					emit(sid, "tcp", lp, build_cmd("TCP-LISTEN:" lp ",fork" RA BIND4 LOPT KAD " " DIAL ND KADL))
+				if (fam != "4" && (ipv6 != "" || BIND6 != "")) {
+					B6 = BIND6
+					if (B6 == "") B6 = ",bind=" ipv6 ",ip-freebind=1"
+					emit(sid, "tcp6", lp, build_cmd("TCP6-LISTEN:" lp ",fork" RA LOPT B6 KAD " " DIAL ND KADL))
+				}
+			}
+			else if (proto == "ssl") {
+				if (fam != "6")
+					emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",fork" RA BIND4 LOPT KAD " " DIAL ND KADL))
+				if (fam != "4" && (ipv6 != "" || BIND6 != "")) {
+					B6 = BIND6
+					if (B6 == "") B6 = ",bind=" ipv6 ",ip-freebind=1"
+					emit(sid, "ssltcp6", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",fork" RA LOPT B6 KAD " " DIAL ND KADL))
+				}
 			}
 			else {
-				if (fam != "6")
-					emit(sid, "udp", lp, socat " UDP-LISTEN:" lp ",fork " DIAL)
-				# NB: socat rejects bind= on UDP6-LISTEN ("port specification not
-				# allowed in this bind option"), and a plain UDP6-LISTEN binds the
-				# v6 wildcard (v6only), so it coexists with the v4 listener.
-				if (fam != "4" && ipv6 != "")
-					emit(sid, "udp6", lp, socat " UDP6-LISTEN:" lp ",fork " DIAL)
+				if (MC_RECV != "") {
+					# multicast receive: RECVFROM + fork hands each datagram to a
+					# child while the listener itself keeps running
+					if (fam != "6")
+						emit(sid, "udp", lp, build_cmd("UDP4-RECVFROM:" lp MC_RECV ",fork " DIAL))
+				}
+				else {
+					if (fam != "6")
+						emit(sid, "udp", lp, build_cmd("UDP-LISTEN:" lp ",fork" BIND4 LOPT " " DIAL))
+					# NB: socat rejects bind= on UDP6-LISTEN ("port specification not
+					# allowed in this bind option"), and a plain UDP6-LISTEN binds the
+					# v6 wildcard (v6only), so it coexists with the v4 listener.
+					if (fam != "4" && ipv6 != "")
+						emit(sid, "udp6", lp, build_cmd("UDP6-LISTEN:" lp ",fork " DIAL))
+				}
 			}
 
 			if (fa != "0")
-				print proto "\t" lp > fwf
+				print ((proto == "ssl") ? "tcp" : proto) "\t" lp > fwf
 		}
+		# joining a multicast group needs IGMP accepted on the WAN zones
+		if (mcgrp != "" && fa != "0")
+			print "igmp\t-" > fwf
 	}
 }

@@ -331,21 +331,53 @@ key_kind() {
 		*TCP-LISTEN*)  FAM=tcp ;;
 		*UDP6-LISTEN*) FAM=udp6 ;;
 		*UDP-LISTEN*)  FAM=udp ;;
+		*UDP4-RECVFROM*) FAM=udp ;;
+		*UDP-RECVFROM*)  FAM=udp ;;
 		*)             FAM=""; return 1 ;;
 	esac
 	return 0
 }
 
 # The listen port encoded in a worker's argv key ("socat TCP-LISTEN:44550,..."
-# with the spaces removed -> the digits after "LISTEN:").  Sets $KEY_PORT.
+# with the spaces removed -> the digits after "LISTEN:" / "RECVFROM:").
+# Sets $KEY_PORT.
 key_port() {
 	local x
 	KEY_PORT=""
 	x=${1#*LISTEN:}
+	[ "$x" != "$1" ] || x=${1#*RECVFROM:}
 	[ "$x" != "$1" ] || return 1
 	KEY_PORT=${x%%,*}
 	is_uint "$KEY_PORT" || { KEY_PORT=""; return 1; }
 	return 0
+}
+
+# The socket path of a unix listener key ("...UNIX-LISTEN:/var/run/x.sock,fork").
+# Sets $KEY_PATH.  Checked before key_port(): "UNIX-LISTEN:" also contains
+# "LISTEN:", so the port parser would otherwise read the path as a port.
+key_unix_path() {
+	local x
+	KEY_PATH=""
+	x=${1#*UNIX-LISTEN:}
+	[ "$x" != "$1" ] || return 1
+	KEY_PATH=${x%%,*}
+	[ -n "$KEY_PATH" ] || return 1
+	return 0
+}
+
+# Is <path> a listening (state 01) unix socket right now?  /proc/net/unix lists
+# every unix socket with its state and path, so this costs no fork and — unlike
+# a plain "does the file exist" test — it survives a stale socket file left
+# behind by a crashed listener.
+unix_in_listen() {
+	local path="$1" line
+	[ -r /proc/net/unix ] || return 1
+	while IFS= read -r line; do
+		set -- $line
+		[ "$6" = "01" ] || continue
+		[ "$8" = "$path" ] && return 0
+	done < /proc/net/unix
+	return 1
 }
 
 # ---------------------------------------------------------- worker discovery ---
@@ -368,7 +400,7 @@ scan_workers() {
 		read -r cmd < "/proc/$p/cmdline" 2>/dev/null
 		[ -n "$cmd" ] || continue
 		case "$cmd" in
-			*TCP-LISTEN*|*UDP-LISTEN*|*TCP6-LISTEN*|*UDP6-LISTEN*) ;;
+			*TCP-LISTEN*|*UDP-LISTEN*|*TCP6-LISTEN*|*UDP6-LISTEN*|*UDP-RECVFROM*|*UDP4-RECVFROM*|*UNIX-LISTEN*) ;;
 			*) continue ;;
 		esac
 		SCAN="$SCAN$p$TAB$cmd$TAB$m
@@ -417,9 +449,19 @@ EOF
 		# listener still owns the listening socket; require its port to be in
 		# LISTEN state.  If the tables were unreadable we keep the old guess.
 		if [ "$LISTEN_OK" = "1" ]; then
-			key_kind "$key" || continue
-			key_port "$key" || continue
-			port_in_listen "$FAM" "$KEY_PORT" || continue
+			case "$key" in
+			*UNIX-LISTEN:*)
+				# no port table for unix sockets: require the socket to be
+				# in LISTEN state (a stale file is not enough)
+				key_unix_path "$key" || continue
+				unix_in_listen "$KEY_PATH" || continue
+				;;
+			*)
+				key_kind "$key" || continue
+				key_port "$key" || continue
+				port_in_listen "$FAM" "$KEY_PORT" || continue
+				;;
+			esac
 		fi
 		LISTENERS="$LISTENERS$pid$TAB$key$TAB$m
 "
@@ -710,12 +752,14 @@ fw_ports() { # $FWF -> $FW_TCP / $FW_UDP (raw, unsorted; zero forks)
 	local proto port
 	FW_TCP=""
 	FW_UDP=""
+	FW_IGMP=0
 	[ -f "$FWF" ] || return 0
 	while IFS="$TAB" read -r proto port; do
 		[ -n "$port" ] || continue
 		case "$proto" in
 			tcp) FW_TCP="$FW_TCP $port" ;;
 			udp) FW_UDP="$FW_UDP $port" ;;
+			igmp) FW_IGMP=1 ;;
 		esac
 	done < "$FWF"
 }
@@ -725,7 +769,7 @@ sync_firewall() {
 	local TCP UDP raw_sig stored now p z sfx nzones zone miss
 	fw_ports
 	load_wan_zones
-	raw_sig="zones:${WAN_ZONES:-none} tcp:$FW_TCP udp:$FW_UDP"
+	raw_sig="zones:${WAN_ZONES:-none} tcp:$FW_TCP udp:$FW_UDP igmp:$FW_IGMP"
 	stored=""
 	[ -f "$FWSIG" ] && read -r stored < "$FWSIG" 2>/dev/null
 	# stamped on every attempt, failure included: a fail marker without an
@@ -751,6 +795,7 @@ sync_firewall() {
 		miss=0
 		if [ -n "$FW_TCP" ] && ! $UCI_BIN -q get firewall.socat_reforged_tcp >/dev/null 2>&1; then miss=1; fi
 		if [ -n "$FW_UDP" ] && ! $UCI_BIN -q get firewall.socat_reforged_udp >/dev/null 2>&1; then miss=1; fi
+		if [ "$FW_IGMP" = "1" ] && ! $UCI_BIN -q get firewall.socat_reforged_igmp >/dev/null 2>&1; then miss=1; fi
 		if [ "$miss" = "0" ]; then
 			return 0
 		fi
@@ -776,6 +821,7 @@ sync_firewall() {
 		[ "$z" -gt 1 ] && sfx="_$z"
 		$UCI_BIN -q delete "firewall.socat_reforged_tcp$sfx"
 		$UCI_BIN -q delete "firewall.socat_reforged_udp$sfx"
+		$UCI_BIN -q delete "firewall.socat_reforged_igmp$sfx"
 	done
 
 	# one rule per (zone, proto).  fw4 rules default to family "any", so both
@@ -802,13 +848,21 @@ sync_firewall() {
 			$UCI_BIN set "firewall.socat_reforged_udp$sfx.target=ACCEPT"
 			for p in $UDP; do $UCI_BIN add_list "firewall.socat_reforged_udp$sfx.dest_port=$p"; done
 		fi
+		# multicast groups need IGMP accepted too, otherwise the join fails
+		if [ "$FW_IGMP" = "1" ]; then
+			$UCI_BIN set "firewall.socat_reforged_igmp$sfx=rule"
+			$UCI_BIN set "firewall.socat_reforged_igmp$sfx.name=socat-reforged (igmp)"
+			$UCI_BIN set "firewall.socat_reforged_igmp$sfx.src=$zone"
+			$UCI_BIN set "firewall.socat_reforged_igmp$sfx.proto=igmp"
+			$UCI_BIN set "firewall.socat_reforged_igmp$sfx.target=ACCEPT"
+		fi
 	done
 	$UCI_BIN commit firewall
 
 	if "$FW4_BIN" check >/dev/null 2>&1; then
 		/etc/init.d/firewall reload >/dev/null 2>&1
 		echo "ok $raw_sig" > "$FWSIG"
-		log "firewall synced: zones[$WAN_ZONES] tcp[$TCP] udp[$UDP]"
+		log "firewall synced: zones[$WAN_ZONES] tcp[$TCP] udp[$UDP] igmp[$FW_IGMP]"
 	else
 		z=0
 		while [ $z -lt "$FW_MAX_ZONES" ]; do
@@ -817,6 +871,7 @@ sync_firewall() {
 			[ "$z" -gt 1 ] && sfx="_$z"
 			$UCI_BIN -q delete "firewall.socat_reforged_tcp$sfx"
 			$UCI_BIN -q delete "firewall.socat_reforged_udp$sfx"
+			$UCI_BIN -q delete "firewall.socat_reforged_igmp$sfx"
 		done
 		$UCI_BIN commit firewall
 		echo "fail $raw_sig $now" > "$FWSIG"
