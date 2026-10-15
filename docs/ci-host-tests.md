@@ -2,9 +2,9 @@
 
 `sh tests/run.sh` runs the whole host suite (view smoke test, generator unit
 tests, zone detection, layout simulator, command matrix, fuzz, engine listener
-kinds) in about a minute and exits non-zero on any failure, so it is a natural
-CI gate. It is now in `.github/workflows/build.yml` as the `test` (host-tests)
-job and runs on every push, pull request and release.
+kinds, package layout) in about a minute and exits non-zero on any failure, so it
+is a natural CI gate. It is now in `.github/workflows/build.yml` as the `test`
+(host-tests) job and runs on every push, pull request and release.
 
 ## What it needs and why
 

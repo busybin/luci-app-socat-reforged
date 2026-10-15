@@ -1284,9 +1284,12 @@ return view.extend({
 		return m.render().then(function(mapNode) {
 			self._mapNode = mapNode;
 
+			/* The empty state is a hint only: the table section renders its own
+			 * "Add forward" button right below, and a second button with the
+			 * same label read as a duplicate (it also bypassed the named-section
+			 * creation the grid's own handler does). */
 			var empty = E('div', { 'id': 'socat-empty', 'class': 'socat-empty', 'style': 'display:none' }, [
-				E('p', {}, _('No port forwards yet.')),
-				E('button', { 'class': 'btn cbi-button cbi-button-add', 'click': ui.createHandlerFn(s, 'handleAdd') }, [ _('Add forward') ])
+				E('p', {}, _('No port forwards yet. Use "Add forward" below to create one.'))
 			]);
 
 			window.setTimeout(L.bind(function() { this.recount(); this.checkDirty(); }, self), 0);
