@@ -453,8 +453,17 @@ END {
 				break
 			}
 			if (proto == "tcp") {
+				# ",pf=ip4" is not decoration: socat 1.8.0.0 (Ubuntu 24.04,
+				# Debian 13) made a bare "TCP-LISTEN:port" a *dual-stack*
+				# listener (AF_INET6 "::" with v6only=0), which then owns the
+				# port for every IPv6 address as well — so the rule's own
+				# TCP6-LISTEN with "bind=<wan v6>" died with "Address already in
+				# use" and the rule stayed partial forever.  1.7.4 and 1.8.1
+				# (OpenWrt) listen on 0.0.0.0, where pf=ip4 is a no-op, so
+				# pinning it keeps the command identical in effect across
+				# versions.
 				if (fam != "6")
-					emit(sid, "tcp", lp, build_cmd("TCP-LISTEN:" lp ",fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
+					emit(sid, "tcp", lp, build_cmd("TCP-LISTEN:" lp ",pf=ip4,fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
 				if (fam != "4" && (ipv6 != "" || BIND6 != "")) {
 					B6 = BIND6
 					if (B6 == "") B6 = ",bind=" ipv6 ",ip-freebind=1"
@@ -465,12 +474,15 @@ END {
 				# socat's OPENSSL-LISTEN cannot listen on IPv6 at all: every v6
 				# form of bind= (a literal, bracketed, or "::") fails with
 				# getaddrinfo EAI_ADDRFAMILY, and without a bind it binds IPv4
-				# only.  A second OpenSSL listener for IPv6 would therefore die
+				# only (1.7.4/1.8.1; 1.8.0.0 binds the whole v6 wildcard, which
+				# also hides the worker from the engine — it looks for a TLS
+				# listener in the IPv4 table — so pf=ip4 pins it back).  A second
+				# OpenSSL listener for IPv6 would therefore die
 				# on start and leave the rule "partial" forever with a
 				# getaddrinfo error, so only the v4 listener is emitted and the
 				# narrowing is warned about (the listener block above turned an
 				# explicit family=6 into a skip, because that cannot be honoured).
-				emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",cert=" ucert ",key=" ukey ",verify=0,fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
+				emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",pf=ip4,cert=" ucert ",key=" ukey ",verify=0,fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
 			}
 			else {
 				if (MC_RECV != "") {

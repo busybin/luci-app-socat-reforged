@@ -220,6 +220,7 @@ try() { # try <sid> <kind> <port|-> <cmd>
 }
 
 NLINES=$(wc -l < "$WORK/des")
+pair_tcp=""; pair_tcp6=""; pair_port=""
 # a literal tab in IFS, so the five columns come back whole
 while IFS='	' read -r sid kind port key cmd; do
 	[ -n "$sid" ] || continue
@@ -227,7 +228,49 @@ while IFS='	' read -r sid kind port key cmd; do
 	# the package, not of the generator, so skip instead of failing
 	case "$sid" in mssl) [ "$SOCAT_HAS_SSL" = "1" ] || continue ;; esac
 	try "$sid" "$kind" "$port" "$cmd"
+	# remember both halves of one rule for the "whole rule at once" check below
+	case "$sid/$kind" in
+	mtcp/tcp)  pair_tcp="$cmd";  pair_port="$port" ;;
+	mtcp/tcp6) pair_tcp6="$cmd" ;;
+	esac
 done < "$WORK/des"
+
+# --- the whole rule at once -------------------------------------------------
+# On a router the v4 and the v6 listener of one rule run at the same time, so
+# the matrix has to run them together too.  socat 1.8.0.0 (Ubuntu 24.04,
+# Debian 13) turned a bare `TCP-LISTEN` into a *dual-stack* listener: it took
+# the port for every IPv6 address as well, so the rule's own
+# `TCP6-LISTEN,bind=<wan v6>` died with "Address already in use" and the rule
+# stayed partial forever.  Every check above starts one command at a time and
+# therefore cannot see it; the v4 listener now pins `pf=ip4`.
+# (1.7.4 and 1.8.1 — what OpenWrt ships — listen on 0.0.0.0 already.)
+if [ -n "$pair_tcp" ] && [ -n "$pair_tcp6" ]; then
+	pairerr=$(mktemp)
+	# shellcheck disable=SC2086
+	$pair_tcp >/dev/null 2>"$pairerr" &
+	pa=$!
+	# shellcheck disable=SC2086
+	$pair_tcp6 >/dev/null 2>>"$pairerr" &
+	pb=$!
+	sleep 1.5
+	seen=$(awk -v p="$pair_port" '
+		FNR > 1 && $2 ~ ("^[0-9A-F]+:" sprintf("%04X", p) "$") && $4 == "0A" \
+			{ found[FILENAME] = 1 }
+		END { print (found["/proc/net/tcp"] ? 1 : 0) + (found["/proc/net/tcp6"] ? 1 : 0) }
+	' /proc/net/tcp /proc/net/tcp6 2>/dev/null)
+	kill -9 "$pa" "$pb" 2>/dev/null
+	wait "$pa" 2>/dev/null
+	wait "$pb" 2>/dev/null
+	for c in $(pgrep -P "$pa" 2>/dev/null) $(pgrep -P "$pb" 2>/dev/null); do kill -9 "$c" 2>/dev/null; done
+	if [ "$seen" = "2" ]; then
+		check 'the v4 and v6 listeners of one rule coexist' 2 2
+	else
+		FAIL=$((FAIL + 1)); printf '  %-42s FAIL\n' 'the v4 and v6 listeners of one rule coexist'
+		printf '    stderr : %s\n' "$(head -2 "$pairerr")"
+		printf '    listeners seen (want 2): %s\n' "$seen"
+	fi
+	rm -f "$pairerr"
+fi
 
 rm -rf "$WORK" /tmp/matrix-c.pem /tmp/matrix-k.pem /tmp/matrix-a.sock /tmp/matrix-b.sock /tmp/matrix-c.sock
 summary 'generator command matrix'
