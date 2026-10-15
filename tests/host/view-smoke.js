@@ -123,15 +123,18 @@ global.uci = {
 global.form = {
 	Map: class {
 		constructor(cfg) { this.uciconfig = cfg; this.config = cfg; this.map = this; }
-		section() { return new Section(); }
+		section() { const s = new Section(arguments); SECTIONS.push(s); return s; }
 		render() { return Promise.resolve(E('div', { id: 'map' }, [])); }
 		save() { return Promise.resolve(); }
 	},
 	GridSection: class {}, NamedSection: class {}, Value: class {}, ListValue: class {},
 	Flag: class {}, DummyValue: class {}, Button: class {}
 };
+/* every section the view created, with the options it declared, so a test can
+ * check what a *table* column would look like to LuCI */
+const SECTIONS = [];
 class Section {
-	constructor() { this.children = []; }
+	constructor(args) { this.children = []; this.opts = []; this.sc = args ? args[0] : null; }
 	option(type, name) {
 		const o = new Proxy(function () {}, {
 			get: (t, k) => (k === 'depends' || k === 'value') ? () => o : o[k],
@@ -139,16 +142,21 @@ class Section {
 		});
 		const real = {};
 		const proxy = new Proxy(real, {
-			get: (t, k) => real[k],
+			/* depends() and value() are the chainable *methods* LuCI offers;
+			 * everything else (rmempty, datatype, modalonly, description,
+			 * default, placeholder) is a plain property that the view assigns.
+			 * Treating them as methods as well used to put a callable into
+			 * real.description for every option, which made "does this column
+			 * carry a description?" unanswerable. */
+			get: (t, k) => (k === 'depends' || k === 'value') ? () => proxy : real[k],
 			set: (t, k, v) => { real[k] = v; return true; }
 		});
-		// fluent setters that return the option itself
-		for (const m of ['depends', 'value', 'rmempty', 'datatype', 'modalonly', 'description'])
-			proxy[m] = () => proxy;
 		this.children.push(proxy);
 		/* the tests read back option configuration by field name */
 		if (name)
 			OPTS.push({ name: name, opt: real });
+		/* ...and per section, to see what a table column would render */
+		this.opts.push({ name: name, real: real });
 		return proxy;
 	}
 }
@@ -312,6 +320,18 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('range hint shown to the user', '30000-30010', src);
 	has('import validation accepts a port range', '([0-9]{1,5})(?:-([0-9]{1,5}))?$', src);
 has('import validation checks mcast_iface', 'NAME_RE.test(String(rule.mcast_iface))', src);
+
+/* A grid section prints a *description row* under the header for every column
+ * that has a description, which put the listen_port hint straight into the
+ * forward list.  Either that row is suppressed on the grid, or no table column
+ * may carry a description at all. */
+const gridSec = SECTIONS.filter((s) => s.sc === global.form.GridSection);
+ck('the forward list is a grid section', 1, gridSec.length);
+const descrCols = gridSec[0]
+	? gridSec[0].opts.filter((o) => o.real.description && !o.real.modalonly).map((o) => o.name)
+	: [];
+ck('the listen hint stays out of the forward list', true,
+	!!(gridSec[0] || {}).nodescriptions || descrCols.length === 0);
 
 /* the Test rpc is a cross-file contract: the view declares the parameters
  * positionally and rpcd type-checks them against the backend's `args` spec, so
