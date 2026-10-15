@@ -4,8 +4,8 @@
 # ============================================================================
 #   sh tests/run.sh                  host-only checks (no router needed)
 #   sh tests/run.sh --router [host]  also deploy + test on a router
-#   sh tests/run.sh --sim|--matrix   only one of the two "real socat" suites
-#   sh tests/run.sh --gen|--zones    only one unit suite
+#   sh tests/run.sh --sim|--matrix   only one of the "real socat" suites
+#   sh tests/run.sh --gen|--zones|--fuzz   only one unit suite
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 
@@ -20,6 +20,7 @@ case "${1:-}" in
 --view)  exec node "$HERE/host/view-smoke.js" ;;
 --sim)   exec sh "$HERE/host/sim-router.sh" ;;
 --matrix) exec sh "$HERE/host/matrix.sh" ;;
+--fuzz)  exec sh "$HERE/host/fuzz.sh" ;;
 --gen)   exec sh "$HERE/host/gen-cases.sh" ;;
 --zones) exec sh "$HERE/host/zones-cases.sh" ;;
 --router)
@@ -32,15 +33,16 @@ esac
 
 fail=0
 if command -v node >/dev/null 2>&1; then
-	run "0/5  LuCI view smoke test" node "$HERE/host/view-smoke.js"
+	run "0/6  LuCI view smoke test" node "$HERE/host/view-smoke.js"
 else
-	echo "=== 0/5  LuCI view smoke test (skipped: no node) ==="
+	echo "=== 0/6  LuCI view smoke test (skipped: no node) ==="
 	echo
 fi
-run "1/5  generator unit tests" sh "$HERE/host/gen-cases.sh"
-run "2/5  zone detection tests"  sh "$HERE/host/zones-cases.sh"
-run "3/5  OpenWrt layout simulator" sh "$HERE/host/sim-router.sh"
-run "4/5  generator command matrix" sh "$HERE/host/matrix.sh"
+run "1/6  generator unit tests" sh "$HERE/host/gen-cases.sh"
+run "2/6  zone detection tests"  sh "$HERE/host/zones-cases.sh"
+run "3/6  OpenWrt layout simulator" sh "$HERE/host/sim-router.sh"
+run "4/6  generator command matrix" sh "$HERE/host/matrix.sh"
+run "5/6  generator fuzz"              sh "$HERE/host/fuzz.sh"
 if [ "$fail" = 0 ]; then
 	echo "HOST SUITE: all green  (add --router <host> to also test a router)"
 else
