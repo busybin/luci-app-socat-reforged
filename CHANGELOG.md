@@ -89,8 +89,14 @@ Engine 522012b, 15 rules / 30 listeners, socat 1.8.1.1:
   of trusting the port lookup;
 * a disabled rule reads `disabled`.
 
-Router suite all green: engine checks 25, backend checks 41, perf ok
-(1.5% of one core, 30/30 listeners, 0 log lines in 120s).
+Router suite all green: engine checks 37 (incl. 13 new ones for the new kinds:
+unix listener up, socket file, `/proc/net/unix`, rebind over a stale socket
+file, multicast up, igmp rule created then removed, udp port opened, and a TLS
+rule on a socat without OpenSSL reported down with socat's own reason), backend
+checks 41, perf ok (2.2% of one core, 30/30 listeners, 0 log lines in 120s).
+Proven separately that `unlink-early` is what makes the stale-file case work:
+without it socat refuses with `"<path>" exists`, so a listener killed by a crash
+would block the rule forever.
 
 ### Fixed: a rule's runtime options were attached to the wrong field
 

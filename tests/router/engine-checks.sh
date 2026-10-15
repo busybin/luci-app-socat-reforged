@@ -25,7 +25,8 @@ sid() { echo "${SID_BASE}$1"; }
 # Remove every section this run may have created, even on an early failure, so
 # a broken test run can never leave junk in the live /etc/config/socat.
 cleanup_test_sections() {
-	for S in "$(sid conflict)" "$(sid badport)" "$(sid inject)" "$(sid udpv6)" "$(sid disable)" "$(sid orphan)"; do
+	for S in "$(sid conflict)" "$(sid badport)" "$(sid inject)" "$(sid udpv6)" "$(sid disable)" "$(sid orphan)" \
+	         "$(sid unix)" "$(sid mcast)" "$(sid tls)"; do
 		uci -q delete "socat.$S" 2>/dev/null
 	done
 	uci commit socat 2>/dev/null
@@ -250,8 +251,107 @@ else
 fi
 kill "$FP" 2>/dev/null
 
+
+# --------------------------------------------------------- the new kinds -----
+# A unix socket and a UDP4-RECVFROM socket never show up in /proc/net/tcp, and
+# /proc/net/tcp is what the engine reads its listener table from.  These are
+# therefore the kinds that used to be invisible to the engine: it killed and
+# respawned them every cycle and never stopped them, so the rule never came
+# up.  Both must now come up with a real pid.
+UX=$(sid unix); UXP=/tmp/socat-reforged-test.sock
+rm -f "$UXP"
+uci set "socat.$UX=config" >/dev/null
+uci set "socat.$UX.enable=1" >/dev/null
+uci set "socat.$UX.proto=unix" >/dev/null
+uci set "socat.$UX.unix_path=$UXP" >/dev/null
+uci set "socat.$UX.dest_proto=tcp4" >/dev/null
+uci set "socat.$UX.dest_ip=192.0.2.1" >/dev/null
+uci set "socat.$UX.dest_port=80" >/dev/null
+uci set "socat.$UX.firewall_accept=0" >/dev/null
+uci commit socat
+reconcile_now
+wait_alive "$UX" 1 20
+ck "unix listener comes up" 1 "$(alive "$UX")"
+ck "unix listener leaves a socket file" 1 "$([ -S "$UXP" ] && echo 1 || echo 0)"
+ck "unix socket is in /proc/net/unix" 1 "$(grep -c "$UXP" /proc/net/unix)"
+# a stale socket file (a listener killed hard) must not block the rebind
+UXP1=$(awk -v s="$UX" 'NR>1 && $1==s && $4!="-" {print $4; exit}' "$R/state")
+[ -n "$UXP1" ] && kill -9 "$UXP1" 2>/dev/null
+sleep 1
+ck "stale socket file survives a hard kill" 1 "$([ -S "$UXP" ] && echo 1 || echo 0)"
+reconcile_now
+wait_alive "$UX" 1 20
+UXP2=$(awk -v s="$UX" 'NR>1 && $1==s && $4!="-" {print $4; exit}' "$R/state")
+ck "unix listener rebinds over a stale file" 1 \
+	"$([ -n "$UXP2" ] && [ "$UXP2" != "$UXP1" ] && echo 1 || echo 0)"
+
+MC=$(sid mcast)
+MCPORT=21060
+uci set "socat.$MC=config" >/dev/null
+uci set "socat.$MC.enable=1" >/dev/null
+uci set "socat.$MC.proto=udp" >/dev/null
+uci set "socat.$MC.listen_port=$MCPORT" >/dev/null
+uci set "socat.$MC.mcast_group=239.10.10.10" >/dev/null
+uci set "socat.$MC.dest_proto=tcp4" >/dev/null
+uci set "socat.$MC.dest_ip=192.0.2.1" >/dev/null
+uci set "socat.$MC.dest_port=80" >/dev/null
+uci set "socat.$MC.firewall_accept=1" >/dev/null
+uci commit socat
+reconcile_now
+wait_alive "$MC" 1 20
+ck "multicast listener comes up" 1 "$(alive "$MC")"
+# one igmp rule per WAN zone, and each rule is described by several uci lines,
+# so count rules (=rule) and not lines that mention the name
+ck "multicast opened an igmp accept rule" 1 "$(uci -q show firewall | grep -c "socat_reforged_igmp.*=rule")"
+ck "that rule is proto igmp" 1 "$(uci -q show firewall | grep -c "socat_reforged_igmp.proto='igmp'")"
+# (uci show prints values quoted, hence the .* around the pattern)
+ck "a udp accept rule is opened for its port" 1 "$(uci -q show firewall | grep -c "dest_port.*'$MCPORT'")"
+uci -q delete "socat.$MC" >/dev/null
+uci commit socat
+reconcile_now
+ck "the igmp rule goes with the rule" 0 "$(uci -q show firewall | grep -c 'socat_reforged_igmp')"
+
+# TLS: OpenWrt's socat package is built --disable-openssl, so on this router a
+# TLS rule cannot start.  It must then be reported DOWN, with socat's own
+# reason, rather than silently pretending to listen.
+TL=$(sid tls)
+uci set "socat.$TL=config" >/dev/null
+uci set "socat.$TL.enable=1" >/dev/null
+uci set "socat.$TL.proto=ssl" >/dev/null
+uci set "socat.$TL.listen_port=34991" >/dev/null
+uci set "socat.$TL.ssl_cert=/etc/luci-cert.pem" >/dev/null
+uci set "socat.$TL.ssl_key=/etc/luci-key.pem" >/dev/null
+uci set "socat.$TL.dest_proto=tcp4" >/dev/null
+uci set "socat.$TL.dest_ip=192.0.2.1" >/dev/null
+uci set "socat.$TL.dest_port=80" >/dev/null
+uci set "socat.$TL.firewall_accept=0" >/dev/null
+uci commit socat
+reconcile_now
+if socat -V 2>&1 | grep -q '#define WITH_OPENSSL'; then
+	sleep 2
+	if [ "$(alive "$TL")" -ge 1 ]; then
+		PASS=$((PASS+1)); printf '  %-44s ok\n' "tls listener comes up"
+	else
+		FAIL=$((FAIL+1)); printf '  %-44s FAIL (state: [%s])\n' "tls listener" "$(err "$TL")"
+	fi
+else
+	# socat without OpenSSL: the rule cannot start, and it must say so.  A down
+	# rule keeps its row in the state file (pid "-" plus the error), so wait for
+	# "nothing alive and a reason present" rather than for the rows to vanish.
+	i=0
+	while [ "$i" -lt 20 ]; do
+		[ "$(alive "$TL")" = "0" ] && [ -n "$(err "$TL")" ] && break
+		sleep 1; i=$((i + 1))
+	done
+	ck "tls rule without ssl socat is down" 0 "$(alive "$TL")"
+	has "tls rule states socat's own reason" 'OPENSSL-LISTEN' "$(err "$TL")"
+fi
+uci -q delete "socat.$TL" >/dev/null
+uci commit socat
+reconcile_now
+rm -f "$UXP"
 # ---------------------------------------------------------------- cleanup ---
-for S in "$S" "$B" "$I" "$U" "$D" "$O"; do uci delete "socat.$S" >/dev/null 2>&1; done
+for S in "$S" "$B" "$I" "$U" "$D" "$O" "$UX" "$MC" "$TL"; do uci delete "socat.$S" >/dev/null 2>&1; done
 uci commit socat
 reconcile_now
 ck "cleanup: listeners back to normal" "$(awk 'NR>1' "$R/state" | wc -l)" "$(awk 'NR>1 && $4!="-"' "$R/state" | wc -l)"
