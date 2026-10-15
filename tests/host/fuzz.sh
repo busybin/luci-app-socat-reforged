@@ -21,12 +21,15 @@ REPO=$(cd "$HERE/../.." && pwd)
 . "$HERE/lib.sh"
 
 WORK=$HERE/.work-fuzz
-GEN=$REPO/root/usr/libexec/socat-reforged-gen.awk
+GEN="${1:-$REPO/root/usr/libexec/socat-reforged-gen.awk}"
 rm -rf "$WORK"; mkdir -p "$WORK"
 
 # A hostile value for each option, with a *valid* fallback value for the rest.
 # Each rule gets a fresh sid; the ones that must be refused are listed in BAD.
-BAD=''
+# the warn file is tab-separated; format it like gen-cases.sh does so the
+# assertions can be written as "sid:reason"
+warns() { awk -F'\t' '{printf "%s:%s ", $1, $2}' "$WORK/warn" 2>/dev/null; }
+
 BADS=''
 i=0
 
@@ -72,6 +75,13 @@ emit_case() { # emit_case <sid> <profile> <option> <value>
 		printf 'socat.f%s.dest_proto=mcast\n' "$sid" >> "$WORK/in.show"
 		printf "socat.f%s.mcast_dst_group='239.10.10.20'\n" "$sid" >> "$WORK/in.show"
 		printf 'socat.f%s.mcast_dst_port=5000\n' "$sid" >> "$WORK/in.show"
+		;;
+	v6tcp)
+		printf 'socat.f%s.proto=tcp\n' "$sid" >> "$WORK/in.show"
+		printf 'socat.f%s.listen_port=8%03d\n' "$sid" "$sid" >> "$WORK/in.show"
+		printf 'socat.f%s.dest_proto=tcp6\n' "$sid" >> "$WORK/in.show"
+		printf "socat.f%s.dest_ip='2001:db8::77'\n" "$sid" >> "$WORK/in.show"
+		printf 'socat.f%s.dest_port=80\n' "$sid" >> "$WORK/in.show"
 		;;
 	proxy)
 		printf 'socat.f%s.proto=tcp\n' "$sid" >> "$WORK/in.show"
@@ -166,11 +176,33 @@ add_bad 69 ssl 'ssl_verify'  '2'
 add_bad 70 mcast 'mcast_iface' 'eth0.2;id'
 add_bad 71 tcp 'enable'      '2'
 
+# ---- IPv6: each of these is a case the IPv6 round fixed ----------------------
+# socat rejects a v6 literal in a v4 address on connect ("TCP4: wrong number of
+# parameters"), so the rule would look healthy and forward nothing.
+add_bad 72 tcp 'dest_ip'    '2001:db8::99'
+add_bad 73 tcp 'dest_ip'    '::1'
+add_bad 74 tcp 'dest_ip'    'fe80::1'
+add_bad 75 tcp 'dest_ip'    '2001:db8::99 '
+add_bad 76 tcp 'dest_ip'    ' 2001:db8::99'
+add_bad 77 tcp 'dest_ip'    '2001:db8::99;id'
+add_bad 78 tcp 'dest_ip'    '2001:db8::99$(id)'
+add_bad 79 tcp 'dest_ip'    '2001:db8::99|id'
+add_bad 80 tcp 'dest_ip'    '2001:db8::99`id`'
+add_bad 81 tcp 'dest_ip'    '2001:db8::99&&id'
+add_bad 82 tcp 'dest_ip'    '2001:db8::99 -T9'
+# a v6 literal cannot be expressed in SOCKS4A:/PROXY: (the colons are the field
+# separator), neither as the proxy nor as the target
+add_bad 83 proxy 'proxy_server' '2001:db8::1'
+add_bad 84 proxy 'dest_ip'   '2001:db8::99'
+# multicast receive is UDP4-only, so an IPv6-only multicast rule has no listener
+add_bad 85 mcast 'family'    '6'
+
+
 # ---- values that must be ACCEPTED (the whitelist is not a blanket no) ------
 add_ok 101 tcp 'dest_ip'     'example.org'
 add_ok 102 tcp 'dest_ip'     '10.0.0.1'
-add_ok 103 tcp 'dest_ip'     '::1'
-add_ok 104 tcp 'dest_ip'     '2001:db8::1'
+add_ok 103 v6tcp 'dest_ip'     '::1'
+add_ok 104 v6tcp 'dest_ip'     '2001:db8::1'
 add_ok 105 tcp 'dest_port'   '1'
 add_ok 106 tcp 'dest_port'   '65535'
 add_ok 107 tcp 'listen_port' '1'
@@ -248,6 +280,14 @@ check 'no address is glued to the option before it' 0 "$glue"
 # and a unix / ssl rule with clean paths still works
 check 'a clean unix rule survives the fuzz' 1 "$(awk -F'\t' '$1=="funix"{n++} END{print n+0}' "$WORK/des")"
 check 'a clean ssl rule survives the fuzz' 1 "$(awk -F'\t' '$1=="fssl"{n++} END{print n+0}' "$WORK/des")"
+
+# ---- IPv6: a rule that cannot be honoured must say why ----------------------
+# Asserting only "no listener leaked" is not enough: an IPv6-only multicast rule
+# emits nothing either way, so removing its guard passed the first version of
+# this check.  The warning is the reason, so it is asserted too.
+has 'a v6 literal on a v4 target is refused with a reason' 'f72:an IPv6 target needs dest_proto tcp6/udp6/tls, skip' "$(warns)"
+has 'a v6 proxy server is refused with a reason' 'f83:proxy_server cannot be an IPv6 address, skip' "$(warns)"
+has 'an IPv6-only multicast rule is refused with a reason' 'f85:multicast cannot listen on IPv6, rule skipped' "$(warns)"
 
 rm -rf "$WORK"
 summary 'generator fuzz'

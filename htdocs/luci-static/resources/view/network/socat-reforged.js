@@ -913,7 +913,7 @@ return view.extend({
 		o.depends('dest_proto', 'tcp6');
 		o.depends('dest_proto', 'udp6');
 		o.depends('dest_proto', 'ssl');
-		o.placeholder = '192.168.1.x';
+		o.placeholder = '192.168.1.x or an IPv6 address with tcp6/udp6';
 		o.datatype = 'or(host, ip6addr)';
 		o.rmempty = false;
 		o.modalonly = true;
@@ -954,7 +954,7 @@ return view.extend({
 		o = s.option(form.Value, 'proxy_server', _('Proxy server'));
 		o.placeholder = '127.0.0.1';
 		o.default = '127.0.0.1';
-		o.datatype = 'or(host, ip6addr)';
+		o.datatype = 'ip4addr';
 		o.depends('proxy', 'socks4a');
 		o.depends('proxy', 'http');
 		o.modalonly = true;
