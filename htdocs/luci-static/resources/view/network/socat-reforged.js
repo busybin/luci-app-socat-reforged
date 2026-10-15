@@ -802,6 +802,11 @@ return view.extend({
 		s.sortable = true;
 		s.cloneable = true;              /* built-in per-row Clone */
 		s.addbtntitle = _('Add forward');
+		/* A grid section renders a description row *under the header* for every
+		 * column that carries a description, so the listen_port hint appeared as
+		 * stray text inside the list.  Descriptions still render in the dialog;
+		 * this only suppresses that row. */
+		s.nodescriptions = true;
 
 		o = s.option(form.Value, 'remarks', _('Name'));
 		o.placeholder = _('e.g. RTMP');
