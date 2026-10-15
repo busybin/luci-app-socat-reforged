@@ -35,6 +35,21 @@ the postinst **expanded exactly the way make expands it** and syntax-checked.
 The empty state no longer offers a second "Add forward" button (the table
 already renders one).
 
+### socat 1.8.0.0 wants an explicit family on UDP-LISTEN (2026-10-15)
+
+The host suite runs against the distribution's `socat`, and Ubuntu 24.04 /
+Debian 13 ship **1.8.0.0**, which refuses a bare `UDP-LISTEN:<port>` with
+`xioopen_ipdgram_listen(): unknown address family 0` (1.8.1, the version OpenWrt
+ships, accepts it again — verified on the router).  The IPv4 UDP listener now
+pins `pf=ip4`, which is a no-op on 1.7.4 and 1.8.1 and makes the command
+portable across the versions the project is tested with.
+
+That is also what the CI job needed, which had never actually run: it now runs
+the suite with the privilege the engine really has on a router (`sudo`, because
+`,user=nobody` makes socat chown a socket), and the job is pinned to
+`ubuntu-24.04` so a future runner image cannot silently change the socat under
+the tests.  Locally and in an Ubuntu 24.04 container the whole suite is green.
+
 ### A bug sweep across the whole surface (2026-10-15)
 
 Six real defects, each reproduced before it was touched and each with a
