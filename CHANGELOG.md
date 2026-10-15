@@ -5,35 +5,36 @@ the last tag; version numbers only change when a release is requested.
 
 ## V4 (2026-10-15)
 
-### The released package itself was broken (2026-10-15)
+### Packaging fixes (2026-10-15)
 
-Found while reviewing a contribution against the built `.ipk`: **the packages we
-published never worked.**  Three defects, all in the packaging layer, all
-confirmed by unpacking the shipped V3 package:
+Three defects in the packaging layer, all found by unpacking the built `.ipk`
+and all invisible to any code test:
 
-* **The engine, the procd init script and the ctl helper were committed without
-  the executable bit** (`0644`).  `luci.mk` installs `root/` with `cp -pR`, so
-  the package kept that mode: procd could not start the service,
-  `/etc/socat-boot.sh` could not be run and the LuCI Start/Stop/Restart buttons
-  failed with "permission denied".  The manual `install.sh` path `chmod 755`s
-  what it copies — which is why the router worked and nothing noticed.
-* **The postinst was not valid shell.**  It is a Makefile `define`, where the
-  three-dollar form expands to a make variable reference and a bare dollar
-  before a quote loses the dollar: the shipped script contained a literal
-  `init.d.socat.bak.$` and an unterminated quote, so `sh -n` reported
-  "Unterminated quoted string".  On a real install the postinst therefore never
-  created `/etc/config/socat`, never migrated the legacy init, never enabled the
-  service and never stamped the version.
-* **The package metadata was LuCI's default**: `luci.mk` reads
-  `LUCI_MAINTAINER`/`LUCI_URL`/`LUCI_DESCRIPTION`, so our `PKG_MAINTAINER` was
+* **The engine, the procd init script and the ctl helper need the executable
+  bit.**  `luci.mk` installs `root/` with `cp -pR`, so the mode a file is
+  committed with is the mode it gets in the package; the three are `0755` now
+  (`deploy.sh` too).  Without it procd cannot start the service,
+  `/etc/socat-boot.sh` cannot be run and the LuCI Start/Stop/Restart buttons
+  fail with "permission denied" — which a hand-run `install.sh` hides, because
+  it `chmod 755`s what it copies.
+* **The `postinst` must survive make's `define` expansion.**  `$$$(` reaches the
+  shell as `$(`, and a bare `$` before a quote loses the dollar: the expanded
+  script held a literal `init.d.socat.bak.$` and an unterminated quote, so
+  `sh -n` reported `Unterminated quoted string` and an install never created
+  `/etc/config/socat`, migrated the legacy init, enabled the service or stamped
+  the version.  Fixed to `$$(date ...)` and `'/etc/socat-boot.sh$$'`, with a
+  comment explaining both traps.
+* **The package metadata must use `luci.mk`'s variables.**  `luci.mk` reads
+  `LUCI_MAINTAINER`/`LUCI_URL`/`LUCI_DESCRIPTION`, so a bare `PKG_MAINTAINER` is
   silently dropped and the package advertised "OpenWrt LuCI community" and the
-  LuCI feed URL.
+  LuCI feed URL.  All three are set now.
 
-All three are fixed, and `tests/host/package-layout.sh` now guards the whole
-class: the tree bits, the `root/`+`htdocs/` layout, the metadata variables, and
-the postinst **expanded exactly the way make expands it** and syntax-checked.
-The empty state no longer offers a second "Add forward" button (the table
-already renders one).
+`tests/host/package-layout.sh` guards the whole class: the tree bits, the
+`root/` + `htdocs/` layout, the metadata variables, and the postinst **expanded
+exactly the way make expands it** and syntax-checked.  Verified by mutation:
+dropping a bit, retyping either escaping bug, or dropping `LUCI_MAINTAINER` each
+turns it red.  The empty state no longer offers a second "Add forward" button
+(the table section already renders one).
 
 ### socat 1.8.0.0 wants an explicit protocol family (2026-10-15)
 
@@ -61,9 +62,8 @@ every socat the project is tested against.  `tests/host/matrix.sh` now also
 starts the v4 **and** the v6 listener of one rule at the same time: every other
 check starts a single command and could not see this.
 
-That is also what the CI job needed, which had never actually run before this
-release: it now runs the suite with the privilege the engine really has on a
-router (`sudo`, because `,user=nobody` makes socat chown a socket), and the job
+That is also what the CI job needed: it runs the suite with the privilege the
+engine really has on a router (`sudo`, because `,user=nobody` makes socat chown a socket), and the job
 is pinned to `ubuntu-24.04` so a future runner image cannot silently change the
 socat under the tests.
 
