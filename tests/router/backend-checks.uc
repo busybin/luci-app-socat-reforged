@@ -137,6 +137,48 @@ ck('fs.stat works', 'object', type(fs.stat('/etc/config/socat')));
 ck('fs.stat on a missing file is null', true, fs.stat('/nonexistent-xyz') === null);
 ck('int() of junk is caught', 0, (function() { const n = int('abc'); return (n == null || n !== n) ? 0 : n; })());
 
+/* ---- a rule that cannot bind must be reported DOWN, with a reason -------
+ * Regression: the backend read the third state column (the port) as the pid,
+ * so a dead rule looked alive and its error never reached the UI.  Build a
+ * rule that is guaranteed to fail: same port as an existing rule, different
+ * target (EADDRINUSE), plus a disabled rule for the 'disabled' branch. */
+let clash_port = null;
+for (let i = 0; i < length(st.rules); i++) {
+	const rr = st.rules[i];
+	if (rr.enable && rr.proto == 'tcp' && rr.status == 'listening') {
+		clash_port = rr.listen;
+		break;
+	}
+}
+if (clash_port != null) {
+	system(`uci set socat.backend_clash=config && uci set socat.backend_clash.proto=tcp && uci set socat.backend_clash.listen_port=${clash_port} && uci set socat.backend_clash.dest_proto=tcp4 && uci set socat.backend_clash.dest_ip=192.0.2.99 && uci set socat.backend_clash.dest_port=9 && uci set socat.backend_clash.firewall_accept=0 && uci set socat.backend_off=config && uci set socat.backend_off.proto=udp && uci set socat.backend_off.listen_port=18999 && uci set socat.backend_off.dest_proto=udp4 && uci set socat.backend_off.dest_ip=192.0.2.99 && uci set socat.backend_off.dest_port=9 && uci set socat.backend_off.enable=0 && uci commit socat && /etc/init.d/socat-reforged reload >/dev/null 2>&1`);
+	/* wait until the engine has published state for the new section */
+	let found = false;
+	for (let i = 0; i < 25 && !found; i++) {
+		sleep(1000);
+		const s2 = obj.status.call();
+		for (let j = 0; j < length(s2.rules); j++)
+			if (s2.rules[j].sid == 'backend_clash')
+				found = true;
+	}
+	const s3 = obj.status.call();
+	let clash = null, off = null;
+	for (let j = 0; j < length(s3.rules); j++) {
+		if (s3.rules[j].sid == 'backend_clash') clash = s3.rules[j];
+		if (s3.rules[j].sid == 'backend_off') off = s3.rules[j];
+	}
+	ck('a rule whose bind fails is not listening', true, clash != null && clash.status != 'listening');
+	ck('a rule whose bind fails is down/partial', true, clash != null && (clash.status == 'down' || clash.status == 'partial'));
+	has('...and carries socat\'s own reason', 'in use', clash ? (clash.error ?? '') : '');
+	ck('a disabled rule reads disabled', 'disabled', off ? off.status : 'missing');
+	ck('counts reflect the down rule', true, s3.counts.down >= 1);
+	ck('counts reflect the error', true, s3.counts.errors >= 1);
+} else {
+	printf('  %-46s skipped (no healthy rule to clash with)\n', 'a rule whose bind fails');
+}
+/* cleanup: the sections we added go away even if the checks above failed */
+system('uci delete socat.backend_clash 2>/dev/null; uci delete socat.backend_off 2>/dev/null; uci commit socat && /etc/init.d/socat-reforged reload >/dev/null 2>&1');
+
 print('\nbackend checks: ', pass, ' passed, ', fail, ' failed\n');
 if (fail > 0)
 	exit(1);

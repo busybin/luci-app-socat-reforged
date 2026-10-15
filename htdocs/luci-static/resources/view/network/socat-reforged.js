@@ -21,7 +21,11 @@ var callRevert      = rpc.declare({ object: 'uci', method: 'revert', params: [ '
 var LOG_MAX_LINES = 300;
 
 /* fields that make up one forward (used for import/export + dirty tracking) */
-var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto', 'dest_ip', 'dest_port', 'family', 'firewall_accept', 'proxy', 'proxy_server', 'proxy_port', 'reuseaddr' ];
+var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto', 'dest_ip', 'dest_port', 'family', 'firewall_accept', 'proxy', 'proxy_server', 'proxy_port', 'reuseaddr',
+	'unix_path', 'dst_unix_path',
+	'ssl_cert', 'ssl_key', 'ssl_cafile', 'ssl_verify',
+	'mcast_group', 'mcast_iface', 'mcast_localip', 'mcast_dst_group', 'mcast_dst_port', 'mcast_ttl', 'mcast_loop',
+	'nodelay', 'backlog', 'max_children', 'timeout', 'system_log', 'keepalive', 'listen_addr' ];
 
 /* engine settings section (internal) + the options of one forward */
 var SETTING_FIELDS = [ 'fix_v6_route', 'wg_dnat_guard', 'debug' ];
@@ -90,6 +94,8 @@ function fieldVal(sid, opt) {
 
 /* ---- import validation (never let a malformed rule reach UCI) ---- */
 var HOST_RE = /^[A-Za-z0-9._:-]+$/;
+var PATH_RE = /^\/[A-Za-z0-9._\/-]+$/;
+var IPV4_RE = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
 function importPortOk(v) {
 	/* single port or "from-to" — the same shapes the generator accepts */
 	var m = /^([0-9]{1,5})(?:-([0-9]{1,5}))?$/.exec(String(v));
@@ -101,21 +107,58 @@ function importPortOk(v) {
 		return false;
 	return true;
 }
+function importPathOk(v) { return PATH_RE.test(String(v)) && String(v).indexOf('..') < 0; }
+function importRangeOk(v, lo, hi) {
+	var m = /^([0-9]+)$/.exec(String(v));
+	if (!m)
+		return false;
+	var n = parseInt(m[1], 10);
+	return n >= lo && n <= hi;
+}
+function importFlagOk(v) { return (v === undefined || v === '' || v === '0' || v === '1'); }
 function importCheck(rule) {
 	if (!rule || typeof rule !== 'object')
 		return 'not an object';
-	if (rule.enable != null && rule.enable !== '' && [ '0', '1' ].indexOf(String(rule.enable)) < 0)
+	if (!importFlagOk(rule.enable) || rule.enable == null || rule.enable === '')
 		return 'bad enable';
-	if (rule.proto != null && rule.proto !== 'tcp' && rule.proto !== 'udp')
+	if (!importFlagOk(rule.nodelay) || !importFlagOk(rule.system_log) ||
+	    !importFlagOk(rule.ssl_verify) || !importFlagOk(rule.mcast_loop) ||
+	    !importFlagOk(rule.keepalive))
+		return 'a boolean option must be 0 or 1';
+	if (rule.listen_addr != null && rule.listen_addr !== '' && !HOST_RE.test(String(rule.listen_addr)))
+		return 'bad listen_addr';
+	if (['tcp', 'udp', 'ssl', 'unix'].indexOf(rule.proto) < 0)
 		return 'bad proto';
-	if (!importPortOk(rule.listen_port))
-		return 'listen_port must be 1-65535';
-	if (!importPortOk(rule.dest_port))
-		return 'dest_port must be 1-65535';
-	if (rule.dest_ip == null || !HOST_RE.test(String(rule.dest_ip)))
-		return 'bad dest_ip';
-	if (rule.dest_proto != null && [ 'tcp4', 'udp4', 'tcp6', 'udp6' ].indexOf(rule.dest_proto) < 0)
+	if (rule.proto === 'unix' && !importPathOk(rule.unix_path))
+		return 'unix_path must be an absolute path';
+	if (rule.proto === 'ssl' && (!importPathOk(rule.ssl_cert) || !importPathOk(rule.ssl_key)))
+		return 'ssl_cert and ssl_key must be absolute paths';
+	if (rule.proto !== 'unix' && !importPortOk(rule.listen_port))
+		return 'listen_port must be 1-65535 or a range';
+	if (['tcp4', 'udp4', 'tcp6', 'udp6', 'unix', 'ssl', 'mcast'].indexOf(rule.dest_proto) < 0)
 		return 'bad dest_proto';
+	if (rule.dest_proto === 'unix' && !importPathOk(rule.dst_unix_path))
+		return 'dst_unix_path must be an absolute path';
+	if (rule.dest_proto !== 'unix' && rule.dest_proto !== 'mcast') {
+		if (!importPortOk(rule.dest_port))
+			return 'dest_port must be 1-65535';
+		if (rule.dest_ip == null || !HOST_RE.test(String(rule.dest_ip)))
+			return 'bad dest_ip';
+	}
+	if (rule.dest_proto === 'mcast' && !importPortOk(rule.mcast_dst_port))
+		return 'mcast_dst_port must be 1-65535';
+	if (rule.dest_proto === 'mcast' && !IPV4_RE.test(String(rule.mcast_dst_group)))
+		return 'bad mcast_dst_group';
+	if (rule.mcast_group != null && rule.mcast_group !== '' && !IPV4_RE.test(String(rule.mcast_group)))
+		return 'bad mcast_group';
+	if (rule.backlog != null && rule.backlog !== '' && !importRangeOk(rule.backlog, 1, 65535))
+		return 'bad backlog';
+	if (rule.max_children != null && rule.max_children !== '' && !importRangeOk(rule.max_children, 1, 1000))
+		return 'bad max_children';
+	if (rule.timeout != null && rule.timeout !== '' && !importRangeOk(rule.timeout, 1, 86400))
+		return 'bad timeout';
+	if (rule.mcast_ttl != null && rule.mcast_ttl !== '' && !importRangeOk(rule.mcast_ttl, 1, 255))
+		return 'bad mcast_ttl';
 	if (rule.family != null && rule.family !== '' && rule.family !== '4' && rule.family !== '6')
 		return 'bad family';
 	if (rule.proxy != null && rule.proxy !== '' && rule.proxy !== 'none' &&
@@ -727,13 +770,31 @@ return view.extend({
 		o = s.option(form.ListValue, 'proto', _('Proto'));
 		o.value('tcp', 'TCP');
 		o.value('udp', 'UDP');
+		o.value('ssl', 'TLS (OpenSSL)');
+		o.value('unix', _('Unix socket'));
 		o.rmempty = false;
+
+		o = s.option(form.Value, 'unix_path', _('Unix socket path'));
+		o.placeholder = '/var/run/socat.sock';
+		o.datatype = 'filepath';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('proto', 'unix');
 
 		o = s.option(form.Value, 'listen_port', _('Listen'));
 		o.datatype = 'portrange';
 		o.rmempty = false;
 		o.placeholder = _('443 or 30000-30010');
 		o.description = _('Single port or a range (one listener is started per port, max 256).');
+
+		o = s.option(form.Value, 'listen_addr', _('Listen address'));
+		o.datatype = 'or(ip4addr, ip6addr)';
+		o.placeholder = _('all addresses');
+		o.modalonly = true;
+		o.depends('proto', 'tcp');
+		o.depends('proto', 'udp');
+		o.depends('proto', 'ssl');
+		o.description = _('Bind the listener to one local address instead of every address.');
 
 		/* table-only: target IP (+ small proto suffix) */
 		o = s.option(form.DummyValue, '_target', _('Target'));
@@ -830,18 +891,31 @@ return view.extend({
 		o.value('tcp4', 'TCP / IPv4');
 		o.value('udp4', 'UDP / IPv4');
 		o.value('tcp6', 'TCP / IPv6');
+		o.value('ssl', 'TLS / OpenSSL');
+		o.value('unix', _('Unix socket'));
+		o.value('mcast', _('Multicast (UDP)'));
 		o.value('udp6', 'UDP / IPv6');
 		o.rmempty = false;
 		o.modalonly = true;
 		o.description = _('Protocol used to reach the target. Independent of the listen protocol above.');
 
 		o = s.option(form.Value, 'dest_ip', _('Destination IP'));
+		o.depends('dest_proto', 'tcp4');
+		o.depends('dest_proto', 'udp4');
+		o.depends('dest_proto', 'tcp6');
+		o.depends('dest_proto', 'udp6');
+		o.depends('dest_proto', 'ssl');
 		o.placeholder = '192.168.1.x';
 		o.datatype = 'or(host, ip6addr)';
 		o.rmempty = false;
 		o.modalonly = true;
 
 		o = s.option(form.Value, 'dest_port', _('Destination port'));
+		o.depends('dest_proto', 'tcp4');
+		o.depends('dest_proto', 'udp4');
+		o.depends('dest_proto', 'tcp6');
+		o.depends('dest_proto', 'udp6');
+		o.depends('dest_proto', 'ssl');
 		o.datatype = 'port';
 		o.rmempty = false;
 		o.modalonly = true;
@@ -875,6 +949,129 @@ return view.extend({
 		o.depends('proxy', 'socks4a');
 		o.depends('proxy', 'http');
 		o.modalonly = true;
+
+		o = s.option(form.Value, 'mcast_dst_group', _('Relay to multicast group'));
+		o.placeholder = '239.20.20.20';
+		o.datatype = 'ip4addr';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('dest_proto', 'mcast');
+
+		o = s.option(form.Value, 'mcast_dst_port', _('Relay to multicast port'));
+		o.datatype = 'port';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('dest_proto', 'mcast');
+
+		o = s.option(form.Value, 'mcast_ttl', _('Multicast TTL'));
+		o.datatype = 'range(1,255)';
+		o.default = '1';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('dest_proto', 'mcast');
+
+		o = s.option(form.Flag, 'mcast_loop', _('Multicast loopback'));
+		o.default = '0';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('dest_proto', 'mcast');
+
+		/* ---- socket options ---- */
+		o = s.option(form.Flag, 'nodelay', _('TCP_NODELAY'));
+		o.default = '0';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.description = _('Disable Nagle algorithm (lower latency, more packets).');
+
+		o = s.option(form.Value, 'backlog', _('Listen backlog'));
+		o.datatype = 'range(1,65535)';
+		o.placeholder = _('socat default (5)');
+		o.modalonly = true;
+		o.depends('proto', 'tcp');
+		o.depends('proto', 'ssl');
+
+		o = s.option(form.Value, 'max_children', _('Max concurrent children'));
+		o.datatype = 'range(1,1000)';
+		o.placeholder = _('unlimited');
+		o.modalonly = true;
+		o.depends('proto', 'tcp');
+		o.depends('proto', 'ssl');
+		o.description = _('socat max-children; a cap protects a busy target from being flooded.');
+
+		o = s.option(form.Value, 'timeout', _('Transfer timeout'));
+		o.datatype = 'range(1,86400)';
+		o.placeholder = _('socat default (0.5s)');
+		o.modalonly = true;
+
+		o = s.option(form.Flag, 'system_log', _('Log to syslog'));
+		o.default = '0';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.description = _('Route this rule socat log to syslog (logread) instead of discarding it.');
+
+		o = s.option(form.Flag, 'keepalive', _('TCP keepalive'));
+		o.default = '1';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.description = _('Detect and drop connections to a target that disappeared.');
+
+		o = s.option(form.Value, 'dst_unix_path', _('Unix socket target'));
+		o.placeholder = '/var/run/backend.sock';
+		o.datatype = 'filepath';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('dest_proto', 'unix');
+
+		o = s.option(form.Value, 'ssl_cert', _('TLS certificate'));
+	o.placeholder = '/etc/ssl/certs/server.pem';
+	o.datatype = 'filepath';
+	o.rmempty = false;
+	o.modalonly = true;
+	o.depends('proto', 'ssl');
+	o.description = _('PEM certificate presented to incoming TLS clients.');
+
+	o = s.option(form.Value, 'ssl_key', _('TLS private key'));
+	o.placeholder = '/etc/ssl/private/server.key';
+	o.datatype = 'filepath';
+	o.rmempty = false;
+	o.modalonly = true;
+	o.depends('proto', 'ssl');
+
+	o = s.option(form.Flag, 'ssl_verify', _('Verify TLS certificate'));
+	o.default = '0';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('dest_proto', 'ssl');
+		o.description = _('Check the target certificate against the CA file below.');
+
+		o = s.option(form.Value, 'ssl_cafile', _('CA certificate'));
+		o.placeholder = '/etc/ca.pem';
+		o.datatype = 'filepath';
+		o.modalonly = true;
+		o.depends('dest_proto', 'ssl');
+		o.depends('ssl_verify', '1');
+
+		o = s.option(form.Value, 'mcast_group', _('Join multicast group'));
+		o.placeholder = '239.10.10.10';
+		o.datatype = 'ip4addr';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.depends('proto', 'udp');
+		o.description = _('Join a multicast group on the listen port (IPTV). 224.0.0.0 - 239.255.255.255.');
+
+		o = s.option(form.Value, 'mcast_iface', _('Multicast interface'));
+		o.placeholder = 'eth0.2';
+		o.datatype = 'uciname';
+		o.modalonly = true;
+		o.depends('mcast_group', /.+/);
+		o.description = _('Interface used both for joining the group and for sending (empty = kernel picks).');
+
+		o = s.option(form.Value, 'mcast_localip', _('Local address for joining'));
+		o.placeholder = '192.168.1.1';
+		o.datatype = 'ip4addr';
+		o.modalonly = true;
+		o.depends('mcast_group', /.+/);
+		o.description = _('Address used in the IGMP join; empty = 0.0.0.0 (kernel picks).');
 
 		o = s.option(form.Value, 'proxy_port', _('Proxy port'));
 		o.datatype = 'port';

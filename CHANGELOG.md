@@ -5,6 +5,83 @@ the last tag; version numbers only change when a release is requested.
 
 ## Unreleased
 
+### Feature parity with the other luci-app-socat forks (2026-10-14)
+
+Compared every live fork on GitHub (chenmozhijin, WROIATE, mylucien, 4IceG,
+hongyan3, 1522042029) and took what they had and we did not:
+
+* **TLS / OpenSSL** (from mylucien): `proto=ssl` listens with
+  `OPENSSL-LISTEN` + `ssl_cert`/`ssl_key`; `dest_proto=ssl` dials with
+  `OPENSSL` + optional `ssl_verify`/`ssl_cafile`. Paths validated strictly.
+* **Unix sockets** (from mylucien): `unix_path` on the listen side,
+  `dst_unix_path` on the dial side; no port, no firewall involvement.
+* **Multicast / IPTV** (from mylucien): `mcast_group` joins a group on the
+  listen port (`ip-add-membership`, `bind=<group>` so two rules cannot mix
+  streams, `so-bindtodevice` for the interface), `dest_proto=mcast` relays to
+  another group with `ip-multicast-if`/`-ttl`/`-loop`, or to a plain unicast
+  target. IGMP is accepted on the WAN zones while a multicast rule is on.
+* **Socket options** (from mylucien/WROIATE): `nodelay`, `backlog`,
+  `max_children`, `timeout` and `system_log` (per-rule `socat -ls -d`).
+* **uninstall.sh** (from mylucien): stops the engine, removes every installed
+  file and the firewall rules; keeps `/etc/config/socat` unless `--purge`.
+
+* **`keepalive`** (from mylucien): on by default; a rule that talks to a
+  device that never closes its side of a TCP stream can switch it off.
+* **`listen_addr`** (from mylucien's `src_addr`): bind the listener to one
+  local address instead of every address.  A v6 literal replaces the automatic
+  WAN-IPv6 bind; a multicast listener ignores it (it must bind the group).
+* **`ssl_cert`/`ssl_key` form fields** — they were exported and validated but
+  had no input in the dialog, so a TLS rule could only be created by hand.
+
+Deliberately NOT copied, because our existing design is the stronger one:
+firewall3 (iptables) support (we are ucode-native 24.10+/25.x only; a Lua
+fallback would undo that) and the static `nftables.d` snippet mechanism
+(WROIATE: every rule change needs a full `fw4 reload`; our UCI rules are
+self-healing, survive backup/restore and reload only when needed).
+
+### Fixed: three defects the real engine exposed (2026-10-14)
+
+The unit tests compare the *generated key* (which has its spaces stripped, on
+purpose) and only looked at substrings, so three real defects sailed through
+them and were caught by the layout simulator, which starts the real engine and
+the real `socat`:
+
+* A missing space before the target address on an IPv4 `UDP-LISTEN` rule
+  (`UDP-LISTEN:53,forkUDP4:192.168.1.11:53`): socat refused to start it, so
+  the rule was silently down.  The generator now has an invariant test that
+  fails if any address runs into the option before it.
+* `keepalive` was added to a **unix** socket: `socat` rejects it outright
+  ("`keepidle` not supported with this address type"), so every unix listener
+  died on start.  Keepalive is now only added to TCP-ish addresses (a unix
+  listener dialling TCP still keeps its own keepalive).
+* Unix and multicast listeners were **invisible to the engine**: the worker
+  scan only accepted `*-LISTEN` argv and the listener table is built from
+  `/proc/net/tcp`, where neither a unix socket nor a `UDP4-RECVFROM` socket
+  appears.  They were therefore restarted every cycle (and never stopped).
+  The scan now accepts them; a unix listener is proven alive through
+  `/proc/net/unix` (state `01`), a multicast one through its bound UDP port,
+  and a stale unix socket file is unlinked before rebinding (`unlink-early`).
+
+### Fixed: a rule's runtime options were attached to the wrong field
+
+`dest_ip` and `dest_port` had no `depends` at all, and the pair added for
+`dest_port` landed *before* the field was declared, so it was applied to
+`dest_ip` (duplicated) and `dest_port` stayed visible for unix and multicast
+targets, where it is meaningless but mandatory.  Both now depend on the
+destination protocols that actually use them.
+
+### Fixed: a dead rule was reported as listening (live bug)
+
+Found while verifying the new protocols against the router: the backend's
+state parser read the **third** column of the engine's state file
+(`sid kind port pid error`) as the pid — i.e. the port — so a rule whose
+listener had failed to bind always looked alive and its error never reached
+the UI. Down/partial detection and the down-reason banner were dead code in
+practice since V3. The parser now reads the pid column, and the router suite
+grows a test that forces a real `EADDRINUSE` conflict and asserts the rule is
+reported down with its reason. (Probe created on the router and removed after
+reproduction; the same defect would have made every port-clash silent.)
+
 ### Upstream-parity round: features and the same bugs, fixed (2026-10-14)
 
 Read the other `luci-app-socat` implementations on GitHub (chenmozhijin,
