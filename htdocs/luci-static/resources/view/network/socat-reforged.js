@@ -86,6 +86,44 @@ function fieldVal(sid, opt) {
 	return (v == null) ? '' : v;
 }
 
+/* The ucode backend (luci.socat-reforged.uc) reports failures with plain
+ * English `detail`/`error` strings; map the fixed set onto translatable
+ * msgids here so notifications can be localised.  Unknown strings (e.g.
+ * socat's own stderr) pass through untouched. */
+function trDetail(s) {
+	var m;
+	if (s == null)
+		return '';
+	s = String(s);
+	if ((m = s.match(/^unknown proxy type '(.+)'$/)))
+		return _('unknown proxy type \'%s\'').format(m[1]);
+	if ((m = s.match(/^unknown destination protocol '(.+)'$/)))
+		return _('unknown destination protocol \'%s\'').format(m[1]);
+	if ((m = s.match(/^connection failed \(socat exit (\d+)\)$/)))
+		return _('connection failed (socat exit %s)').format(m[1]);
+	if ((m = s.match(/^socat exit (\d+)$/)))
+		return _('socat exited with status %s').format(m[1]);
+	if ((m = s.match(/^exit (\d+)$/)))
+		return _('exit status %s').format(m[1]);
+	switch (s) {
+	case 'destination IP and port are required':
+		return _('destination IP and port are required');
+	case 'a proxy is only supported with a TCP/IPv4 target':
+		return _('a proxy is only supported with a TCP/IPv4 target');
+	case 'UDP probe sent (no handshake to verify)':
+		return _('UDP probe sent (no handshake to verify)');
+	case 'connection succeeded':
+		return _('connection succeeded');
+	case 'section id is required':
+		return _('section id is required');
+	case 'unknown action':
+		return _('unknown action');
+	case 'log file not created yet':
+		return _('log file not created yet');
+	}
+	return s;
+}
+
 /* ---- import validation (never let a malformed rule reach UCI) ---- */
 var HOST_RE = /^[A-Za-z0-9._:-]+$/;
 function importPortOk(v) {
@@ -93,24 +131,24 @@ function importPortOk(v) {
 }
 function importCheck(rule) {
 	if (!rule || typeof rule !== 'object')
-		return 'not an object';
+		return _('not an object');
 	if (rule.enable != null && rule.enable !== '' && [ '0', '1' ].indexOf(String(rule.enable)) < 0)
-		return 'bad enable';
+		return _('bad enable');
 	if (rule.proto != null && rule.proto !== 'tcp' && rule.proto !== 'udp')
-		return 'bad proto';
+		return _('bad proto');
 	if (!importPortOk(rule.listen_port))
-		return 'listen_port must be 1-65535';
+		return _('listen_port must be 1-65535');
 	if (!importPortOk(rule.dest_port))
-		return 'dest_port must be 1-65535';
+		return _('dest_port must be 1-65535');
 	if (rule.dest_ip == null || !HOST_RE.test(String(rule.dest_ip)))
-		return 'bad dest_ip';
+		return _('bad dest_ip');
 	if (rule.dest_proto != null && [ 'tcp4', 'udp4', 'tcp6', 'udp6' ].indexOf(rule.dest_proto) < 0)
-		return 'bad dest_proto';
+		return _('bad dest_proto');
 	if (rule.family != null && rule.family !== '' && rule.family !== '4' && rule.family !== '6')
-		return 'bad family';
+		return _('bad family');
 	if (rule.proxy != null && rule.proxy !== '' && rule.proxy !== 'none' &&
 	    rule.proxy !== 'socks4' && rule.proxy !== 'socks4a' && rule.proxy !== 'http')
-		return 'bad proxy';
+		return _('bad proxy');
 	return null;
 }
 
@@ -419,7 +457,7 @@ return view.extend({
 		ui.showModal(_('Socat engine'), [ E('p', { 'class': 'spinning' }, msg) ]);
 		return fn().then(function(res) {
 			if (res && res.ok === false)
-				throw new Error(res.detail || _('failed'));
+				throw trDetail(res.detail) || _('failed');
 			return new Promise(function(r) { window.setTimeout(r, wait); });
 		}).then(function() {
 			ui.hideModal();
@@ -446,7 +484,7 @@ return view.extend({
 		return callLog({ lines: LOG_MAX_LINES }).then(function(res) {
 			res = res || {};
 			if (!res.lines || !res.lines.length) {
-				el.textContent = res.error ? res.error : _('(log is empty)');
+				el.textContent = res.error ? trDetail(res.error) : _('(log is empty)');
 				return;
 			}
 			el.textContent = res.lines.join('\n');
@@ -463,7 +501,7 @@ return view.extend({
 		return callLogClear().then(function(res) {
 			if (res && res.ok)
 				return self.loadLog();
-			ui.addNotification(null, E('p', {}, _('Could not clear the engine log: %s').format((res && res.detail) || 'failed')));
+			ui.addNotification(null, E('p', {}, _('Could not clear the engine log: %s').format(trDetail(res && res.detail) || _('failed'))));
 		}).catch(function() {
 			ui.addNotification(null, E('p', {}, _('Could not clear the engine log')));
 		});
@@ -742,8 +780,8 @@ return view.extend({
 				if (btn)
 					btn.disabled = false;
 				ui.addNotification(null, E('p', {}, (res && res.ok)
-					? _('Reachable (%s:%s): %s').format(ip, port, res.detail)
-					: _('NOT reachable (%s:%s): %s').format(ip, port, (res && res.detail) || '?')));
+					? _('Reachable (%s:%s): %s').format(ip, port, trDetail(res.detail))
+					: _('NOT reachable (%s:%s): %s').format(ip, port, trDetail(res && res.detail) || '?')));
 			}).catch(function(e) {
 				if (btn)
 					btn.disabled = false;
@@ -767,7 +805,7 @@ return view.extend({
 						btn.disabled = false;
 					ui.addNotification(null, E('p', {}, (res && res.ok)
 						? _('Rule restarted.')
-						: _('Restart failed: %s').format((res && res.detail) || '?')));
+						: _('Restart failed: %s').format(trDetail(res && res.detail) || '?')));
 				});
 			}).then(L.bind(function() { return self.refreshStatus(); }, this))
 			  .then(L.bind(function() { self.recount(); }, this))
@@ -895,14 +933,12 @@ return view.extend({
 		o = g.option(form.Flag, 'fix_v6_route', _('Maintain a 2000::/3 IPv6 route'));
 		o.default = '0';
 		o.rmempty = false;
-		o.description = _('Keep a static 2000::/3 route pointing at the current default gateway. ' +
-			'Only needed on ISPs whose delegation is broken \u2014 leave off unless you know you need it.');
+		o.description = _('Keep a static 2000::/3 route pointing at the current default gateway. Only needed on ISPs whose delegation is broken \u2014 leave off unless you know you need it.');
 
 		o = g.option(form.Flag, 'wg_dnat_guard', _('Watch the WireGuard 51820 DNAT rule'));
 		o.default = '0';
 		o.rmempty = false;
-		o.description = _('Reload the firewall if a 51820 DNAT rule you configured disappears. ' +
-			'Only relevant if you forward WireGuard, and it never touches connection tracking.');
+		o.description = _('Reload the firewall if a 51820 DNAT rule you configured disappears. Only relevant if you forward WireGuard, and it never touches connection tracking.');
 
 		o = g.option(form.Flag, 'debug', _('Verbose engine logging'));
 		o.default = '0';

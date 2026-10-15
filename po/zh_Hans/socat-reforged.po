@@ -1,0 +1,605 @@
+# Simplified Chinese translations for luci-app-socat-reforged.
+# Copyright (C) 2026 busybin
+# This file is distributed under the same license as the
+# luci-app-socat-reforged package (GPL-3.0-or-later).
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-socat-reforged 3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-14 22:32+0800\n"
+"PO-Revision-Date: 2026-10-14 22:32+0800\n"
+"Last-Translator: busybin <65460344+busybin@users.noreply.github.com>\n"
+"Language-Team: \n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:99
+#, javascript-format
+msgid "unknown proxy type '%s'"
+msgstr "未知代理类型“%s”"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:101
+#, javascript-format
+msgid "unknown destination protocol '%s'"
+msgstr "未知目标协议“%s”"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:103
+#, javascript-format
+msgid "connection failed (socat exit %s)"
+msgstr "连接失败（socat 退出码 %s）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:105
+#, javascript-format
+msgid "socat exited with status %s"
+msgstr "socat 退出，状态码 %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:107
+#, javascript-format
+msgid "exit status %s"
+msgstr "退出状态 %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:110
+msgid "destination IP and port are required"
+msgstr "需要提供目标 IP 和端口"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:112
+msgid "a proxy is only supported with a TCP/IPv4 target"
+msgstr "仅 TCP/IPv4 目标支持通过代理连接"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:114
+msgid "UDP probe sent (no handshake to verify)"
+msgstr "已发送 UDP 探测（无握手可验证）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:116
+msgid "connection succeeded"
+msgstr "连接成功"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:118
+msgid "section id is required"
+msgstr "缺少 section id"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:120
+msgid "unknown action"
+msgstr "未知操作"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:122
+msgid "log file not created yet"
+msgstr "日志文件尚未创建"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:134
+msgid "not an object"
+msgstr "不是有效的对象"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:136
+msgid "bad enable"
+msgstr "enable 字段无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:138
+msgid "bad proto"
+msgstr "proto 字段无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:140
+msgid "listen_port must be 1-65535"
+msgstr "listen_port 必须在 1-65535 之间"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:142
+msgid "dest_port must be 1-65535"
+msgstr "dest_port 必须在 1-65535 之间"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:144
+msgid "bad dest_ip"
+msgstr "dest_ip 无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:146
+msgid "bad dest_proto"
+msgstr "dest_proto 无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:148
+msgid "bad family"
+msgstr "family 无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:151
+msgid "bad proxy"
+msgstr "proxy 无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:183
+msgid "disabled"
+msgstr "已禁用"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:186
+msgid "unknown"
+msgstr "未知"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:188
+msgid "listening"
+msgstr "监听中"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:190
+msgid "partial"
+msgstr "部分监听"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:191
+msgid "down"
+msgstr "未运行"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:260
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:628
+msgid "running"
+msgstr "运行中"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:260
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:628
+msgid "stopped"
+msgstr "已停止"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:273
+#, javascript-format
+msgid "reconciled %s s ago"
+msgstr "%s 秒前已同步"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:275
+#, javascript-format
+msgid "%d rule(s) failing"
+msgstr "%d 条规则失败"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:307
+msgid "⚠ Conflicting listen ports: "
+msgstr "⚠ 监听端口冲突："
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:331
+#, javascript-format
+msgid "⚠ %d rule(s) not running: "
+msgstr "⚠ %d 条规则未运行："
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:423
+msgid "Unsaved changes"
+msgstr "未保存的更改"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:424
+msgid "You have unsaved changes on this page. Save them before leaving?"
+msgstr "本页有未保存的更改。离开前要保存吗？"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:426
+msgid "Stay"
+msgstr "留下"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:432
+msgid "Discard & leave"
+msgstr "放弃更改并离开"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:437
+msgid "Saving"
+msgstr "正在保存"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:437
+msgid "Applying changes…"
+msgstr "正在应用更改…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:442
+msgid "Save & Apply & leave"
+msgstr "保存并应用后离开"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:450
+msgid "Socat engine"
+msgstr "Socat 引擎"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:453
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:497
+msgid "failed"
+msgstr "失败"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:462
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:808
+#, javascript-format
+msgid "Action failed: %s"
+msgstr "操作失败：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:466
+msgid "Starting socat engine…"
+msgstr "正在启动 socat 引擎…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:467
+msgid "Restarting socat engine…"
+msgstr "正在重启 socat 引擎…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:480
+msgid "(log is empty)"
+msgstr "（日志为空）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:486
+msgid "could not read the engine log"
+msgstr "无法读取引擎日志"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:497
+#, javascript-format
+msgid "Could not clear the engine log: %s"
+msgstr "无法清空引擎日志：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:499
+msgid "Could not clear the engine log"
+msgstr "无法清空引擎日志"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:505
+msgid "Stop socat engine?"
+msgstr "停止 socat 引擎？"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:506
+msgid ""
+"This removes the procd service and stops all socat port forwards until you "
+"start it again."
+msgstr "这会移除 procd 服务并停止所有 socat 端口转发，直到你再次启动。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:508
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:897
+msgid "Cancel"
+msgstr "取消"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:512
+msgid "Stopping socat engine…"
+msgstr "正在停止 socat 引擎…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:513
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:652
+msgid "Stop"
+msgstr "停止"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:554
+#, javascript-format
+msgid "Import failed: invalid JSON (%s)"
+msgstr "导入失败：JSON 无效（%s）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:559
+msgid "Import failed: no rules found in the file."
+msgstr "导入失败：文件中未找到规则。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:575
+#, javascript-format
+msgid "Import: nothing to add%s."
+msgstr "导入：没有可添加的内容%s。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:577
+#, javascript-format
+msgid " (%d invalid entry/entries: %s)"
+msgstr "（%d 条无效条目：%s）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:582
+#, javascript-format
+msgid "Import: skipped %d invalid entry/entries."
+msgstr "导入：已跳过 %d 条无效条目。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:583
+msgid "Importing"
+msgstr "正在导入"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:583
+#, javascript-format
+msgid "Applying %s rule(s)…"
+msgstr "正在应用 %s 条规则…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:589
+#, javascript-format
+msgid "Import failed: %s"
+msgstr "导入失败：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:604
+#: root/usr/share/luci/menu.d/luci-app-socat-reforged.json:3
+msgid "Socat Reforged"
+msgstr "Socat 转发（Reforged）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:613
+msgid ""
+"Port forwards handled by the custom socat engine (source of truth: /etc/"
+"config/socat)."
+msgstr "由自定义 socat 引擎处理的端口转发（配置来源：/etc/config/socat）。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:616
+msgid "⚠ Unsaved changes"
+msgstr "⚠ 有未保存的更改"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:617
+msgid ""
+"Click \"Save & Apply\" to apply them (leaving the page will prompt you)."
+msgstr "点击“保存并应用”使其生效（离开页面时会提示）。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:629
+msgid "Engine"
+msgstr "引擎"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:634
+msgid "Listening now / total"
+msgstr "监听中 / 总数"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:636
+msgid "Active TCP connections across all forwards"
+msgstr "所有转发上的活动 TCP 连接数"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:638
+msgid "Connections"
+msgstr "连接数"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:640
+msgid ""
+"socat processes: one listener per rule plus a forked child per active "
+"connection"
+msgstr "socat 进程数：每条规则一个监听进程，每个活动连接另有一个 fork 子进程"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:642
+msgid "socat processes"
+msgstr "socat 进程数"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:647
+msgid "Engine status"
+msgstr "引擎状态"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:650
+msgid "Start"
+msgstr "启动"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:654
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:785
+msgid "Restart"
+msgstr "重启"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:656
+msgid ""
+"Config changes are applied on Save & Apply (the engine is restarted "
+"automatically)."
+msgstr "配置更改在“保存并应用”时生效（引擎会自动重启）。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:660
+msgid "(loading…)"
+msgstr "（加载中…）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:662
+msgid "Engine log"
+msgstr "引擎日志"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:663
+#, javascript-format
+msgid ""
+"Every line also goes to syslog; this copy survives reboots (last %d lines)."
+msgstr "每行同时也会写入 syslog；此副本重启后仍保留（最近 %d 行）。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:665
+msgid "Refresh"
+msgstr "刷新"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:667
+msgid "Clear"
+msgstr "清空"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:679
+msgid "Search name / port / target…"
+msgstr "搜索名称 / 端口 / 目标…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:682
+msgid "All"
+msgstr "全部"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:682
+msgid "Listening"
+msgstr "监听中"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:682
+msgid "Down"
+msgstr "未运行"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:682
+msgid "Disabled"
+msgstr "已禁用"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:695
+msgid "Import"
+msgstr "导入"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:696
+msgid "Export"
+msgstr "导出"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:703
+msgid "Port forwards"
+msgstr "端口转发"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:708
+msgid "Add forward"
+msgstr "添加转发"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:710
+msgid "Name"
+msgstr "名称"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:711
+msgid "e.g. RTMP"
+msgstr "例如 RTMP"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:713
+msgid "Proto"
+msgstr "协议"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:718
+msgid "Listen"
+msgstr "监听端口"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:723
+msgid "Target"
+msgstr "目标"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:733
+msgid "Target port"
+msgstr "目标端口"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:739
+msgid "Status"
+msgstr "状态"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:756
+msgid "Test"
+msgstr "测试"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:757
+msgid "Test target"
+msgstr "测试目标"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:776
+#, javascript-format
+msgid "Reachable (%s:%s): %s"
+msgstr "可达（%s:%s）：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:777
+#, javascript-format
+msgid "NOT reachable (%s:%s): %s"
+msgstr "不可达（%s:%s）：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:781
+#, javascript-format
+msgid "Test failed: %s"
+msgstr "测试失败：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:786
+msgid "Restart this rule"
+msgstr "重启此规则"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:800
+msgid "Rule restarted."
+msgstr "规则已重启。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:801
+#, javascript-format
+msgid "Restart failed: %s"
+msgstr "重启失败：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:813
+msgid "Destination protocol"
+msgstr "目标协议"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:820
+msgid ""
+"Protocol used to reach the target. Independent of the listen protocol above."
+msgstr "用于连接目标的协议，与上方的监听协议相互独立。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:822
+msgid "Destination IP"
+msgstr "目标 IP"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:828
+msgid "Destination port"
+msgstr "目标端口"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:833
+msgid "Listen address family"
+msgstr "监听地址族"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:834
+msgid "IPv4 and IPv6"
+msgstr "IPv4 和 IPv6"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:835
+msgid "IPv4 only"
+msgstr "仅 IPv4"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:836
+msgid "IPv6 only"
+msgstr "仅 IPv6"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:839
+msgid "Which listen sockets to create. The default binds both IPv4 and IPv6."
+msgstr "要创建哪些监听套接字。默认同时绑定 IPv4 和 IPv6。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:841
+msgid "Open firewall port (WAN)"
+msgstr "开放防火墙端口（WAN）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:845
+msgid "Automatically keep this WAN port open (recommended)."
+msgstr "自动保持此 WAN 端口开放（推荐）。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:847
+msgid "Reach target via proxy"
+msgstr "通过代理访问目标"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:848
+msgid "None"
+msgstr "无"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:853
+msgid ""
+"Dial the target through a proxy. Only TCP/IPv4 destinations are supported."
+msgstr "通过代理连接目标。仅支持 TCP/IPv4 目标。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:855
+msgid "Proxy server"
+msgstr "代理服务器"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:863
+msgid "Proxy port"
+msgstr "代理端口"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:872
+msgid "Enabled"
+msgstr "启用"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:890
+msgid "(unnamed)"
+msgstr "（未命名）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:893
+msgid "Delete forward?"
+msgstr "删除此转发？"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:894
+#, javascript-format
+msgid "Remove “%s” (%s :%s)?"
+msgstr "删除“%s”（%s :%s）？"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:895
+msgid "Save & Apply is still required to stop the listener."
+msgstr "仍需“保存并应用”才会停止监听。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:907
+msgid "Delete"
+msgstr "删除"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:923
+msgid "Engine settings"
+msgstr "引擎设置"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:926
+msgid "Maintain a 2000::/3 IPv6 route"
+msgstr "维护 2000::/3 IPv6 路由"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:929
+msgid ""
+"Keep a static 2000::/3 route pointing at the current default gateway. Only "
+"needed on ISPs whose delegation is broken — leave off unless you know you "
+"need it."
+msgstr ""
+"保留一条指向当前默认网关的静态 2000::/3 路由。仅适用于前缀委派异常的网络运营"
+"商——除非确定需要，否则请保持关闭。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:931
+msgid "Watch the WireGuard 51820 DNAT rule"
+msgstr "监视 WireGuard 51820 DNAT 规则"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:934
+msgid ""
+"Reload the firewall if a 51820 DNAT rule you configured disappears. Only "
+"relevant if you forward WireGuard, and it never touches connection tracking."
+msgstr ""
+"如果你配置的 51820 DNAT 规则消失，则重载防火墙。仅在转发 WireGuard 时相关，且"
+"不会触碰连接跟踪。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:936
+msgid "Verbose engine logging"
+msgstr "详细引擎日志"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:939
+msgid "Log a HEALTH line every minute (memory, worker count, IPv6, uptime)."
+msgstr "每分钟记录一条 HEALTH 日志（内存、worker 数量、IPv6、运行时间）。"
+
+#: root/usr/share/rpcd/acl.d/luci-app-socat-reforged.json:3
+msgid "Grant access to Socat Reforged (custom UCI socat forwarding page)"
+msgstr "授予访问 Socat Reforged（自定义 UCI socat 转发页面）的权限"
