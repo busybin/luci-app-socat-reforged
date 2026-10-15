@@ -460,6 +460,7 @@ FIX
 run_gen ''
 check 'tls listener + tls dial' 't/ssltcp ' "$(kinds)"
 check 'tls listener carries cert+key' 1 "$(cmdgrep 1 'OPENSSL-LISTEN:8443,cert=/etc/luci-cert.pem,key=/etc/luci-key.pem')"
+check 'tls listener does not demand a client certificate' 1 "$(cmdgrep 1 'key=/etc/luci-key.pem,verify=0,fork')"
 check 'tls dial defaults to verify=0' 1 "$(cmdgrep 1 'OPENSSL:10.0.0.7:443,verify=0')"
 check 'tls opens the firewall as tcp' 'tcp:8443 ' "$(fwls)"
 
@@ -795,7 +796,7 @@ check 'ssl keeps the space before the target' 1 "$(cmdgrep 1 'fork,reuseaddr,kee
 check 'unix keeps the space before the target' 1 "$(cmdgrep 1 'unlink-early,reuseaddr TCP4:10.0.0.9:80,keepalive,keepidle=60,keepintvl=10,keepcnt=5')"
 check 'a unix listener carries no keepalive itself' 0 "$(cmdgrep 1 'unlink-early,reuseaddr,keepalive')"
 check 'multicast receive keeps the space before the target' 1 "$(cmdgrep 1 'bind=239.1.1.1,reuseaddr,fork UDP4-DATAGRAM:239.2.2.2:5000')"
-check 'ssl listener carries the cert and key' 2 "$(cmdgrep 1 'OPENSSL-LISTEN:6302,cert=/etc/ssl/c.pem,key=/etc/ssl/k.pem')"
+check 'ssl listener carries the cert and key' 2 "$(cmdgrep 1 'OPENSSL-LISTEN:6302,cert=/etc/ssl/c.pem,key=/etc/ssl/k.pem,verify=0,fork')"
 check 'tcp listener carries nodelay and backlog' 1 "$(cmdgrep 1 'TCP-LISTEN:6300,fork,reuseaddr,nodelay,backlog=8')"
 check 'the multicast rule opens udp on the wire' 'udp:6303 ' "$(fwls | tr ' ' '\n' | grep '^udp:6303' | tr '\n' ' ')"
 check 'the multicast rule also opens igmp' 'igmp:- ' "$(fwls | tr ' ' '\n' | grep '^igmp:' | tr '\n' ' ')"

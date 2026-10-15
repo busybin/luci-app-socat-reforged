@@ -11,8 +11,14 @@ Compared every live fork on GitHub (chenmozhijin, WROIATE, mylucien, 4IceG,
 hongyan3, 1522042029) and took what they had and we did not:
 
 * **TLS / OpenSSL** (from mylucien): `proto=ssl` listens with
-  `OPENSSL-LISTEN` + `ssl_cert`/`ssl_key`; `dest_proto=ssl` dials with
+  `OPENSSL-LISTEN` + `ssl_cert`/`ssl_key` (+ `verify=0`, so clients are not
+  asked for a certificate of their own); `dest_proto=ssl` dials with
   `OPENSSL` + optional `ssl_verify`/`ssl_cafile`. Paths validated strictly.
+  **Requires a socat built with OpenSSL** — OpenWrt's `socat` package is built
+  `--disable-openssl`, so `socat -V` says `#undef WITH_OPENSSL` and a TLS rule
+  cannot start there (it is reported down with socat's own message). Check
+  `socat -V` before blaming the rule; unix sockets, multicast and the socket
+  options all work with the stock package.
 * **Unix sockets** (from mylucien): `unix_path` on the listen side,
   `dst_unix_path` on the dial side; no port, no firewall involvement.
 * **Multicast / IPTV** (from mylucien): `mcast_group` joins a group on the
@@ -61,6 +67,30 @@ the real `socat`:
   The scan now accepts them; a unix listener is proven alive through
   `/proc/net/unix` (state `01`), a multicast one through its bound UDP port,
   and a stale unix socket file is unlinked before rebinding (`unlink-early`).
+* The TLS listener **asked clients for a certificate**: socat's
+  `OPENSSL-LISTEN` defaults to `verify=1`, so a browser or an ordinary client
+  was rejected with "peer did not return a certificate".  The generated
+  listener now carries `verify=0` (no client authentication); the *dial* side
+  still honours `ssl_verify`/`ssl_cafile`.  Verified with a round-trip on the
+  generated command shape, on both sides.
+
+### Verified live on an OpenWrt 25.12 router (2026-10-14)
+
+Engine 522012b, 15 rules / 30 listeners, socat 1.8.1.1:
+
+* a unix listener started, appeared in the state file with a real pid, and its
+  socket file is present in `/proc/net/unix`;
+* a multicast listener started with a real pid, and the engine created
+  `firewall.socat_reforged_igmp` (`proto=igmp`, `src=wan`, `target=ACCEPT`) —
+  and removed it again when the rule went away;
+* a rule whose port was already taken was reported **down** with socat's own
+  reason (`bind(): Address in use`), and `counts.down`/`counts.errors` moved
+  with it — the backend regression test now forces a real `EADDRINUSE` instead
+  of trusting the port lookup;
+* a disabled rule reads `disabled`.
+
+Router suite all green: engine checks 25, backend checks 41, perf ok
+(1.5% of one core, 30/30 listeners, 0 log lines in 120s).
 
 ### Fixed: a rule's runtime options were attached to the wrong field
 
