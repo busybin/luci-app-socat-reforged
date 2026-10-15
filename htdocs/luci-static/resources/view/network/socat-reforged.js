@@ -30,6 +30,8 @@ var ENGINE_SECTION = 'reforged';
 /* theme-aware styling: uses LuCI CSS variables so light/dark both look right */
 var REPO_URL = 'https://github.com/busybin/luci-app-socat-reforged';
 var STYLE = '\
+.socat-page>*{padding-left:2%;padding-right:2%}\
+.socat-page .cbi-section-actions{margin:.8em 0 .3em}\
 .socat-tiles{display:flex;flex-wrap:wrap;gap:12px;margin:.4em 0 0}\
 .socat-tile{flex:1 1 150px;min-width:150px;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:8px;padding:10px 14px;background:var(--background-color-medium,rgba(128,128,128,.06))}\
 .socat-tile .v{font-size:1.55em;font-weight:600;line-height:1.15}\
@@ -51,7 +53,6 @@ var STYLE = '\
 .socat-chip.active{font-weight:700;box-shadow:inset 0 -2px 0 currentColor}\
 .socat-dirty{background:var(--error-color-medium,#c62828);color:var(--on-error-color,#fff);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.95em}\
 .socat-alert{background:var(--warn-color-medium,#f0c629);color:var(--on-warn-color,#3a2f00);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
-.socat-empty{border:1px dashed var(--border-color-medium,rgba(128,128,128,.4));border-radius:8px;padding:24px;text-align:center;margin:.6em 0}\
 tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-medium,#f0c629)}\
 .socat-errs{background:var(--error-color-low,rgba(198,40,40,.12));border:1px solid var(--error-color-medium,#c62828);color:var(--error-color-medium,#c62828);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
 .socat-reason{font-size:.8em;opacity:.75;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22em}\
@@ -241,7 +242,6 @@ return view.extend({
 		self.applyConflicts();
 		self.applyErrors();
 		self.applyFilter();
-		self.applyEmpty();
 	},
 
 	applyConflicts: function() {
@@ -319,12 +319,6 @@ return view.extend({
 				el.classList.toggle('active', x === f);
 		});
 		this.applyFilter();
-	},
-
-	applyEmpty: function() {
-		var el = document.getElementById('socat-empty');
-		if (el)
-			el.style.display = (uci.sections('socat', 'config') || []).length ? 'none' : '';
 	},
 
 	/* ---- unsaved-changes tracking ---- */
@@ -616,7 +610,7 @@ return view.extend({
 			E('h3', {}, _('Engine status')),
 			tiles,
 			E('div', { 'class': 'cbi-section-actions' }, [
-				E('button', { 'class': 'btn cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, 'handleStart') }, [ _('Start') ]),
+				E('button', { 'class': 'btn cbi-button cbi-button-positive', 'click': ui.createHandlerFn(this, 'handleStart') }, [ _('Start') ]),
 				' ',
 				E('button', { 'class': 'btn cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, 'handleStop') }, [ _('Stop') ]),
 				' ',
@@ -959,14 +953,12 @@ return view.extend({
 		return m.render().then(function(mapNode) {
 			self._mapNode = mapNode;
 
-			var empty = E('div', { 'id': 'socat-empty', 'class': 'socat-empty', 'style': 'display:none' }, [
-				E('p', {}, _('No port forwards yet.')),
-				E('button', { 'class': 'btn cbi-button cbi-button-add', 'click': ui.createHandlerFn(s, 'handleAdd') }, [ _('Add forward') ])
-			]);
-
 			window.setTimeout(L.bind(function() { this.recount(); this.checkDirty(); }, self), 0);
 
-			return E([ styleEl, titleEl, metaEl, descEl, banner, conflictBanner, errorBanner, card, toolbar, empty, mapNode, logBox ]);
+			return E([ styleEl, E('div', { 'class': 'socat-page' }, [
+				titleEl, metaEl, descEl, banner, conflictBanner, errorBanner,
+				card, toolbar, logBox
+			]), mapNode ]);
 		});
 	}
 });
