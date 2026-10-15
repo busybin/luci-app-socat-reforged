@@ -248,6 +248,12 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('GitHub link points at the repo', 'github.com/busybin/luci-app-socat-reforged', all);
 	has('engine settings section is declared', "form.NamedSection, 'reforged'", src);
 	has('engine log section is rendered', 'socat-logbox', all);
+	/* the page owns its padding (a plain view has no CBI container), and the
+	 * Start button must not look like "Save & Apply": the dirty tracker clears
+	 * the unsaved marker on a click of any `.cbi-button-apply` */
+	has('the page is wrapped in socat-page', '"class":"socat-page"', all);
+	has('Start uses the affirmative style', "cbi-button-positive', 'click': ui.createHandlerFn(this, 'handleStart')", src);
+	ck('Start is not the dirty-clearing class', false, /cbi-button-apply', 'click': ui.createHandlerFn\(this, 'handleStart'\)/.test(src));
 	has('log box has a pre element to fill', '"id":"socat-log"', all);
 	has('refresh button is wired', 'handleLogRefresh', src);
 	has('clear button is wired', 'handleLogClear', src);

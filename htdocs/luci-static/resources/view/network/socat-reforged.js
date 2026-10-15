@@ -35,6 +35,8 @@ var ENGINE_SECTION = 'reforged';
 /* theme-aware styling: uses LuCI CSS variables so light/dark both look right */
 var REPO_URL = 'https://github.com/busybin/luci-app-socat-reforged';
 var STYLE = '\
+.socat-page>*{padding-left:2%;padding-right:2%}\
+.socat-page .cbi-section-actions{margin:.8em 0 .3em}\
 .socat-tiles{display:flex;flex-wrap:wrap;gap:12px;margin:.4em 0 0}\
 .socat-tile{flex:1 1 150px;min-width:150px;border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:8px;padding:10px 14px;background:var(--background-color-medium,rgba(128,128,128,.06))}\
 .socat-tile .v{font-size:1.55em;font-weight:600;line-height:1.15}\
@@ -741,7 +743,7 @@ return view.extend({
 			E('h3', {}, _('Engine status')),
 			tiles,
 			E('div', { 'class': 'cbi-section-actions' }, [
-				E('button', { 'class': 'btn cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, 'handleStart') }, [ _('Start') ]),
+				E('button', { 'class': 'btn cbi-button cbi-button-positive', 'click': ui.createHandlerFn(this, 'handleStart') }, [ _('Start') ]),
 				' ',
 				E('button', { 'class': 'btn cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, 'handleStop') }, [ _('Stop') ]),
 				' ',
@@ -1294,7 +1296,10 @@ return view.extend({
 
 			window.setTimeout(L.bind(function() { this.recount(); this.checkDirty(); }, self), 0);
 
-			return E([ styleEl, titleEl, metaEl, descEl, banner, conflictBanner, errorBanner, card, toolbar, empty, mapNode, logBox ]);
+			return E([ styleEl, E('div', { 'class': 'socat-page' }, [
+				titleEl, metaEl, descEl, banner, conflictBanner, errorBanner,
+				card, toolbar, empty, logBox
+			]), mapNode ]);
 		});
 	}
 });
