@@ -41,9 +41,17 @@ Exit code is non-zero if any check fails, so this can go straight into CI.
 | `backend-checks.uc` | runs on the router: loads the real rpcd backend and calls every method — `status` shape and rule statuses, the `test` validation paths (including TLS, unix and multicast targets), the connect timeout on a black-holed target, `reload`, and `rule_restart` guards. |
 | `perf.sh` | runs on the router: CPU of the loop over 120s (fail above 5% of a core), log churn (fail above 2 lines), and listener health. |
 
-## Why these exist
+### `screenshot/` — the README shot
 
-Two classes of bug kept appearing while building this package, and both are
+| file | what it does |
+| --- | --- |
+| `take-shot.sh` | regenerates `docs/screenshot.png` from a **real router page** with headless chromium. It creates a throwaway LuCI session over ssh for the browser (the router's password is not available to the tooling, and is destroyed afterwards), then copies the result into `docs/`. |
+| `shot.js` | the browser side: forces the English catalogue (the router's own language setting is not touched), replaces rule names and target addresses with fake ones *inside the page*, verifies that no real value is left, and writes the PNG. |
+
+See `screenshot/README.md` for the two traps (no password, and the address +
+protocol suffix being adjacent text nodes).
+
+## Why these existTwo classes of bug kept appearing while building this package, and both are
 guarded by the suites above:
 
 1. **"works only on my router"** — hard-coded WAN device names, zone names,
