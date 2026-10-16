@@ -55,6 +55,13 @@ drop-in replacement with a modern, ucode-native view.
   the configured proxy; bounded by `connect-timeout=5` so a black-holed target
   cannot hang the request) and **Clone** to duplicate a rule.
 * **Import / export** all rules as JSON.
+* **Check for updates / update now**: the page asks the GitHub release API *from
+  the router* (so it works even when the browser cannot reach GitHub), shows the
+  release notes and installs the matching `.apk`/`.ipk` — plus the Chinese
+  language package when it is installed — with the system package manager.  The
+  answer is cached for six hours; `Engine settings → Look for new versions` (off
+  by default) makes the page check on its own when you open it and put a notice at
+  the top.  Nothing is downloaded or installed until you press the button.
 * **Port-conflict detection**: two enabled rules sharing a `proto:port` are
   flagged in the table and in a warning banner.
 * **Down-reason reporting**: a rule that cannot start shows the listener's own
@@ -95,6 +102,10 @@ drop-in replacement with a modern, ucode-native view.
   without it; the firewall sync simply no-ops).
 * BusyBox userland (standard on OpenWrt) for `sh`, `awk`, `sort`, `grep`, `tr`,
   `sed`, `awk`, `pgrep`, `killall`, `ubus`, `uci`, `logger`.
+* For the built-in updater: a route from the **router** to `api.github.com` and a
+  downloader (`uclient-fetch` is a package dependency; `curl` and `wget` are
+  fallbacks), plus the CA bundle for certificate verification. Only the
+  "Check for updates" button needs this — everything else works offline.
 
 ## Engine settings (UCI section `socat.reforged`, editable in the UI)
 
@@ -103,6 +114,7 @@ drop-in replacement with a modern, ucode-native view.
 | `fix_v6_route` | `0` | Keep a static `2000::/3` route pointing at the current default gateway. An ISP-specific workaround; off by default. |
 | `wg_dnat_guard` | `0` | If you configured a 51820 DNAT rule, reload the firewall when it disappears from nftables. Never touches connection tracking. |
 | `debug` | `0` | Log a `HEALTH` line every minute (memory, worker count, IPv6, uptime). |
+| `update_check` | `0` | Ask GitHub for the latest release when the page is opened (and every six hours while it stays open) and show a notice when there is one. Nothing is downloaded or installed until you press **Update now** yourself. |
 
 Runtime state lives in `/var/run/socat-reforged/` (`desired`, `state`, `fw.sig`, `fw.zones`,
 `err/<kind>-<port>.log`, `ratelog/`), the heartbeat in `/var/run/socat-reforged.hb`.
@@ -236,6 +248,16 @@ per-architecture and is resolved from your own feeds.
 view's JavaScript under a version key that only changes with `luci-base`, so a
 cached copy of the old page keeps running until you force a reload — a fresh
 install usually looks unchanged until you do.
+
+The page can also do this for you: **Check for updates** (next to the version at
+the top) asks the GitHub release API from the router, shows the release notes and
+installs the new package with `apk`/`opkg` when you press **Update now**. Turn on
+*Engine settings → Look for new versions* to have the page check by itself and
+show a notice at the top. The check needs a route from the **router** to
+`api.github.com`; the download goes through `uclient-fetch` (a dependency of this
+package; `curl`/`wget` are used as fallbacks) with certificate verification on, so
+`ca-bundle` must be installed. The engine restarts while the package installs,
+which interrupts active forwards for a few seconds.
 
 ### 4. Translations
 

@@ -35,6 +35,7 @@ inst root/usr/share/rpcd/acl.d/luci-app-socat-reforged.json /usr/share/rpcd/acl.
 inst root/usr/share/rpcd/ucode/luci.socat-reforged.uc /usr/share/rpcd/ucode/luci.socat-reforged.uc 644
 inst root/usr/libexec/socat-reforged-reload /usr/libexec/socat-reforged-reload 755
 inst root/usr/libexec/socat-reforged-ctl /usr/libexec/socat-reforged-ctl 755
+inst root/usr/libexec/socat-reforged-update /usr/libexec/socat-reforged-update 755
 inst root/usr/libexec/socat-reforged-gen.awk /usr/libexec/socat-reforged-gen.awk 644
 inst root/usr/libexec/socat-reforged-zones.awk /usr/libexec/socat-reforged-zones.awk 644
 

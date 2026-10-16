@@ -53,7 +53,10 @@ function E(tag, attrs, children) {
 function flatten(kids) {
 	let s = '';
 	for (const k of [].concat(kids || []))
-		s += (typeof k === 'string') ? k : (k.textContent || '');
+		s += (k == null) ? ''
+			: (typeof k === 'string') ? k
+			: (typeof k === 'function') ? String(k)      /* LuCI's _() wrapper */
+			: (k.textContent || '');
 	return s;
 }
 const document = {
@@ -78,6 +81,37 @@ global._ = (s) => {
 	return typeof s === 'string' ? Object.assign(f, { toString: () => s }) : f;
 };
 global.L = { bind: (fn, self) => fn.bind(self) };
+
+/* A fake *open dialog*: modalNote() climbs from the clicked button to `.modal`
+ * and writes its status line into the button's own `.cbi-value-field` — which
+ * is how LuCI renders a form.Button in a modal (CBIValue.renderFrame). */
+function fakeDialog() {
+	const dlg = E('div', { 'class': 'modal' });
+	const row = E('div', { 'class': 'cbi-value' });
+	const field = E('div', { 'class': 'cbi-value-field' });
+	row.children.push(field);
+	dlg.children.push(row);
+	row.parentNode = dlg;
+	field.parentNode = row;
+	field.querySelector = function (sel) {
+		return (sel === '.socat-note')
+			? (this.children.filter((c) => String(c.className).indexOf('socat-note') >= 0)[0] || null)
+			: null;
+	};
+	dlg.querySelector = () => null;
+	return { dlg, row, field };
+}
+function fakeButton(dlg, row, field) {
+	const b = E('button', { 'class': 'btn cbi-button cbi-button-apply' });
+	b.closest = (sel) => (sel === '.modal') ? dlg
+		: (sel === '.cbi-value-field') ? field
+		: (sel === '.cbi-value') ? row : null;
+	return b;
+}
+function noteText(field) {
+	const n = field.querySelector('.socat-note');
+	return n ? n.textContent : '(no note inside the dialog)';
+}
 
 /* ------------------------------------------------------ LuCI stubs -------- */
 const RULES = [
@@ -108,6 +142,9 @@ const STATUS = {
 };
 const store = {};
 for (const r of RULES) store[r['.name']] = Object.assign({}, r);
+/* the internal engine-settings section: the view reads `update_check` from it
+ * to decide whether to ask GitHub on its own */
+store['reforged'] = { fix_v6_route: '0', wg_dnat_guard: '0', debug: '0', update_check: '1' };
 
 global.uci = {
 	load: () => Promise.resolve(),
@@ -166,8 +203,13 @@ function optOf(name) {
 	return hits.length ? hits[hits.length - 1].opt : null;
 }
 global.poll = { add: () => {} };
+/* the page-level notification list has to be observable: the per-rule buttons
+ * must answer *inside* the dialog (a notification lands in #maincontent, which
+ * the modal overlay covers) */
+const NOTIFICATIONS = [];
 global.ui = {
-	showModal: () => {}, hideModal: () => {}, addNotification: () => {},
+	showModal: () => {}, hideModal: () => {},
+	addNotification: () => { NOTIFICATIONS.push(Array.prototype.slice.call(arguments)); },
 	createHandlerFn: () => () => {}
 };
 global.rpc = {
@@ -193,6 +235,14 @@ global.rpc = {
 			lines: [ '2026-10-13 20:00:00 engine started (pid 4242, v3 (deadbee))' ]
 		});
 		if (o.method === 'log_clear') return Promise.resolve({ ok: true });
+		if (o.method === 'update_check') return Promise.resolve({
+			ok: true, current: '4-1', latest_tag: 'V5', latest: '5', update_available: true,
+			release_url: 'https://github.com/busybin/luci-app-socat-reforged/releases/tag/V5',
+			published_at: '2026-10-16T00:00:00Z', notes: 'fixes', checked: 1, cached: true,
+			assets: [ { name: 'luci-app-socat-reforged_5-r1_all.ipk',
+				url: 'https://example.invalid/luci-app-socat-reforged_5-r1_all.ipk', size: 1 } ]
+		});
+		if (o.method === 'update_status') return Promise.resolve({ state: 'idle', pid: 0, log: [] });
 		return Promise.resolve({ ok: true });
 	}
 };
@@ -368,15 +418,25 @@ const descrCols = gridSec[0]
 ck('the listen hint stays out of the forward list', true,
 	!!(gridSec[0] || {}).nodescriptions || descrCols.length === 0);
 
-/* the Test rpc is a cross-file contract: the view declares the parameters
- * positionally and rpcd type-checks them against the backend's `args` spec, so
- * a name added on one side only would fail the call at runtime. */
+/* every rpc that carries positional params is a cross-file contract: rpcd
+ * type-checks the names against the backend's `args` spec, so a parameter that
+ * exists on one side only fails the whole call at runtime.  (Applies to this
+ * ubus object only — callRevert talks to `uci`.) */
 const backSrc = fs.readFileSync(path.join(REPO, 'root', 'usr', 'share', 'rpcd', 'ucode', 'luci.socat-reforged.uc'), 'utf8');
-const backArgs = (/\btest:\s*\{\s*args:\s*\{([^}]*)\}/.exec(backSrc)[1] || '')
-	.split(',').map((s) => s.trim().split(':')[0].trim()).filter(Boolean).sort();
-const viewParams = (/method: 'test',\s*params: \[([^\]]*)\]/.exec(src)[1] || '')
-	.split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).sort();
-ck('the test rpc matches the backend arguments', JSON.stringify(backArgs), JSON.stringify(viewParams));
+const backArgs = {};
+for (const m of backSrc.matchAll(/(\w+):\s*\{\s*args:\s*\{([^}]*)\}/g))
+	backArgs[m[1]] = m[2].split(',').map((s) => s.trim().split(':')[0].trim()).filter(Boolean).sort();
+const badRpc = [];
+for (const d of src.matchAll(/rpc\.declare\(\{\s*object:\s*'([^']+)',\s*method:\s*'([^']+)'(?:,\s*params:\s*\[([^\]]*)\])?/g)) {
+	if (d[1] !== 'luci.socat-reforged' || d[3] === undefined)
+		continue;
+	const want = d[3].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).sort();
+	const got = backArgs[d[2]];
+	if (!got || JSON.stringify(got) !== JSON.stringify(want))
+		badRpc.push(d[2] + ' [' + (got ? got.join('|') : '?') + ' vs ' + want.join('|') + ']');
+}
+ck('every rpc with params matches the backend args', 'none', badRpc.length ? badRpc.join('; ') : 'none');
+ck('the backend really was parsed for args', true, Object.keys(backArgs).length >= 4);
 
 /* ---- conflict detection: one port on two *different* addresses is fine ----- */
 function addRule(rec) { RULES.push(rec); store[rec['.name']] = Object.assign({}, rec); }
@@ -401,6 +461,63 @@ ck('a disabled rule is never reported', false, flagged('cfgA6'));
 	has('log box shows the backend lines', 'engine started', logText);
 	/* a mis-packed rpc call rejects and lands in the catch: "could not read" */
 	ck('the log call was accepted by the stub', false, /could not read/.test(logText));
+
+	/* ---- per-rule buttons answer *inside* the dialog -----------------------
+	 * "Test target" and "Restart this rule" are modalonly, and their result used
+	 * to be a page notification: ui.addNotification() prepends to #maincontent,
+	 * which the modal overlay covers, so the user never saw the answer. */
+	ck('the per-rule actions write into the dialog', true, /modalNote\(btn/.test(src));
+	{
+		const d = fakeDialog();
+		const p = optOf('_test').onclick({ currentTarget: fakeButton(d.dlg, d.row, d.field) }, 'cfg1111');
+		has('Test shows a busy line in the dialog', 'Testing', noteText(d.field));
+		await p;
+		has('the Test result lands in the dialog', 'Reachable', noteText(d.field));
+		ck('Test does not notify the (hidden) page area', 0, NOTIFICATIONS.length);
+	}
+	{
+		const d = fakeDialog();
+		const p = optOf('_restart').onclick({ currentTarget: fakeButton(d.dlg, d.row, d.field) }, 'cfg1111');
+		has('Restart shows a busy line in the dialog', 'Restarting', noteText(d.field));
+		await p;
+		has('the Restart result lands in the dialog', 'restarted', noteText(d.field));
+		ck('Restart does not notify the (hidden) page area', 0, NOTIFICATIONS.length);
+	}
+
+	/* ---- the ACL must grant every ubus method the view calls --------------
+	 * A method missing from the ACL fails at runtime with an "Access denied"
+	 * error that no other test would see.  (The reverse is not checked: `reload`
+	 * is granted for the ucitrack trigger, which the view never calls.) */
+	const acl = JSON.parse(fs.readFileSync(path.join(REPO, 'root', 'usr', 'share', 'rpcd', 'acl.d',
+		'luci-app-socat-reforged.json'), 'utf8'))['luci-app-socat-reforged'];
+	const granted = new Set([].concat(
+		acl.read.ubus['luci.socat-reforged'] || [],
+		acl.write.ubus['luci.socat-reforged'] || []));
+	const declared = [...src.matchAll(/rpc\.declare\(\{\s*object:\s*'([^']+)',\s*method:\s*'([^']+)'/g)]
+		.filter((m) => m[1] === 'luci.socat-reforged').map((m) => m[2]);
+	const notGranted = declared.filter((m) => !granted.has(m));
+	ck('every ubus method the view calls is in the ACL', 'none',
+		notGranted.length ? notGranted.join(',') : 'none');
+
+	/* ---- self-update ------------------------------------------------------ */
+	ck('the update check button is rendered', true, !!byId['socat-upd-btn']);
+	ck('the update banner is rendered', true, !!byId['socat-upd']);
+	ck('the update controls sit on the title row', true, /'class': 'socat-head'/.test(src));
+	ck('the update button is in that row', true,
+		/socat-head' \}, \[ titleEl, updateBox \]/.test(src));
+	ck('no standalone update row is left over', false, /socat-upd-line/.test(src));
+	ck('the automatic check is an engine setting', true, !!optOf('update_check'));
+	has('the update check goes through the backend', "method: 'update_check'", src);
+	has('the install goes through the backend', "method: 'update_install'", src);
+	has('progress is polled from the backend', "method: 'update_status'", src);
+	await v.checkUpdates(true, false);
+	const updBanner = byId['socat-upd'];
+	const updText = updBanner ? flatten(updBanner.children) + JSON.stringify(updBanner.children) : '(no banner)';
+	has('the banner names the new release', 'V5', updText);
+	has('the banner offers to install it', 'Update now', updText);
+	has('the banner links to the release', 'releases/tag/V5', updText);
+	has('the current version is named', 'v4-1', updText);
+	has('the meta line announces the update', 'update available', byId['socat-upd-msg'] ? byId['socat-upd-msg'].textContent : '');
 
 	console.log('\nview smoke test: ' + pass + ' passed, ' + fail + ' failed');
 	process.exit(fail ? 1 : 0);

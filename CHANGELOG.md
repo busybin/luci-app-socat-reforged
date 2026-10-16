@@ -5,6 +5,26 @@ the last tag; version numbers only change when a release is requested.
 
 ## Unreleased
 
+* **Per-rule actions answer inside their dialog.** "Test target" and "Restart
+  this rule" are modal-only buttons, and their result used to be a page
+  notification — which `ui.addNotification()` prepends to `#maincontent`, i.e.
+  *under* the modal overlay, so pressing either button looked like nothing
+  happened.  The answer (a busy line, then the reachable/unreachable or
+  restarted/failed line, colour-coded) now appears in that button's own field in
+  the dialog.  Both handlers are exercised by `tests/host/view-smoke.js` with a
+  fake open dialog.
+* **Check for updates / update now.**  A "Check for updates" button next to the
+  version asks the GitHub release API *from the router* (not the browser), shows
+  the release notes and installs the right asset with `apk`/`opkg` when you press
+  "Update now"; the Chinese language package is updated too when it is
+  installed.  The install runs detached (`setsid`, progress in
+  `/tmp/socat-reforged-update.{state,log}`) because the new package's `postinst`
+  restarts rpcd, which would kill the RPC that started it.  The check is cached
+  for six hours on the router, and the new **Engine settings → "Look for new
+  versions"** flag (off by default) additionally checks automatically when the
+  page is opened.  Nothing is downloaded or installed unless you press the
+  button.  New ACL entries (`update_check`, `update_status`, `update_install`)
+  are checked against the view by `tests/host/view-smoke.js`.
 * **Simplified Chinese translation**, shipped the LuCI way as its own package
   (`luci-i18n-socat-reforged-zh-cn`, built from `po/zh_Hans/`): installing a
   language does not touch the app package, and anything a catalogue misses falls

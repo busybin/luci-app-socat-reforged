@@ -34,6 +34,7 @@ execs="root/etc/socat-boot.sh
 root/etc/init.d/socat-reforged
 root/etc/hotplug.d/iface/99-socat-reforged
 root/usr/libexec/socat-reforged-ctl
+root/usr/libexec/socat-reforged-update
 root/usr/libexec/socat-reforged-reload"
 # ...and the scripts a user runs from a checkout
 for f in install.sh deploy.sh uninstall.sh; do execs="$execs
@@ -114,6 +115,21 @@ check 'install.sh installs the engine 755' 1 "$(grep -c 'root/etc/socat-boot.sh 
 check 'install.sh installs the init script 755' 1 "$(grep -c 'root/etc/init.d/socat-reforged /etc/init.d/socat-reforged 755' "$REPO/install.sh")"
 check 'install.sh installs the ctl helper 755' 1 "$(grep -c 'root/usr/libexec/socat-reforged-ctl /usr/libexec/socat-reforged-ctl 755' "$REPO/install.sh")"
 check 'install.sh keeps data files 644' 1 "$(grep -c 'socat-reforged-gen.awk /usr/libexec/socat-reforged-gen.awk 644' "$REPO/install.sh")"
+
+# ------------------------------------------------ self-update stays runnable --
+# the "Update now" button exec's this helper through rpcd, and the ACL has to
+# grant the three update methods (the view calls them, and an ungranted method
+# only fails in the browser)
+check 'install.sh installs the self-update helper 755' 1 \
+	"$(grep -c 'root/usr/libexec/socat-reforged-update /usr/libexec/socat-reforged-update 755' "$REPO/install.sh")"
+sh -n "$REPO/root/usr/libexec/socat-reforged-update" 2>/dev/null && rc=0 || rc=1
+check 'the self-update helper is valid shell' 0 "$rc"
+acl=$REPO/root/usr/share/rpcd/acl.d/luci-app-socat-reforged.json
+for m in update_check update_status update_install; do
+	check "the ACL grants $m" 1 "$(grep -c "\"$m\"" "$acl")"
+done
+check 'the backend implements update_install' 1 \
+	"$(grep -c 'update_install: {' "$REPO/root/usr/share/rpcd/ucode/luci.socat-reforged.uc")"
 
 rm -rf "$WORK"
 summary 'package layout'

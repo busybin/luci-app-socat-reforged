@@ -15,6 +15,9 @@ var callRestart     = rpc.declare({ object: 'luci.socat-reforged', method: 'rest
 var callRuleRestart = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_restart', params: [ 'sid' ] });
 var callLog         = rpc.declare({ object: 'luci.socat-reforged', method: 'log', params: [ 'lines' ] });
 var callLogClear    = rpc.declare({ object: 'luci.socat-reforged', method: 'log_clear' });
+var callUpdCheck    = rpc.declare({ object: 'luci.socat-reforged', method: 'update_check', params: [ 'force' ] });
+var callUpdInstall  = rpc.declare({ object: 'luci.socat-reforged', method: 'update_install' });
+var callUpdStatus   = rpc.declare({ object: 'luci.socat-reforged', method: 'update_status' });
 var callRevert      = rpc.declare({ object: 'uci', method: 'revert', params: [ 'config' ] });
 
 /* how many lines the log box shows at a time */
@@ -29,8 +32,13 @@ var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto',
 	'user', 'retry' ];
 
 /* engine settings section (internal) + the options of one forward */
-var SETTING_FIELDS = [ 'fix_v6_route', 'wg_dnat_guard', 'debug' ];
+var SETTING_FIELDS = [ 'fix_v6_route', 'wg_dnat_guard', 'debug', 'update_check' ];
 var ENGINE_SECTION = 'reforged';
+
+/* how long the page waits between two polls of a running self-update */
+var UPDATE_POLL_MS = 1200;
+/* ...and how long an automatic check stays fresh (the router caches 6h too) */
+var UPDATE_RECHECK_MS = 6 * 3600 * 1000;
 
 /* theme-aware styling: uses LuCI CSS variables so light/dark both look right */
 var REPO_URL = 'https://github.com/busybin/luci-app-socat-reforged';
@@ -72,6 +80,20 @@ tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-mediu
 .socat-ver{font-weight:600;opacity:.9}\
 .socat-link{color:inherit;text-decoration:none;border-bottom:1px dotted currentColor}\
 .socat-link:hover{opacity:1}\
+.socat-note{margin:.6em 0;padding:6px 10px;border-radius:6px;font-size:.9em;background:var(--background-color-medium,rgba(128,128,128,.08));border-left:3px solid var(--border-color-medium,rgba(128,128,128,.4))}\
+.socat-note.ok{color:var(--success-color-medium,#2e7d32);border-left-color:var(--success-color-medium,#2e7d32)}\
+.socat-note.fail{color:var(--error-color-medium,#c62828);border-left-color:var(--error-color-medium,#c62828)}\
+.socat-note.busy{opacity:.75}\
+.socat-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.4em 1em}\
+.socat-head>h2{flex:1 1 auto;min-width:10em;margin:.5em 0}\
+.socat-upd-box{display:flex;flex-direction:column;align-items:flex-end;gap:.25em;font-size:.85rem;text-align:right;max-width:60%}\
+.socat-upd{background:var(--background-color-high,rgba(41,128,185,.12));border:1px solid var(--primary-color-medium,#2980b9);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
+.socat-upd-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.6em;margin-top:.5em}\
+.socat-upd-msg{display:inline-block}\
+.socat-upd-msg.ok{color:var(--success-color-medium,#2e7d32)}\
+.socat-upd-msg.fail{color:var(--error-color-medium,#c62828)}\
+.socat-upd-notes{margin:.5em 0 0;max-height:12em;overflow:auto;white-space:pre-wrap;font-family:var(--mono-font-family,monospace);font-size:.82em;opacity:.85}\
+.socat-upd-log{max-height:14em;overflow:auto;font-family:var(--mono-font-family,monospace);font-size:.78em;white-space:pre-wrap;word-break:break-all;background:var(--background-color-low,rgba(128,128,128,.06));border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:6px;padding:6px 8px;margin:.5em 0 0}\
 ';
 
 /* Value of a field as currently shown in the (modal) form, falling back to
@@ -93,6 +115,33 @@ function fieldVal(sid, opt) {
 		return el.value;
 	var v = uci.get(cfg, sid, opt);
 	return (v == null) ? '' : v;
+}
+
+/* Per-rule actions ("Test target", "Restart this rule") live inside the edit
+ * dialog, but ui.addNotification() prepends its message to #maincontent — and
+ * the modal overlay sits *on top of* that, so the answer was never visible
+ * while the dialog was open.  Keep the result where the click happened: a
+ * status line in the field of that button, inside the dialog.  Each button has
+ * its own field, so two of them cannot overwrite each other's answer.
+ *
+ * Returns the element (a caller could update it again), or null when there is
+ * no dialog to put it in — then it falls back to a notification. */
+function modalNote(btn, text, cls) {
+	var dlg = (btn && btn.closest) ? btn.closest('.modal') : null;
+	if (!dlg) {
+		ui.addNotification(null, E('p', {}, text));
+		return null;
+	}
+
+	var box = (btn.closest && (btn.closest('.cbi-value-field') || btn.closest('.cbi-value'))) || dlg;
+	var note = box.querySelector ? box.querySelector('.socat-note') : null;
+	if (!note) {
+		note = E('div', { 'class': 'socat-note' });
+		box.appendChild(note);
+	}
+	note.className = 'socat-note' + (cls ? ' ' + cls : '');
+	note.textContent = text;
+	return note;
 }
 
 /* The ucode backend (luci.socat-reforged.uc) reports failures with plain
@@ -132,6 +181,12 @@ function trDetail(s) {
 	case 'section id is required':
 	case 'unknown action':
 	case 'log file not created yet':
+	case 'GitHub could not be reached':
+	case 'GitHub returned an unexpected answer':
+	case 'the release has no package for this system':
+	case 'the update helper is not installed':
+	case 'the update helper could not be started':
+	case 'an update is already running':
 		return _(s);
 	}
 	return s;
@@ -734,12 +789,199 @@ return view.extend({
 		window.setTimeout(function() { input.remove(); }, 1000);
 	},
 
+	/* ---- self-update (GitHub releases) ----
+	 * The *router* asks api.github.com, not the browser: the package is
+	 * installed here, and the browser may have no route to GitHub at all.
+	 * The router caches the answer for six hours, so the page can ask cheaply
+	 * (and the 60 requests/hour of an unauthenticated API token are safe). */
+	setUpdateMsg: function(text, cls) {
+		var el = document.getElementById('socat-upd-msg');
+		if (el) {
+			el.className = 'socat-upd-msg' + (cls ? ' ' + cls : '');
+			el.textContent = text || '';
+		}
+	},
+
+	applyUpdate: function() {
+		var r = this._upd || {};
+		var banner = document.getElementById('socat-upd');
+		if (!banner)
+			return;
+
+		if (r.ok !== true) {
+			banner.style.display = 'none';
+			this.setUpdateMsg(_('update check failed: %s').format(trDetail(r.error) || _('unknown error')), 'fail');
+			return;
+		}
+
+		var have = r.current ? _('v%s').format(r.current) : _('unknown');
+
+		if (!r.update_available) {
+			banner.style.display = 'none';
+			this.setUpdateMsg(_('up to date (%s)').format(have), 'ok');
+			return;
+		}
+
+		this.setUpdateMsg(_('update available: %s').format(r.latest_tag || ''), 'fail');
+
+		banner.textContent = '';
+		banner.style.display = '';
+		banner.appendChild(E('strong', {}, _('A new version is available: %s').format(r.latest_tag || '?')));
+		banner.appendChild(document.createTextNode(' ' + _('installed: %s').format(have)));
+		banner.appendChild(E('div', { 'class': 'socat-upd-actions' }, [
+			E('button', { 'class': 'btn cbi-button cbi-button-positive', 'click': ui.createHandlerFn(this, 'handleUpdateInstall') }, [ _('Update now') ]),
+			' ',
+			E('a', { 'class': 'socat-link', 'href': r.release_url || REPO_URL, 'target': '_blank', 'rel': 'noreferrer' }, [ _('Release notes ↗') ])
+		]));
+		if (r.notes)
+			banner.appendChild(E('details', { 'class': 'socat-upd-notes' }, [
+				E('summary', {}, _('Release notes')),
+				E('pre', { 'class': 'socat-log' }, r.notes)
+			]));
+	},
+
+	/* silent = only speak up when there is something to say (the automatic
+	 * check must not paint "up to date" on the page every five seconds) */
+	checkUpdates: function(force, silent) {
+		var self = this;
+		if (self._updBusy)
+			return Promise.resolve(self._upd);
+
+		self._updBusy = true;
+		self._updChecked = Date.now();
+
+		var btn = document.getElementById('socat-upd-btn');
+		if (btn)
+			btn.disabled = true;
+		if (!silent)
+			self.setUpdateMsg(_('checking for updates…'), 'busy');
+
+		return callUpdCheck(force ? 1 : 0).then(function(res) {
+			self._upd = res || {};
+			self._updBusy = false;
+			if (btn)
+				btn.disabled = false;
+			if (!silent || self._upd.update_available)
+				self.applyUpdate();
+			return self._upd;
+		}).catch(function(e) {
+			self._updBusy = false;
+			if (btn)
+				btn.disabled = false;
+			self.setUpdateMsg(_('update check failed: %s').format(e), 'fail');
+		});
+	},
+
+	handleUpdateCheck: function() { return this.checkUpdates(true, false); },
+
+	handleUpdateInstall: function() {
+		var r = this._upd || {};
+		ui.showModal(_('Install the update?'), [
+			E('p', {}, _('Download %s from GitHub and install it with the system package manager.').format(r.latest_tag || '?')),
+			E('p', { 'class': 'socat-hint' }, _('The socat engine is restarted by the package while it installs, so active forwards drop for a few seconds.')),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Cancel') ]),
+				' ',
+				E('button', { 'class': 'btn cbi-button-positive important', 'click': ui.createHandlerFn(this, 'startUpdate') }, [ _('Update now') ])
+			])
+		]);
+	},
+
+	startUpdate: function() {
+		var self = this;
+		ui.showModal(_('Updating'), [
+			E('p', { 'class': 'spinning' }, _('Downloading and installing the new version…')),
+			E('pre', { 'id': 'socat-upd-log', 'class': 'socat-upd-log' }, '')
+		]);
+
+		return callUpdInstall().then(function(res) {
+			if (res && res.ok === false)
+				throw new Error(trDetail(res.error) || res.detail || _('failed'));
+			if (res && res.up_to_date)
+				return null;
+			return self.pollUpdate();
+		}).then(function(st) {
+			if (st === null) {
+				ui.hideModal();
+				self._upd = { ok: true, current: (self._upd || {}).current, update_available: false };
+				self.applyUpdate();
+				return;
+			}
+			self._upd = { ok: true, current: st.version, update_available: false };
+			self.applyUpdate();
+			ui.showModal(_('Update installed'), [
+				E('p', {}, _('Updated to %s. Reload the page to load the new interface — use Ctrl+Shift+R, the browser caches the JavaScript.').format('v' + (st.version || '?'))),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'btn cbi-button-positive important', 'click': function() { window.location.reload(); } }, [ _('Reload now') ]),
+					' ',
+					E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Later') ])
+				])
+			]);
+		}).catch(function(e) {
+			var el = document.getElementById('socat-upd-log');
+			ui.showModal(_('Update failed'), [
+				E('p', { 'class': 'socat-note fail' }, String(e && e.message ? e.message : e)),
+				E('pre', { 'class': 'socat-upd-log' }, el ? el.textContent : ''),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Close') ])
+				])
+			]);
+		});
+	},
+
+	/* The install itself runs detached on the router (the package postinst
+	 * restarts rpcd, which would kill the ubus call that started it), so the
+	 * only way to know how it went is to poll the state file it writes. */
+	pollUpdate: function() {
+		var tries = 0, dead = 0;
+
+		function showLog(st) {
+			var el = document.getElementById('socat-upd-log');
+			if (el && st && st.log)
+				el.textContent = st.log.join('\n');
+		}
+
+		return new Promise(function(resolve, reject) {
+			function tick() {
+				tries++;
+				callUpdStatus().then(function(st) {
+					st = st || {};
+					showLog(st);
+					var state = st.state || 'idle';
+					if (state === 'ok')
+						return resolve(st);
+					if (state === 'fail')
+						return reject(new Error(st.detail || _('the update failed')));
+					/* pid 0 / gone: the helper never started, or was killed */
+					if (state === 'running' && st.alive === false && ++dead >= 5)
+						return reject(new Error(_('the update process died before it finished')));
+					if (tries > 300)
+						return reject(new Error(_('the update is taking too long')));
+					window.setTimeout(tick, UPDATE_POLL_MS);
+				}).catch(function() {
+					/* rpcd (or the whole session) is restarting right now */
+					if (tries > 300)
+						return reject(new Error(_('the update is taking too long')));
+					window.setTimeout(tick, UPDATE_POLL_MS * 2);
+				});
+			}
+			tick();
+		});
+	},
+
 	render: function() {
 		var self = this;
 		var m, s, o;
 
 		var styleEl = E('style', {}, STYLE);
 		var titleEl = E('h2', { 'name': 'content' }, _('Socat Reforged'));
+		/* the update controls live at the top right, on the title row */
+		var updateBox = E('div', { 'class': 'socat-upd-box' }, [
+			E('button', { 'id': 'socat-upd-btn', 'class': 'btn cbi-button', 'type': 'button',
+				'click': ui.createHandlerFn(this, 'handleUpdateCheck') }, [ _('Check for updates') ]),
+			E('span', { 'id': 'socat-upd-msg', 'class': 'socat-upd-msg' }, '')
+		]);
+		var headEl = E('div', { 'class': 'socat-head' }, [ titleEl, updateBox ]);
 		/* version of what is installed + a link back to the source: kept out of
 		 * the h2 so they do not inherit its (much larger) font size */
 		var metaEl = E('div', { 'class': 'socat-meta' }, [
@@ -756,6 +998,7 @@ return view.extend({
 		]);
 		var conflictBanner = E('div', { 'id': 'socat-conflicts', 'class': 'socat-alert', 'style': 'display:none' });
 		var errorBanner = E('div', { 'id': 'socat-errors', 'class': 'socat-errs', 'style': 'display:none' });
+		var updateBanner = E('div', { 'id': 'socat-upd', 'class': 'socat-upd', 'style': 'display:none' });
 
 		var st = this.status || {};
 		var c = st.counts || null;
@@ -943,16 +1186,18 @@ return view.extend({
 			var btn = ev && ev.currentTarget;
 			if (btn)
 				btn.disabled = true;
+			modalNote(btn, _('Testing %s…').format(label), 'busy');
 			return callTest(ip, port, dproto, proxy, pserver, pport, upath, mgroup, mport).then(function(res) {
 				if (btn)
 					btn.disabled = false;
-				ui.addNotification(null, E('p', {}, (res && res.ok)
+				modalNote(btn, (res && res.ok)
 					? _('Reachable (%s): %s').format(label, trDetail(res.detail))
-					: _('NOT reachable (%s): %s').format(label, trDetail(res && res.detail) || '?')));
+					: _('NOT reachable (%s): %s').format(label, trDetail(res && res.detail) || '?'),
+					(res && res.ok) ? 'ok' : 'fail');
 			}).catch(function(e) {
 				if (btn)
 					btn.disabled = false;
-				ui.addNotification(null, E('p', {}, _('Test failed: %s').format(e)));
+				modalNote(btn, _('Test failed: %s').format(e), 'fail');
 			});
 		}, this);
 
@@ -966,20 +1211,22 @@ return view.extend({
 			var btn = ev && ev.currentTarget;
 			if (btn)
 				btn.disabled = true;
+			modalNote(btn, _('Restarting this rule…'), 'busy');
 			return callRuleRestart(section_id).then(function(res) {
 				return new Promise(function(r) { window.setTimeout(r, 1500); }).then(function() {
 					if (btn)
 						btn.disabled = false;
-					ui.addNotification(null, E('p', {}, (res && res.ok)
+					modalNote(btn, (res && res.ok)
 						? _('Rule restarted.')
-						: _('Restart failed: %s').format(trDetail(res && res.detail) || '?')));
+						: _('Restart failed: %s').format(trDetail(res && res.detail) || '?'),
+						(res && res.ok) ? 'ok' : 'fail');
 				});
 			}).then(L.bind(function() { return self.refreshStatus(); }, this))
 			  .then(L.bind(function() { self.recount(); }, this))
 			  .catch(function(e) {
 				if (btn)
 					btn.disabled = false;
-				ui.addNotification(null, E('p', {}, _('Action failed: %s').format(e)));
+				modalNote(btn, _('Action failed: %s').format(e), 'fail');
 			});
 		}, this);
 
@@ -1276,6 +1523,11 @@ return view.extend({
 		o.rmempty = false;
 		o.description = _('Log a HEALTH line every minute (memory, worker count, IPv6, uptime).');
 
+		o = g.option(form.Flag, 'update_check', _('Look for new versions'));
+		o.default = '0';
+		o.rmempty = false;
+		o.description = _('Ask GitHub for the latest release when this page is opened (and every six hours while it stays open) and show a notice when there is one. Nothing is downloaded or installed until you press the button yourself.');
+
 		poll.add(L.bind(function() {
 			return this.refreshStatus().then(L.bind(function() {
 				this.recount();
@@ -1283,6 +1535,8 @@ return view.extend({
 				 * <details> must not pull 64 KiB every 5s */
 				if (this._logOpen)
 					this.loadLog();
+				if (this._autoUpdate && Date.now() - (this._updChecked || 0) > UPDATE_RECHECK_MS)
+					this.checkUpdates(false, true);
 				return this.checkDirty();
 			}, this));
 		}, this), 5);
@@ -1336,8 +1590,13 @@ return view.extend({
 
 			window.setTimeout(L.bind(function() { this.recount(); this.checkDirty(); }, self), 0);
 
+			/* automatic update check, if the user enabled it */
+			self._autoUpdate = (uci.get('socat', ENGINE_SECTION, 'update_check') == '1');
+			if (self._autoUpdate)
+				window.setTimeout(function() { self.checkUpdates(false, true); }, 1200);
+
 			return E([ styleEl, E('div', { 'class': 'socat-page' }, [
-				titleEl, metaEl, descEl, banner, conflictBanner, errorBanner,
+				headEl, metaEl, updateBanner, descEl, banner, conflictBanner, errorBanner,
 				card, toolbar, empty, logBox
 			]), mapNode ]);
 		});
