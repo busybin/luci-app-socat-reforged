@@ -47,6 +47,11 @@ msgstr "192.168.1.x 或 IPv6 地址（需配 tcp6/udp6）"
 msgid "443 or 30000-30010"
 msgstr "443 或 30000-30010"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:827
+#, javascript-format
+msgid "A new version is available: %s"
+msgstr "有新版本可用：%s"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:598
 #, javascript-format
 msgid "Action failed: %s"
@@ -77,6 +82,10 @@ msgstr "正在应用 %s 条规则…"
 msgid "Applying changes…"
 msgstr "正在应用更改…"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1527
+msgid "Ask GitHub for the latest release when this page is opened (and every six hours while it stays open) and show a notice when there is one. Nothing is downloaded or installed until you press the button yourself."
+msgstr "打开本页时（以及页面持续打开期间每六小时）向 GitHub 查询最新 release，有新版时给出提示。在你亲自按下按钮之前，不会下载或安装任何东西。"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1033
 msgid "Automatically keep this WAN port open (recommended)."
 msgstr "自动保持此 WAN 端口开放（推荐）。"
@@ -93,6 +102,10 @@ msgstr "CA 证书"
 msgid "Cancel"
 msgstr "取消"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:987
+msgid "Check for updates"
+msgstr "检查更新"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1170
 msgid "Check the target certificate against the CA file below."
 msgstr "用下面的 CA 文件校验目标证书。"
@@ -104,6 +117,10 @@ msgstr "清空"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:755
 msgid "Click \"Save & Apply\" to apply them (leaving the page will prompt you)."
 msgstr "点击“保存并应用”使其生效（离开本页会提示你）。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:924
+msgid "Close"
+msgstr "关闭"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:794
 msgid "Config changes are applied on Save & Apply (the engine is restarted automatically)."
@@ -166,6 +183,15 @@ msgstr "放弃更改并离开"
 msgid "Down"
 msgstr "未运行"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:878
+#, javascript-format
+msgid "Download %s from GitHub and install it with the system package manager."
+msgstr "从 GitHub 下载 %s 并用系统包管理器安装。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:891
+msgid "Downloading and installing the new version…"
+msgstr "正在下载并安装新版本…"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1210
 msgid "Enabled"
 msgstr "启用"
@@ -194,6 +220,14 @@ msgstr "每行同时写入 syslog；这份副本可跨重启保留（最近 %d �
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:836
 msgid "Export"
 msgstr "导出"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:182
+msgid "GitHub could not be reached"
+msgstr "无法连接 GitHub"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:183
+msgid "GitHub returned an unexpected answer"
+msgstr "GitHub 返回了意外的内容"
 
 msgid "Grant access to Socat Reforged (custom UCI socat forwarding page)"
 msgstr "授予访问 Socat Reforged（自定义 UCI socat 转发页面）的权限"
@@ -242,6 +276,10 @@ msgstr "导入：已跳过 %d 条无效条目。"
 msgid "Importing"
 msgstr "正在导入"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:877
+msgid "Install the update?"
+msgstr "安装更新？"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1192
 msgid "Interface used both for joining the group and for sending (empty = kernel picks)."
 msgstr "加入组和发送都使用的接口（留空 = 由内核选择）。"
@@ -257,6 +295,10 @@ msgstr "加入组播组"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1267
 msgid "Keep a static 2000::/3 route pointing at the current default gateway. Only needed on ISPs whose delegation is broken — leave off unless you know you need it."
 msgstr "保留一条指向当前默认网关的静态 2000::/3 路由。仅在运营商前缀委派有问题时才需要——不确定就别开。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:915
+msgid "Later"
+msgstr "稍后"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1104
 msgid "Let the listener rebind a port that is still in TIME_WAIT. Turning it off makes a second listener on the same port fail loudly."
@@ -297,6 +339,10 @@ msgstr "每分钟记录一条 HEALTH 日志（内存、worker 数量、IPv6、�
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1131
 msgid "Log to syslog"
 msgstr "日志写入 syslog"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1524
+msgid "Look for new versions"
+msgstr "检查新版本"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1264
 msgid "Maintain a 2000::/3 IPv6 route"
@@ -392,6 +438,18 @@ msgstr "转发到组播组"
 msgid "Relay to multicast port"
 msgstr "转发到组播端口"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:832
+msgid "Release notes"
+msgstr "更新说明"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:832
+msgid "Release notes ↗"
+msgstr "更新说明 ↗"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:913
+msgid "Reload now"
+msgstr "立即重新加载"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1272
 msgid "Reload the firewall if a 51820 DNAT rule you configured disappears. Only relevant if you forward WireGuard, and it never touches connection tracking."
 msgstr "当你配置的 51820 DNAT 规则消失时重载防火墙。仅在转发 WireGuard 时相关，且不会动连接跟踪表。"
@@ -417,6 +475,10 @@ msgstr "重启此规则"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:603
 msgid "Restarting socat engine…"
 msgstr "正在重启 socat 引擎…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1212
+msgid "Restarting this rule…"
+msgstr "正在重启此规则…"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1118
 msgid "Retry the target"
@@ -547,6 +609,15 @@ msgstr "测试失败：%s"
 msgid "Test target"
 msgstr "测试目标"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1187
+#, javascript-format
+msgid "Testing %s…"
+msgstr "正在测试 %s…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:879
+msgid "The socat engine is restarted by the package while it installs, so active forwards drop for a few seconds."
+msgstr "安装过程中包会重启 socat 引擎，正在转发的连接会中断几秒。"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1116
 msgid "The user the accepted connections run as, e.g. nobody. Privileges are dropped after the socket is open, so a low listen port still works. Only on the listen side."
 msgstr "已接受的连接以哪个用户运行，例如 nobody。特权在套接字打开后才放弃，所以低端口仍可用。仅作用于监听侧。"
@@ -578,6 +649,27 @@ msgstr "Unix 套接字目标"
 msgid "Unsaved changes"
 msgstr "未保存的更改"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:920
+msgid "Update failed"
+msgstr "更新失败"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:910
+msgid "Update installed"
+msgstr "更新已安装"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:830
+msgid "Update now"
+msgstr "立即更新"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:911
+#, javascript-format
+msgid "Updated to %s. Reload the page to load the new interface — use Ctrl+Shift+R, the browser caches the JavaScript."
+msgstr "已更新到 %s。请重新加载页面以载入新界面——浏览器会缓存 JavaScript，请用 Ctrl+Shift+R 强制刷新。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:890
+msgid "Updating"
+msgstr "正在更新"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1274
 msgid "Verbose engine logging"
 msgstr "详细引擎日志"
@@ -608,6 +700,10 @@ msgstr "仅 TCP/IPv4 目标支持通过代理连接"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:880
 msgid "all addresses"
 msgstr "所有地址"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:187
+msgid "an update is already running"
+msgstr "已有更新正在进行"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:217
 msgid "bad backlog"
@@ -677,6 +773,10 @@ msgstr "timeout 无效"
 msgid "bad user"
 msgstr "user 无效"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:855
+msgid "checking for updates…"
+msgstr "正在检查更新…"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:115
 #, javascript-format
 msgid "connection failed (socat exit %s)"
@@ -724,6 +824,11 @@ msgstr "退出状态 %s"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:589
 msgid "failed"
 msgstr "失败"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:828
+#, javascript-format
+msgid "installed: %s"
+msgstr "已安装：%s"
 
 msgid "listen_port must be 1-65535"
 msgstr "listen_port 必须在 1-65535 之间"
@@ -805,6 +910,30 @@ msgstr "ssl_cert 和 ssl_key 必须是绝对路径"
 msgid "stopped"
 msgstr "已停止"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:184
+msgid "the release has no package for this system"
+msgstr "该 release 没有适用于本系统的安装包"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:952
+msgid "the update failed"
+msgstr "更新失败"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:186
+msgid "the update helper could not be started"
+msgstr "无法启动更新助手"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:185
+msgid "the update helper is not installed"
+msgstr "更新助手未安装"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:957
+msgid "the update is taking too long"
+msgstr "更新耗时过长"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:955
+msgid "the update process died before it finished"
+msgstr "更新进程中途退出"
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:188
 msgid "unix_path must be an absolute path"
 msgstr "unix_path 必须是绝对路径"
@@ -820,6 +949,10 @@ msgstr "未知操作"
 msgid "unknown destination protocol '%s'"
 msgstr "未知目标协议“%s”"
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:811
+msgid "unknown error"
+msgstr "未知错误"
+
 #, javascript-format
 msgid "unknown proxy type '%s'"
 msgstr "未知代理类型“%s”"
@@ -827,6 +960,26 @@ msgstr "未知代理类型“%s”"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1093
 msgid "unlimited"
 msgstr "不限制"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:819
+#, javascript-format
+msgid "up to date (%s)"
+msgstr "已是最新（%s）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:823
+#, javascript-format
+msgid "update available: %s"
+msgstr "有可用更新：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:811
+#, javascript-format
+msgid "update check failed: %s"
+msgstr "检查更新失败：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:815
+#, javascript-format
+msgid "v%s"
+msgstr "v%s"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:461
 #, javascript-format
@@ -840,4 +993,3 @@ msgstr "⚠ 监听端口冲突："
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:754
 msgid "⚠ Unsaved changes"
 msgstr "⚠ 有未保存的更改"
-

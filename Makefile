@@ -13,6 +13,9 @@
 # PKG_VERSION must be a bare number because the apk format (OpenWrt 25.x /
 # snapshot) rejects versions that do not start with a digit. So PKG_VERSION is
 # the release integer without the "V" (V2 -> 2).
+#
+# +uclient-fetch is for the "check for updates / update now" button: it is the
+# HTTPS downloader that ships with the base system (curl/wget are fallbacks).
 
 include $(TOPDIR)/rules.mk
 
@@ -27,7 +30,7 @@ LUCI_TITLE:=LuCI support for Socat (Reforged, custom engine)
 LUCI_DESCRIPTION:=Port forwarding manager backed by a self-healing custom socat \
 	engine: TCP/UDP over IPv4 and IPv6, TLS, unix sockets and multicast, with a \
 	procd service, per-rule live status and a ucode backend.
-LUCI_DEPENDS:=+luci-base +socat +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci
+LUCI_DEPENDS:=+luci-base +socat +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci +uclient-fetch
 LUCI_PKGARCH:=all
 # luci.mk reads these two (a bare PKG_MAINTAINER is silently dropped, and URL
 # then falls back to the LuCI feed).

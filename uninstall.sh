@@ -39,6 +39,7 @@ rm -f /etc/socat-boot.sh.bak.*
 rm -f /usr/libexec/socat-reforged-gen.awk
 rm -f /usr/libexec/socat-reforged-zones.awk
 rm -f /usr/libexec/socat-reforged-ctl
+rm -f /usr/libexec/socat-reforged-update
 rm -f /usr/libexec/socat-reforged-reload
 rm -f /usr/libexec/socat-reforged-version
 rm -f /usr/share/rpcd/ucode/luci.socat-reforged.uc
@@ -48,6 +49,8 @@ rm -f /usr/share/ucitrack/luci-app-socat-reforged.json
 rm -f /www/luci-static/resources/view/network/socat-reforged.js
 rm -rf /var/run/socat-reforged
 rm -f /var/log/socat-reforged.log
+rm -f /tmp/socat-reforged-update.state /tmp/socat-reforged-update.log
+rm -rf /tmp/socat-reforged-update.d
 
 if [ "$PURGE" = "1" ]; then
 	echo "purging /etc/config/socat (all forwarding rules) ..."

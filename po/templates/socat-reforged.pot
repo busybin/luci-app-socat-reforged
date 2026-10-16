@@ -46,6 +46,11 @@ msgstr ""
 msgid "443 or 30000-30010"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:827
+#, javascript-format
+msgid "A new version is available: %s"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:598
 #, javascript-format
 msgid "Action failed: %s"
@@ -76,6 +81,10 @@ msgstr ""
 msgid "Applying changes…"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1527
+msgid "Ask GitHub for the latest release when this page is opened (and every six hours while it stays open) and show a notice when there is one. Nothing is downloaded or installed until you press the button yourself."
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1033
 msgid "Automatically keep this WAN port open (recommended)."
 msgstr ""
@@ -92,6 +101,10 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:987
+msgid "Check for updates"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1170
 msgid "Check the target certificate against the CA file below."
 msgstr ""
@@ -102,6 +115,10 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:755
 msgid "Click \"Save & Apply\" to apply them (leaving the page will prompt you)."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:924
+msgid "Close"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:794
@@ -165,6 +182,15 @@ msgstr ""
 msgid "Down"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:878
+#, javascript-format
+msgid "Download %s from GitHub and install it with the system package manager."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:891
+msgid "Downloading and installing the new version…"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1210
 msgid "Enabled"
 msgstr ""
@@ -192,6 +218,14 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:836
 msgid "Export"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:182
+msgid "GitHub could not be reached"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:183
+msgid "GitHub returned an unexpected answer"
 msgstr ""
 
 msgid "Grant access to Socat Reforged (custom UCI socat forwarding page)"
@@ -241,6 +275,10 @@ msgstr ""
 msgid "Importing"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:877
+msgid "Install the update?"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1192
 msgid "Interface used both for joining the group and for sending (empty = kernel picks)."
 msgstr ""
@@ -255,6 +293,10 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1267
 msgid "Keep a static 2000::/3 route pointing at the current default gateway. Only needed on ISPs whose delegation is broken — leave off unless you know you need it."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:915
+msgid "Later"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1104
@@ -295,6 +337,10 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1131
 msgid "Log to syslog"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1524
+msgid "Look for new versions"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1264
@@ -391,6 +437,18 @@ msgstr ""
 msgid "Relay to multicast port"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:832
+msgid "Release notes"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:832
+msgid "Release notes ↗"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:913
+msgid "Reload now"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1272
 msgid "Reload the firewall if a 51820 DNAT rule you configured disappears. Only relevant if you forward WireGuard, and it never touches connection tracking."
 msgstr ""
@@ -415,6 +473,10 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:603
 msgid "Restarting socat engine…"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1212
+msgid "Restarting this rule…"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1118
@@ -546,6 +608,15 @@ msgstr ""
 msgid "Test target"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1187
+#, javascript-format
+msgid "Testing %s…"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:879
+msgid "The socat engine is restarted by the package while it installs, so active forwards drop for a few seconds."
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1116
 msgid "The user the accepted connections run as, e.g. nobody. Privileges are dropped after the socket is open, so a low listen port still works. Only on the listen side."
 msgstr ""
@@ -577,6 +648,27 @@ msgstr ""
 msgid "Unsaved changes"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:920
+msgid "Update failed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:910
+msgid "Update installed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:830
+msgid "Update now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:911
+#, javascript-format
+msgid "Updated to %s. Reload the page to load the new interface — use Ctrl+Shift+R, the browser caches the JavaScript."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:890
+msgid "Updating"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1274
 msgid "Verbose engine logging"
 msgstr ""
@@ -606,6 +698,10 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:880
 msgid "all addresses"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:187
+msgid "an update is already running"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:217
@@ -676,6 +772,10 @@ msgstr ""
 msgid "bad user"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:855
+msgid "checking for updates…"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:115
 #, javascript-format
 msgid "connection failed (socat exit %s)"
@@ -722,6 +822,11 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:589
 msgid "failed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:828
+#, javascript-format
+msgid "installed: %s"
 msgstr ""
 
 msgid "listen_port must be 1-65535"
@@ -804,6 +909,30 @@ msgstr ""
 msgid "stopped"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:184
+msgid "the release has no package for this system"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:952
+msgid "the update failed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:186
+msgid "the update helper could not be started"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:185
+msgid "the update helper is not installed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:957
+msgid "the update is taking too long"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:955
+msgid "the update process died before it finished"
+msgstr ""
+
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:188
 msgid "unix_path must be an absolute path"
 msgstr ""
@@ -819,12 +948,36 @@ msgstr ""
 msgid "unknown destination protocol '%s'"
 msgstr ""
 
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:811
+msgid "unknown error"
+msgstr ""
+
 #, javascript-format
 msgid "unknown proxy type '%s'"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1093
 msgid "unlimited"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:819
+#, javascript-format
+msgid "up to date (%s)"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:823
+#, javascript-format
+msgid "update available: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:811
+#, javascript-format
+msgid "update check failed: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:815
+#, javascript-format
+msgid "v%s"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:461
@@ -839,4 +992,3 @@ msgstr ""
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:754
 msgid "⚠ Unsaved changes"
 msgstr ""
-

@@ -198,6 +198,47 @@ if (clash_port != null) {
 /* cleanup: the sections we added go away even if the checks above failed */
 system('uci delete socat.backend_clash 2>/dev/null; uci delete socat.backend_off 2>/dev/null; uci commit socat && /etc/init.d/socat-reforged reload >/dev/null 2>&1');
 
+/* ---- self-update -------------------------------------------------------
+ * Read-only on purpose: installing here would replace the very package this
+ * suite is testing.  The check talks to api.github.com, so a router with no
+ * route to GitHub skips the detail checks instead of failing (the error path
+ * is a valid answer). */
+const up0 = obj.update_status.call();
+ck('update_status returns a state', 'string', type(up0.state));
+ck('update_status returns a log array', 'array', type(up0.log));
+const up1 = obj.update_check.call({ args: { force: 1 } });
+ck('update_check answers', true, up1.ok === true || up1.ok === false);
+if (up1.ok === true) {
+	ck('update_check names the installed version', true, length(up1.current ?? '') > 0);
+	has('the latest tag parses into the version number', up1.latest, up1.latest_tag);
+	ck('assets come as an array', 'array', type(up1.assets));
+	ck('every asset carries an https url', true, (function() {
+		for (let i = 0; i < length(up1.assets); i++)
+			if (index(up1.assets[i].url ?? '', 'https://') != 0)
+				return false;
+		return true;
+	})());
+	ck('the release notes are bounded', true, length(up1.notes ?? '') <= 4000);
+	const up2 = obj.update_check.call({ args: {} });
+	ck('a second check is served from the cache', true, up2.cached === true);
+	ck('...and still names the same release', up1.latest_tag, up2.latest_tag);
+} else {
+	printf('  %-46s skipped (no route to api.github.com: %s)\n', 'update_check details', up1.error ?? '?');
+}
+/* the install guard, without installing anything: a state file that names a
+ * live process must refuse the second run.  Skipped if an update is really
+ * running, so this cannot stomp on one. */
+if (up0.state != 'running') {
+	writefile('/tmp/socat-reforged-update.state', 'running 1\n');
+	const gi = obj.update_install.call();
+	ck('a claimed update run blocks a second one', false, gi.ok);
+	has('...and says why', 'already running', gi.error ?? '');
+	fs.unlink('/tmp/socat-reforged-update.state');
+	ck('the state file was cleaned up', null, fs.access('/tmp/socat-reforged-update.state'));
+} else {
+	printf('  %-46s skipped (an update is running)\n', 'the update_install guard');
+}
+
 print('\nbackend checks: ', pass, ' passed, ', fail, ' failed\n');
 if (fail > 0)
 	exit(1);

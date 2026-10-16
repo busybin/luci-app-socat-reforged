@@ -1,0 +1,92 @@
+#!/bin/sh
+# ============================================================================
+# socat-reforged-update — download the release files given as arguments and
+# install them with this system's package manager.
+# ============================================================================
+# Started *detached* by the LuCI backend (rpcd): the postinst of the freshly
+# installed package restarts rpcd, which would kill the ubus call that started
+# this job, so the progress has to go somewhere the page can poll:
+#
+#   /tmp/socat-reforged-update.state  one line:  running <pid>
+#                                              | ok <version>
+#                                              | fail <reason>
+#   /tmp/socat-reforged-update.log    whatever the downloader and the package
+#                                     manager printed
+#
+# Usage: socat-reforged-update <url> [<url> ...]
+#   The file type is taken from the URL (.apk / .ipk).  The app package must be
+#   passed first: the Chinese language package depends on it.
+set -u
+
+STATE=/tmp/socat-reforged-update.state
+LOG=/tmp/socat-reforged-update.log
+WORK=/tmp/socat-reforged-update.d
+VERF=/usr/libexec/socat-reforged-version
+UA='luci-app-socat-reforged'
+
+: > "$LOG"
+printf 'running %s\n' "$$" > "$STATE"
+
+log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"; }
+die() { log "FAIL: $*"; printf 'fail %s\n' "$*" > "$STATE"; exit 1; }
+
+[ $# -gt 0 ] || die 'no file was given'
+
+rm -rf "$WORK"
+mkdir -p "$WORK" || die "cannot create $WORK"
+
+# One of these exists on every OpenWrt (uclient-fetch is what /usr/bin/wget is
+# here).  Certificate verification is deliberately left ON: whatever arrives
+# here is installed as root afterwards.
+fetch() { # fetch <url> <out>
+	if command -v uclient-fetch >/dev/null 2>&1; then
+		uclient-fetch -q -T 30 -U "$UA" -O "$2" "$1" >> "$LOG" 2>&1 && [ -s "$2" ] && return 0
+	fi
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL --connect-timeout 30 -m 300 -A "$UA" -o "$2" "$1" >> "$LOG" 2>&1 && [ -s "$2" ] && return 0
+	fi
+	if command -v wget >/dev/null 2>&1; then
+		wget -q -T 30 -U "$UA" -O "$2" "$1" >> "$LOG" 2>&1 && [ -s "$2" ] && return 0
+	fi
+	rm -f "$2"
+	return 1
+}
+
+for url in "$@"; do
+	name=${url##*/}
+	case "$name" in
+		*.apk|*.ipk) ;;
+		*) die "unexpected file type: $name" ;;
+	esac
+	log "downloading $name"
+	fetch "$url" "$WORK/$name" || die "download failed: $name"
+	log "downloaded $name ($(wc -c < "$WORK/$name") bytes)"
+done
+
+# The postinst that runs at the end restarts procd, rpcd and the engine, so the
+# session that called us dies long before this script does -- everything the
+# package manager prints goes to the log instead of to that dead pipe.
+if command -v apk >/dev/null 2>&1; then
+	for f in "$WORK"/*.apk; do
+		[ -f "$f" ] || continue
+		log "installing ${f##*/}"
+		apk add --allow-untrusted "$f" >> "$LOG" 2>&1 || die "package installation failed: ${f##*/}"
+	done
+elif command -v opkg >/dev/null 2>&1; then
+	for f in "$WORK"/*.ipk; do
+		[ -f "$f" ] || continue
+		log "installing ${f##*/}"
+		if ! opkg install "$f" >> "$LOG" 2>&1; then
+			log "opkg refused it, retrying with --force-reinstall"
+			opkg install --force-reinstall "$f" >> "$LOG" 2>&1 || die "package installation failed: ${f##*/}"
+		fi
+	done
+else
+	die 'no package manager (apk or opkg) found'
+fi
+
+V=$(sed -n 's/^PKG_VERSION=//p' "$VERF" 2>/dev/null | head -1)
+rm -rf "$WORK"
+log "done${V:+ (installed $V)}"
+printf 'ok %s\n' "${V:-unknown}" > "$STATE"
+exit 0
