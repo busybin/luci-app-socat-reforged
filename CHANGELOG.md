@@ -5,10 +5,8 @@ the last tag; version numbers only change when a release is requested.
 
 ## V5 (2026-10-19)
 
-### Packaging / service (hotfix, same tag, 2026-10-19)
+### Packaging / service
 
-* **The V5 packages were rebuilt in place**: same tag, same version (`5-r1`),
-  assets replaced.
 * **An upgrade no longer leaves the previous engine in place.**  apk keeps an
   `/etc` file it will not overwrite and parks the packaged copy as
   `<file>.apk-new`; a new helper takes those, the `postinst` runs it before
@@ -114,8 +112,7 @@ and all invisible to any code test:
   script held a literal `init.d.socat.bak.$` and an unterminated quote, so
   `sh -n` reported `Unterminated quoted string` and an install never created
   `/etc/config/socat`, migrated the legacy init, enabled the service or stamped
-  the version.  Fixed to `$$(date ...)` and `'/etc/socat-boot.sh$$'`, with a
-  comment explaining both traps.
+  the version.  Fixed to `$$(date ...)` and `'/etc/socat-boot.sh$$'`.
 * **The package metadata must use `luci.mk`'s variables.**  `luci.mk` reads
   `LUCI_MAINTAINER`/`LUCI_URL`/`LUCI_DESCRIPTION`, so a bare `PKG_MAINTAINER` is
   silently dropped and the package advertised "OpenWrt LuCI community" and the
