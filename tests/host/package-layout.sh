@@ -140,8 +140,12 @@ if [ -f "$WORK/postinst.sh" ]; then
 	restart_line=$(grep -n 'init.d/socat-reforged restart' "$WORK/postinst.sh" | head -1 | cut -d: -f1)
 	[ -n "$helper_line" ] && [ -n "$restart_line" ] && [ "$helper_line" -lt "$restart_line" ] && rc=yes || rc=no
 	check 'the postinst applies them before restarting the service' yes "$rc"
+	stamp_line=$(grep -n '> /usr/libexec/socat-reforged-version' "$WORK/postinst.sh" | head -1 | cut -d: -f1)
+	[ -n "$stamp_line" ] && [ -n "$restart_line" ] && [ "$stamp_line" -lt "$restart_line" ] && rc=yes || rc=no
+	check 'the postinst writes the version stamp before the restart' yes "$rc"
 else
 	printf '  %-46s %s\n' 'the postinst applies them before restarting the service' '(skipped: no make)'
+	printf '  %-46s %s\n' 'the postinst writes the version stamp before the restart' '(skipped: no make)'
 fi
 
 # behaviour, on a throw-away root: the deferred copy wins, nothing else moves

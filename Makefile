@@ -75,6 +75,10 @@ define Package/luci-app-socat-reforged/postinst
 	[ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1
 	[ -x /usr/libexec/socat-reforged-apply-deferred ] && \
 		/usr/libexec/socat-reforged-apply-deferred >/dev/null 2>&1
+	# the engine reads the stamp at startup; write it before the restart
+	{ echo "PKG_VERSION=$(PKG_VERSION)-$(PKG_RELEASE)"; \
+	  echo "BUILD=$(PKG_VERSION)-$(PKG_RELEASE)"; \
+	  echo "BUILT=package"; } > /usr/libexec/socat-reforged-version
 	/etc/init.d/socat-reforged enable
 	/etc/init.d/socat-reforged restart
 	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -84,9 +88,6 @@ define Package/luci-app-socat-reforged/postinst
 	done
 	pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$$' >/dev/null 2>&1 || \
 		logger -t socat-reforged 'engine did not come up after the upgrade; start it with /etc/init.d/socat-reforged restart'
-	{ echo "PKG_VERSION=$(PKG_VERSION)-$(PKG_RELEASE)"; \
-	  echo "BUILD=$(PKG_VERSION)-$(PKG_RELEASE)"; \
-	  echo "BUILT=package"; } > /usr/libexec/socat-reforged-version
 	rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache*
 	/etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart
 	exit 0
