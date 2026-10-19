@@ -68,7 +68,12 @@ ck('every rule has a status', true, (function() {
 	}
 	return true;
 })());
-ck('counts add up', st.counts.total, st.counts.enabled + (st.counts.total - st.counts.enabled));
+/* the counters the page displays must be mutually consistent: an enabled rule
+ * is either listening or down, never both and never neither */
+ck('counts: listening + down = enabled', st.counts.enabled,
+   st.counts.listening + st.counts.down);
+ck('counts: enabled <= total', true, st.counts.enabled <= st.counts.total);
+ck('counts: errors <= enabled', true, st.counts.errors <= st.counts.enabled);
 ck('engine age is sane', true, st.engine.age >= 0 && st.engine.age <= 90);
 ck('config_missing is false here', false, st.config_missing);
 has('engine reports its listeners', '"listeners"', sprintf('%J', st.engine));
@@ -131,7 +136,15 @@ ck('log lines are strings', true, (function() {
 			return false;
 	return true;
 })());
-has('log shows recent reconcile activity', 'reconcile:', join('\n', lg.lines));
+/* obj.reload() spawns the init script and returns at once, so the reconcile
+ * line lands a moment later: wait for it instead of racing it (a run that
+ * followed an earlier clear used to fail here for no product reason) */
+let lines = lg.lines;
+for (let i = 0; i < 50 && index(join('\n', lines), 'reconcile:') < 0; i++) {
+	sleep(100);
+	lines = obj.log.call({ args: { lines: 50 } }).lines;
+}
+has('log shows recent reconcile activity', 'reconcile:', join('\n', lines));
 ck('log honours the line limit', true, length(obj.log.call({ args: { lines: 3 } }).lines) <= 3);
 ck('log survives a bogus line count', 'array', type(obj.log.call({ args: { lines: 'abc' } }).lines));
 
@@ -222,6 +235,21 @@ if (up1.ok === true) {
 	const up2 = obj.update_check.call({ args: {} });
 	ck('a second check is served from the cache', true, up2.cached === true);
 	ck('...and still names the same release', up1.latest_tag, up2.latest_tag);
+	/* the stored answer must be re-evaluated against what is installed *now*:
+	 * after an update the six-hour cache kept offering the release that had
+	 * just been installed */
+	const CACHE = '/tmp/socat-reforged-update-cache.json';
+	const saved = readfile(CACHE);
+	const fake = { ok: true, current: '0-1', latest_tag: 'V0', latest: '0',
+		update_available: true, release_url: '', published_at: '', notes: '',
+		assets: [], checked: time(), cached: false };
+	writefile(CACHE, sprintf('%J', fake));
+	const up3 = obj.update_check.call({ args: {} });
+	ck('a cached answer is served from the cache', true, up3.cached === true);
+	if (match(sprintf('%s', up3.current ?? ''), /([0-9]+)/))
+		ck('a cached answer is re-checked against the installed version', false,
+			up3.update_available);
+	if (saved != null) writefile(CACHE, saved); else fs.unlink(CACHE);
 } else {
 	printf('  %-46s skipped (no route to api.github.com: %s)\n', 'update_check details', up1.error ?? '?');
 }
