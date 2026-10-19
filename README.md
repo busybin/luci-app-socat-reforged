@@ -1,21 +1,15 @@
 # luci-app-socat-reforged
 
-> ### ⚠️ Early development — expect bugs
+> ### Beta
 >
-> This app is young and moves fast. The engine, the packaging and the interface
-> all change between releases, and defects keep turning up — several of them only
-> on a real router (a different `socat` build, BusyBox `awk` reading a padded
-> port as octal, IPv6 corners that only some socat versions have). It runs every
-> day on the author's own router, but treat it as **beta**:
+> The engine, the packaging and the interface still change between releases.
+> Before upgrading, keep a copy of `/etc/config/socat` and of your firewall
+> config, and read `CHANGELOG.md`; test a forward that matters to you after
+> every upgrade.
 >
-> * keep a copy of `/etc/config/socat` and of your firewall config before
->   upgrading, and read `CHANGELOG.md` first;
-> * a bug report is much more useful with the output of
->   `logread -e socat-boot` and `socat -V` (the `socat` build decides what some
->   rules can do at all — TLS needs OpenSSL, which the stock OpenWrt package
->   does not have);
-> * nothing here is guaranteed; if a forward matters to you, test it after
->   every upgrade.
+> A bug report is much more useful with `logread -e socat-boot` and `socat -V`:
+> the `socat` build decides what some rules can do at all (TLS needs OpenSSL,
+> which the stock OpenWrt package does not have).
 
 A **from-scratch ("reforged") socat port-forward manager for the modern LuCI**
 (ucode / JavaScript), for **OpenWrt 24.10 and newer** — including **25.10+**,
@@ -327,40 +321,12 @@ sh tests/run.sh                  # 8 suites: view, generator, zones, simulator, 
 sh tests/run.sh --router router  # also install on a router, test engine/backend/perf
 ```
 
-See `tests/README.md` for what each suite covers. Exit codes are CI-friendly.
-
-Eight suites; five of them do not trust the string comparison:
-
-* **layout simulator** — the real engine, the real `socat`, fake `uci`/`ip`: a
-  full OpenWrt device in a sandbox, so reconcile, kill/respawn and the firewall
-  rules are all exercised.
-* **command matrix** — one rule per listener kind with every option on; each
-  generated command is then started and its listener verified in
-  `/proc/net/{tcp,tcp6,udp,udp6}` or as a unix socket file. This is the suite
-  that catches "socat refuses this option on this address type", which the
-  string-comparing tests cannot see.
-* **fuzz** — ~100 hostile values (shell metacharacters, out-of-range and
-  octal-looking numbers) fed to every option, asserting that the generator
-  never starts a listener for a value it should have refused and that nothing
-  it writes is a shell metacharacter.
-* **engine keys** — derives the listener address types the *generator* can emit
-  and asserts the engine's worker scan and its port/family classifier know every
-  one of them, so a new listener type cannot be added without teaching the
-  engine (an unknown kind is invisible: it is never stopped, restarted or
-  counted).
-* **package layout** — the thing users install: the executable bits (the engine,
-  the procd init script and the ctl helper must be `0755` or the package installs
-  a service that cannot start), the `root/`+`htdocs/` layout `luci.mk` expects,
-  the package metadata variables, and the postinst *as make expands it* (a
-  Makefile `define` turns `$$$(` into `$(` and eats a bare `$'`, which once
-  shipped a postinst that was a syntax error).
-
-The layout simulator is the one that matters for a generator change: the unit
-tests compare the *generated key* (deliberately stripped of spaces) and only
-match substrings, so a defect such as `UDP-LISTEN:53,forkUDP4:...`, `keepidle`
-on a unix socket or `retry` on a UDP address is invisible to them — while the
-simulator starts the real engine and the real `socat`, and the rule simply does
-not come up. Always run it after touching the generator.
+See `tests/README.md` for what each suite covers. The **layout simulator** (real
+engine, real `socat`, fake `uci`/`ip` — a whole device in a sandbox) and the
+**command matrix** (every generated command started, its listener looked up in
+`/proc/net/{tcp,tcp6,udp,udp6}`) are the ones that catch what the
+substring-comparing unit tests cannot see — run the simulator after touching the
+generator. Exit codes are CI-friendly.
 
 ## Engine log
 

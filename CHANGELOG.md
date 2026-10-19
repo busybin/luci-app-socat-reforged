@@ -1,8 +1,5 @@
 # Changelog
 
-`V<integer>` releases (see Releases). `main` carries unreleased work on top of
-the last tag; version numbers only change when a release is requested.
-
 ## V5 (2026-10-19)
 
 ### Packaging / service
@@ -11,30 +8,21 @@ the last tag; version numbers only change when a release is requested.
   `/etc` file it will not overwrite and parks the packaged copy as
   `<file>.apk-new`; a new helper takes those, the `postinst` runs it before
   starting the engine, and `install.sh` drops stale ones.
-* **The engine stops on SIGTERM instead of being SIGKILLed.**  A foreground sleep
-  delayed the trap past procd's 5 s timeout; the loop naps in the background and
-  the service allows 20 s.  Guarded by `tests/host/engine-signal.sh` and
-  `tests/router/service-checks.sh`.
+* **The engine stops on SIGTERM instead of being SIGKILLed.**  A restart gives
+  the engine time to shut down cleanly; the service allows 20 s.
 
 ### Works from the form (2026-10-19)
 
-* **The form offered less than the engine accepts — and the import check let
-  through values the generator refuses.**  `mcast_iface` rejected its own
-  placeholder (`eth0.2`, `br-lan`) because its datatype was `uciname`;
-  `reuseaddr`, the proxy server and the proxy port were not validated on import,
-  so a rejected value made the whole rule vanish silently; the port fields
-  accepted `0`.  All fixed, and the guards are now asserted through the real
-  `importCheck()` in `tests/host/view-smoke.js` instead of by grepping the
-  source for them.
+* **The form accepts what the engine accepts, and refuses what it refuses.**
+  `mcast_iface` takes `eth0.2` / `br-lan`; `reuseaddr`, the proxy server and the
+  proxy port are validated before a rule is saved, and the port fields reject
+  `0`.
 * **Port conflicts account for the transport and the address family.**  A TLS
   (`OPENSSL-LISTEN`) rule and a plain TCP rule on the same port are flagged now
   (both are TCP sockets), while a v4-only and a v6-only rule may share a port.
-* **Engine settings save on a stock router.**  `/etc/config/socat` is provided
-  by the official `socat` package, and LuCI's `uci.set()` is a silent no-op on a
-  section that does not exist yet — so on such a box every engine setting was
-  dropped without a word, and the page did not even look dirty.  The view now
-  creates the `reforged` section in its working copy, and when the config file
-  itself is missing, Save & Apply says so instead of doing nothing.
+* **Engine settings save on a stock router.**  `/etc/config/socat` belongs to the
+  official `socat` package; the `reforged` section is created on demand, and when
+  the config file itself is missing, Save & Apply says so.
 
 ### Engine robustness (2026-10-19)
 
@@ -44,28 +32,16 @@ the last tag; version numbers only change when a release is requested.
   accepts anonymous sections (`config_foreach`-added `@config[1]`), and the
   `pgrep` used to reap a stale engine loop no longer matches an unrelated
   process whose command line merely *ends* with the script path.
-* **A cached update answer is re-checked against the installed version** — right
-  after an update the page used to keep offering the version you had just
-  installed — and **the whole updater disappears when its helper script is not
-  installed**, so a channel that ships no self-update never offers one.
-
-### Verified on clean OpenWrt (2026-10-19)
-
-On clean OpenWrt **24.10.4** and **23.05.5** containers (SDK-built `.ipk`,
-installed next to the official `socat` package: config created, TCP forward
-working, ubus backend answering, update check reaching GitHub) and on OpenWrt
-**25.12.2** (`.apk`), where the engine runs 30/30 listeners.
+* **A cached update answer is re-checked against the installed version**, and
+  **the whole updater disappears when its helper script is not installed**, so a
+  channel that ships no self-update never offers one.
 
 ### UI: dialog answers, updates and translations (2026-10-15/16)
 
 * **Per-rule actions answer inside their dialog.** "Test target" and "Restart
-  this rule" are modal-only buttons, and their result used to be a page
-  notification — which `ui.addNotification()` prepends to `#maincontent`, i.e.
-  *under* the modal overlay, so pressing either button looked like nothing
-  happened.  The answer (a busy line, then the reachable/unreachable or
-  restarted/failed line, colour-coded) now appears in that button's own field in
-  the dialog.  Both handlers are exercised by `tests/host/view-smoke.js` with a
-  fake open dialog.
+  this rule" are modal-only buttons; their result (a busy line, then the
+  reachable/unreachable or restarted/failed line) now appears in that button's
+  own field instead of in a page notification hidden under the overlay.
 * **Check for updates / update now.**  A "Check for updates" button next to the
   version asks the GitHub release API *from the router* (not the browser), shows
   the release notes and installs the right asset with `apk`/`opkg` when you press
@@ -76,19 +52,15 @@ working, ubus backend answering, update check reaching GitHub) and on OpenWrt
   for six hours on the router, and the new **Engine settings → "Look for new
   versions"** flag (off by default) additionally checks automatically when the
   page is opened.  Nothing is downloaded or installed unless you press the
-  button.  New ACL entries (`update_check`, `update_status`, `update_install`)
-  are checked against the view by `tests/host/view-smoke.js`.
+  button.  New ACL entries: `update_check`, `update_status`, `update_install`.
 * **Simplified Chinese translation**, shipped the LuCI way as its own package
   (`luci-i18n-socat-reforged-zh-cn`, built from `po/zh_Hans/`): installing a
   language does not touch the app package, and anything a catalogue misses falls
   back to English.  The backend's own `detail`/`error` strings (the Test button,
-  the log) are mapped onto translatable messages in the view, and
-  `tests/host/view-smoke.js` now checks that mapping against the backend source
-  in both directions so neither side can drift.  From
+  the log) are mapped onto translatable messages in the view.  From
   [@ntbowen](https://github.com/ntbowen)'s PR #2.
-* The **Start** button uses the affirmative style instead of `cbi-button-apply`.
-  Sharing that class with "Save & Apply" meant a click on Start ran the
-  unsaved-changes tracker and cleared the dirty marker without saving anything.
+* The **Start** button no longer shares `cbi-button-apply` with "Save & Apply",
+  so it does not run the unsaved-changes tracker and clear the dirty marker.
   The page also owns its own padding now (a plain LuCI view has no CBI
   container), so the content is not flush against the edges.  (From
   [@ntbowen](https://github.com/ntbowen)'s PR #3, with the empty-state hint kept.)
