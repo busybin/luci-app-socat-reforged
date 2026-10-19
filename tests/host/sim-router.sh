@@ -491,6 +491,17 @@ fixtures "$SC"
 PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
 LOOP=$!
 sleep "$SECS"
+# the two rules sharing a port are retried independently, so a sample taken
+# while one is being restarted sees both down (seen once on CI); the steady
+# state has exactly one of them reporting the clash
+clash_n() { awk 'NR>1 && $5!="-"{print $1}' "$SIM/run/state" 2>/dev/null | sort -u | grep -c .; }
+prev=-1
+for i in 1 2 3 4 5 6 7 8 9 10; do
+	now=$(clash_n)
+	[ "$now" = "$prev" ] && break
+	prev=$now
+	sleep 1
+done
 kill "$LOOP" 2>/dev/null
 wait "$LOOP" 2>/dev/null
 for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
@@ -501,8 +512,7 @@ EOF
 check 'scenario 8: zones' 'wan' "$Z"
 check 'scenario 8: range + clash listeners' 'tcp tcp tcp tcp tcp6 tcp6 tcp6 tcp6' "$L"
 check 'scenario 8: firewall src zones' 'wan' "$S"
-check 'scenario 8: exactly one clash error' 1 \
-	"$(awk 'NR>1 && $5!="-"{print $1}' "$SIM/run/state" 2>/dev/null | sort -u | grep -c .)"
+check 'scenario 8: exactly one clash error' 1 "$(clash_n)"
 check 'scenario 8: per-rule pid files for a shared port' 4 \
 	"$(ls "$SIM/run/pids" 2>/dev/null | grep -c '21075')"
 check 'scenario 8: per-rule stderr files for a shared port' 4 \
