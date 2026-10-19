@@ -15,6 +15,9 @@ inst() { # src dst mode
   mkdir -p "$(dirname "$2")"
   cp "$HERE/$1" "$2"
   chmod "$3" "$2"
+  # a copy a package manager deferred (see socat-reforged-apply-deferred) is
+  # older than what we just installed, so it must not survive
+  rm -f "$2.apk-new" "$2.opkg-new"
   echo "installed $2"
 }
 
@@ -36,6 +39,7 @@ inst root/usr/share/rpcd/ucode/luci.socat-reforged.uc /usr/share/rpcd/ucode/luci
 inst root/usr/libexec/socat-reforged-reload /usr/libexec/socat-reforged-reload 755
 inst root/usr/libexec/socat-reforged-ctl /usr/libexec/socat-reforged-ctl 755
 inst root/usr/libexec/socat-reforged-update /usr/libexec/socat-reforged-update 755
+inst root/usr/libexec/socat-reforged-apply-deferred /usr/libexec/socat-reforged-apply-deferred 755
 inst root/usr/libexec/socat-reforged-gen.awk /usr/libexec/socat-reforged-gen.awk 644
 inst root/usr/libexec/socat-reforged-zones.awk /usr/libexec/socat-reforged-zones.awk 644
 

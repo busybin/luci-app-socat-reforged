@@ -35,6 +35,7 @@ root/etc/init.d/socat-reforged
 root/etc/hotplug.d/iface/99-socat-reforged
 root/usr/libexec/socat-reforged-ctl
 root/usr/libexec/socat-reforged-update
+root/usr/libexec/socat-reforged-apply-deferred
 root/usr/libexec/socat-reforged-reload"
 # ...and the scripts a user runs from a checkout
 for f in install.sh deploy.sh uninstall.sh; do execs="$execs
@@ -128,12 +129,53 @@ else
 	printf '  %-46s %s\n' 'the expanded postinst is valid shell' '(skipped: no make)'
 fi
 
+# ------------------------------------- package managers defer modified files --
+# apk will not overwrite a file whose on-disk content differs from the one it
+# installed: it parks the packaged copy as `<file>.apk-new` and keeps the old
+# content.  That is exactly how a router went on running the V4 engine after
+# "upgrading" to V5 (a tree deployed with deploy.sh made /etc/socat-boot.sh
+# differ), while the page showed the new version.  The helper takes those
+# copies; the postinst must run it *before* it restarts the service, or the new
+# package starts the previous engine.
+DEFER=$REPO/root/usr/libexec/socat-reforged-apply-deferred
+sh -n "$DEFER" 2>/dev/null && rc=0 || rc=1
+check 'the deferred-copy helper is valid shell' 0 "$rc"
+if [ -f "$WORK/postinst.sh" ]; then
+	helper_line=$(grep -n 'socat-reforged-apply-deferred' "$WORK/postinst.sh" | head -1 | cut -d: -f1)
+	restart_line=$(grep -n 'init.d/socat-reforged restart' "$WORK/postinst.sh" | head -1 | cut -d: -f1)
+	[ -n "$helper_line" ] && [ -n "$restart_line" ] && [ "$helper_line" -lt "$restart_line" ] && rc=yes || rc=no
+	check 'the postinst applies them before restarting the service' yes "$rc"
+else
+	printf '  %-46s %s\n' 'the postinst applies them before restarting the service' '(skipped: no make)'
+fi
+
+# behaviour, on a throw-away root: the deferred copy wins, nothing else moves
+dr="$WORK/defer-root"
+mkdir -p "$dr/etc" "$dr/usr/libexec"
+printf 'old\n' > "$dr/etc/socat-boot.sh"
+printf 'new\n' > "$dr/etc/socat-boot.sh.apk-new"
+printf 'oldctl\n' > "$dr/usr/libexec/socat-reforged-ctl"
+printf 'newctl\n' > "$dr/usr/libexec/socat-reforged-ctl.opkg-new"
+printf 'keep\n' > "$dr/etc/not-ours"
+sh "$DEFER" "$dr" >"$WORK/defer.out" 2>&1; rc=$?
+check 'the helper succeeds when it applied the copies' 0 "$rc"
+check 'the helper says what it applied' 2 "$(grep -c 'applied the packaged copy' "$WORK/defer.out")"
+check 'the apk-new copy replaced the engine' new "$(cat "$dr/etc/socat-boot.sh")"
+check 'the apk-new file is gone' 0 "$([ -e "$dr/etc/socat-boot.sh.apk-new" ] && echo 1 || echo 0)"
+check 'the opkg-new copy replaced the ctl helper' newctl "$(cat "$dr/usr/libexec/socat-reforged-ctl")"
+check 'a file nobody deferred is left alone' keep "$(cat "$dr/etc/not-ours")"
+sh "$DEFER" "$dr" >"$WORK/defer.out" 2>&1; rc=$?
+check 'a clean tree succeeds' 0 "$rc"
+check '...and prints nothing' 0 "$(wc -c < "$WORK/defer.out")"
+
 # --------------------------------------------- install.sh keeps the bits ----
 # the manual path must chmod what it copies (that is why a manual deploy works
 # while the package was broken)
 check 'install.sh installs the engine 755' 1 "$(grep -c 'root/etc/socat-boot.sh /etc/socat-boot.sh 755' "$REPO/install.sh")"
 check 'install.sh installs the init script 755' 1 "$(grep -c 'root/etc/init.d/socat-reforged /etc/init.d/socat-reforged 755' "$REPO/install.sh")"
 check 'install.sh installs the ctl helper 755' 1 "$(grep -c 'root/usr/libexec/socat-reforged-ctl /usr/libexec/socat-reforged-ctl 755' "$REPO/install.sh")"
+check 'install.sh installs the deferred-copy helper 755' 1 \
+	"$(grep -c 'socat-reforged-apply-deferred /usr/libexec/socat-reforged-apply-deferred 755' "$REPO/install.sh")"
 check 'install.sh keeps data files 644' 1 "$(grep -c 'socat-reforged-gen.awk /usr/libexec/socat-reforged-gen.awk 644' "$REPO/install.sh")"
 # uci set cannot create a missing package file ("Entry not found"), so the
 # section creation has to touch it first — the same guard is in the postinst

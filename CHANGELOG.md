@@ -3,6 +3,22 @@
 `V<integer>` releases (see Releases). `main` carries unreleased work on top of
 the last tag; version numbers only change when a release is requested.
 
+## Unreleased
+
+### Packaging / self-update (2026-10-19)
+
+* **An "Update now" no longer leaves the previous engine in place.**  apk treats
+  `/etc` as protected (config) paths: an `/etc` file whose on-disk content
+  differs from the one the installed package put there is left alone, and the
+  packaged copy is written beside it as `<file>.apk-new`.  A tree deployed with
+  `deploy.sh` (or a file edited on the box) thus produced a router that reported
+  `v5-1` while the packaged engine sat in `.apk-new` — found right after the V5
+  upgrade on the 25.12 router.  A new helper,
+  `socat-reforged-apply-deferred`, takes those copies; the `postinst` runs it
+  **before** restarting the service, and `install.sh` drops any stale one for the
+  files it writes itself.  Guarded by `tests/host/package-layout.sh`, which runs
+  the helper against a throw-away root.
+
 ## V5 (2026-10-19)
 
 ### Works from the form (2026-10-19)
