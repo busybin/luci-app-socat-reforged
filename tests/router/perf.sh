@@ -7,7 +7,6 @@
 # cycle costs.  The old engine used ~200 forks per 15s; this asserts we stay
 # in the single digits.
 set -u
-E=/etc/socat-boot.sh
 R=/var/run/socat-reforged
 HZ=$(getconf CLK_TCK 2>/dev/null || echo 100)
 WINDOW=${1:-120}

@@ -580,7 +580,6 @@ check 'multicast relay dial' 1 "$(cmdgrep 1 'UDP4-DATAGRAM:239.20.20.20:4000,ip-
 # bad multicast parameters, each in its own fixture (a good group on a later
 # line would override the value under test)
 for bad in 'mcast_dst_port=70000' 'mcast_ttl=999'; do
-	opt=${bad%%=*}; val=${bad#*=}
 	cat > "$WORK/in.show" <<EOF
 socat.bm=config
 socat.bm.enable=1
