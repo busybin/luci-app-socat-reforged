@@ -133,6 +133,7 @@ const STATUS = {
 	counts: { total: 3, enabled: 3, listening: 2, down: 1, errors: 1 },
 	connections: 0,
 	config_missing: false,
+	update_supported: true,
 	rules: RULES.map((r) => ({ sid: r['.name'], name: r.remarks, enable: true, proto: r.proto,
 		listen: (r.listen_port === '30000-30002') ? 30000 : +r.listen_port,
 		dest_proto: r.dest_proto, dest_ip: r.dest_ip, dest_port: +r.dest_port,
@@ -503,8 +504,10 @@ ck('a disabled rule is never reported', false, flagged('cfgA6'));
 	ck('the update check button is rendered', true, !!byId['socat-upd-btn']);
 	ck('the update banner is rendered', true, !!byId['socat-upd']);
 	ck('the update controls sit on the title row', true, /'class': 'socat-head'/.test(src));
-	ck('the update button is in that row', true,
-		/socat-head' \}, \[ titleEl, updateBox \]/.test(src));
+	ck('the update box is a child of that row', true,
+		/headKids\.push\(E\('div', \{ 'class': 'socat-upd-box'/.test(src));
+	ck('the update box is gated on what the backend reports', true,
+		/if \(this\._updSupported\) \{/.test(src));
 	ck('no standalone update row is left over', false, /socat-upd-line/.test(src));
 	ck('the automatic check is an engine setting', true, !!optOf('update_check'));
 	has('the update check goes through the backend', "method: 'update_check'", src);
@@ -518,6 +521,34 @@ ck('a disabled rule is never reported', false, flagged('cfgA6'));
 	has('the banner links to the release', 'releases/tag/V5', updText);
 	has('the current version is named', 'v4-1', updText);
 	has('the meta line announces the update', 'update available', byId['socat-upd-msg'] ? byId['socat-upd-msg'].textContent : '');
+
+	/* ---- a build without the update helper hides the whole feature --------
+	 * Feed builds must not offer "check for updates / update now": the helper
+	 * script is what makes the feature possible, and the backend reports its
+	 * absence (one fs.access) as status.update_supported=false. */
+	STATUS.update_supported = false;
+	for (const k of Object.keys(byId)) delete byId[k];      /* fresh DOM map */
+	OPTS.length = 0;
+	SECTIONS.length = 0;
+	{
+		const ViewClass2 = eval(wrapped);                // eslint-disable-line no-eval
+		const V2 = ViewClass2(global.view, global.poll, global.ui, global.uci, global.form,
+			global.rpc, E, global._, global.L, document, global.window);
+		const v2 = new V2();
+		await v2.load();
+		await v2.render();
+		ck('no helper: the update button is not rendered', false, !!byId['socat-upd-btn']);
+		ck('no helper: no update_check setting is offered', null, optOf('update_check'));
+		ck('no helper: the view records the feature as off', false, !!v2._updSupported);
+		ck('no helper: checkUpdates is a no-op', undefined, await v2.checkUpdates(true, false));
+	}
+	STATUS.update_supported = true;
+
+	/* the other half of the contract: the backend has to keep reporting it,
+	 * or every self-hosted build silently loses its update button */
+	has('the backend reports the capability in status()', 'update_supported: update_supported()', back);
+	has('the capability is the helper script being installed', 'fs.access(UPDATE_SCRIPT) != null', back);
+	has('a check without the helper returns before the network', 'if (!update_supported())', back);
 
 	console.log('\nview smoke test: ' + pass + ' passed, ' + fail + ' failed');
 	process.exit(fail ? 1 : 0);
