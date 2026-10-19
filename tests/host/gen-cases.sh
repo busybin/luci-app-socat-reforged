@@ -864,6 +864,63 @@ check 'the multicast rule opens udp on the wire' 'udp:6303 ' "$(fwls | tr ' ' '\
 check 'the multicast rule also opens igmp' 'igmp:- ' "$(fwls | tr ' ' '\n' | grep '^igmp:' | tr '\n' ' ')"
 check 'an ssl listener is opened as tcp on the wire' 'tcp:6302 ' "$(fwls | tr ' ' '\n' | grep '^tcp:6302' | tr '\n' ' ')"
 
+# ---- ",reuseaddr" belongs to the rule that asks for it ---------------------
+# RA is a global awk variable and the multicast address is built from it, so
+# the assignment has to happen before that block.  Regression: a rule with
+# reuseaddr=0 used to strip ,reuseaddr from the *next* rule's group join, and
+# the first rule of a config never got it at all.
+cat > "$WORK/in.show" <<'FIX'
+socat.m1=config
+socat.m1.enable=1
+socat.m1.proto=udp
+socat.m1.listen_port=6310
+socat.m1.mcast_group=239.1.1.10
+socat.m1.dest_proto=udp4
+socat.m1.dest_ip=10.0.0.9
+socat.m1.dest_port=53
+socat.m2=config
+socat.m2.enable=1
+socat.m2.proto=udp
+socat.m2.listen_port=6311
+socat.m2.mcast_group=239.1.1.11
+socat.m2.reuseaddr=0
+socat.m2.dest_proto=udp4
+socat.m2.dest_ip=10.0.0.9
+socat.m2.dest_port=53
+socat.m3=config
+socat.m3.enable=1
+socat.m3.proto=udp
+socat.m3.listen_port=6312
+socat.m3.mcast_group=239.1.1.12
+socat.m3.dest_proto=udp4
+socat.m3.dest_ip=10.0.0.9
+socat.m3.dest_port=53
+FIX
+run_gen "$V6"
+check 'multicast: the first rule keeps its reuseaddr' 1 \
+	"$(cmdgrep 1 'bind=239.1.1.10,reuseaddr,fork')"
+check 'multicast: reuseaddr=0 is honoured' 0 \
+	"$(cmdgrep 1 'bind=239.1.1.11,reuseaddr')"
+check 'multicast: the next rule gets it again' 1 \
+	"$(cmdgrep 1 'bind=239.1.1.12,reuseaddr,fork')"
+absent 'multicast: no reuseaddr leaks into the rule that refused it' ',reuseaddr' \
+	"$(grep -F 'bind=239.1.1.11' "$WORK/out.des" | cut -f5)"
+
+# ---- an option value that happens to be the word "config" ------------------
+# The generator decided "is this a section header?" on the value alone, so
+# socat.a.remarks='config' also became a section and warned "a.remarks bad
+# proto, skip".  A header is only a header when options follow it.
+gen_case 'a rule may be called or describe itself "config"' "$V6" 'a/tcp a/tcp6 ' '' '
+socat.a=config
+socat.a.enable=1
+socat.a.remarks=config
+socat.a.proto=tcp
+socat.a.listen_port=6320
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+
 # ---- drop privileges (socat ",user=") and retry (",retry=") ------------------
 # Copied from mylucien.  Both are single-token options, so unlike custom_opts
 # they cannot smuggle another option into the command line; the character set

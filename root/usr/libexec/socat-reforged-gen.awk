@@ -129,36 +129,54 @@ BEGIN {
 	if (ipv6 == "" || ipv6 == "-") ipv6 = ""
 }
 
-{
-	line = $0
+function parse_line(line,   rest,eq,val,lhs,dot,sec,optname,i) {
 	if (substr(line, 1, 6) != "socat.")
-		next
+		return
 	rest = substr(line, 7)
 	eq = index(rest, "=")
 	if (eq == 0)
-		next
+		return
 	lhs = substr(rest, 1, eq - 1)
 	val = unq(substr(rest, eq + 1))
-	# a section declaration is "socat.<name>=config" - the name may contain
-	# dots, so decide on the value, not on the shape of the name.
-	if (val == "config") {
+	# header only when options follow it (see the pass-1 loop): an option
+	# whose value is the word "config" must not become a section
+	if (val == "config" && (lhs in owns)) {
 		secs[++nsec] = lhs
-		next
+		return
 	}
 	# option line: split on the LAST dot (option names never contain one)
 	dot = 0
 	for (i = length(lhs); i > 0; i--)
 		if (substr(lhs, i, 1) == ".") { dot = i; break }
 	if (dot == 0)
-		next
+		return
 	sec = substr(lhs, 1, dot - 1)
 	optname = substr(lhs, dot + 1)
 	if (optname !~ /^[a-z][a-z0-9_]*$/)
-		next
+		return
 	V[sec, optname] = val
 }
 
+{ raw[NR] = $0 }
+
 END {
+	# A header is "socat.<lhs>=config" only when options follow it
+	# ("socat.<lhs>.<opt>=..."), so collect those prefixes first.
+	for (n = 1; n <= NR; n++) {
+		l = raw[n]
+		if (substr(l, 1, 6) != "socat.") continue
+		r = substr(l, 7)
+		e = index(r, "=")
+		if (e == 0) continue
+		h = substr(r, 1, e - 1)
+		d = 0
+		for (i = length(h); i > 0; i--)
+			if (substr(h, i, 1) == ".") { d = i; break }
+		if (d > 0) owns[substr(h, 1, d - 1)] = 1
+	}
+	for (n = 1; n <= NR; n++)
+		parse_line(raw[n])
+
 	for (i = 1; i <= nsec; i++) {
 		sid    = secs[i]
 		proto  = V[sid, "proto"]
@@ -247,6 +265,16 @@ END {
 		}
 		else if (lport_parse(lp) != 0) { warn(sid, "bad listen port, skip"); continue }
 		if (LP_CLAMPED) warn(sid, "port range larger than " LPORT_CAP " ports, clamped")
+
+		# ",reuseaddr" for this rule.  Computed here, before it is first used:
+		# the multicast address below needs it, and RA is a *global* awk
+		# variable, so leaving the assignment further down made a multicast
+		# listener inherit the previous rule's value (a rule with
+		# reuseaddr=0 silently stripped it from the next rule's group join,
+		# and the first rule of a config never got it at all).
+		RA = ""
+		if (ra == "" || ra == "1")
+			RA = ",reuseaddr"
 
 		# ---- multicast receive (udp only) ----------------------------------
 		MC_RECV = ""
@@ -370,10 +398,6 @@ END {
 		if (rtry != "" && plain_num(rtry) + 0 > 0 &&
 		    dproto != "udp4" && dproto != "udp6" && dproto != "mcast")
 			RTY = ",retry=" plain_num(rtry)
-
-		RA = ""
-		if (ra == "" || ra == "1")
-			RA = ",reuseaddr"
 
 		# keepalive is on by default (a rule may switch it off)
 		KAD = ""
