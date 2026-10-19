@@ -29,9 +29,8 @@ AWK="busybox awk" sh tests/host/gen-cases.sh # only BusyBox awk
 
 ## History
 
-The job was originally only a manual step because the `gh` credential is an
-OAuth App that had no `workflow` scope (an OAuth App with `workflow` can execute
-arbitrary code in CI, which is why it was not granted casually; see
-`memory/platform/github/00-账户与认证.md`). It was granted on 2026-10-15 through
-the device-code flow — `gh auth refresh -h github.com -s workflow`, authorised in
-a browser on another machine — and the job was then committed.
+The job was originally only a manual step because the release credential had no
+`workflow` scope (a token with `workflow` can execute arbitrary code in CI, so it
+was not granted casually). The scope was added later through the device-code
+flow — `gh auth refresh -h github.com -s workflow` — and the job was then
+committed.
