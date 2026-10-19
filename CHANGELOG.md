@@ -3,7 +3,50 @@
 `V<integer>` releases (see Releases). `main` carries unreleased work on top of
 the last tag; version numbers only change when a release is requested.
 
-## Unreleased
+## V5 (2026-10-19)
+
+### Works from the form (2026-10-19)
+
+* **The form offered less than the engine accepts — and the import check let
+  through values the generator refuses.**  `mcast_iface` rejected its own
+  placeholder (`eth0.2`, `br-lan`) because its datatype was `uciname`;
+  `reuseaddr`, the proxy server and the proxy port were not validated on import,
+  so a rejected value made the whole rule vanish silently; the port fields
+  accepted `0`.  All fixed, and the guards are now asserted through the real
+  `importCheck()` in `tests/host/view-smoke.js` instead of by grepping the
+  source for them.
+* **Port conflicts account for the transport and the address family.**  A TLS
+  (`OPENSSL-LISTEN`) rule and a plain TCP rule on the same port are flagged now
+  (both are TCP sockets), while a v4-only and a v6-only rule may share a port.
+* **Engine settings save on a stock router.**  `/etc/config/socat` is provided
+  by the official `socat` package, and LuCI's `uci.set()` is a silent no-op on a
+  section that does not exist yet — so on such a box every toggle (debug,
+  `fix_v6_route`, `wg_dnat_guard`, "look for new versions") was dropped without
+  a word, and the page did not even look dirty.  The view now creates the
+  `reforged` section in its working copy, and when the config file itself is
+  missing, Save & Apply says so instead of doing nothing.
+
+### Engine robustness (2026-10-19)
+
+* **A rule no longer inherits the previous rule's `,reuseaddr`**, and an option
+  whose value happens to be `config` no longer truncates the rest of its rule.
+* **The engine survives a stock device**: it creates `/var/log` when absent,
+  accepts anonymous sections (`config_foreach`-added `@config[1]`), and the
+  `pgrep` used to reap a stale engine loop no longer matches an unrelated
+  process whose command line merely *ends* with the script path.
+* **A cached update answer is re-checked against the installed version** — right
+  after an update the page used to keep offering the version you had just
+  installed — and **the whole updater disappears when its helper script is not
+  installed**, so a channel that ships no self-update never offers one.
+
+### Verified on clean OpenWrt (2026-10-19)
+
+On clean OpenWrt **24.10.4** and **23.05.5** containers (SDK-built `.ipk`,
+installed next to the official `socat` package: config created, TCP forward
+working, ubus backend answering, update check reaching GitHub) and on OpenWrt
+**25.12.2** (`.apk`), where the engine runs 30/30 listeners.
+
+### UI: dialog answers, updates and translations (2026-10-15/16)
 
 * **Per-rule actions answer inside their dialog.** "Test target" and "Restart
   this rule" are modal-only buttons, and their result used to be a page
