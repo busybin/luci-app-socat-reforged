@@ -235,8 +235,8 @@ add_ok 118 tcp 'backlog'     '128'
 add_ok 119 tcp 'max_children' '256'
 add_ok 120 tcp 'timeout'     '86400'
 add_ok 121 proxy 'proxy'     'socks4a'
-add_ok 122 proxy 'proxy'     'socks4'
-add_ok 122 proxy 'proxy'     'http'
+add_ok 133 proxy 'proxy'     'socks4'
+add_ok 134 proxy 'proxy'     'http'
 add_ok 123 proxy 'proxy'     'proxy'
 add_ok 124 proxy 'proxy'     'none'
 add_ok 125 tcp 'listen_addr' '192.168.1.5'
@@ -276,9 +276,11 @@ for i in $BAD; do
 done
 check 'no refused rule leaks a listener' '' "$leaked"
 
-# and the accepted ones did produce theirs
+# and the accepted ones did produce theirs (the list comes from the add_ok
+# lines above, so a newly added case cannot be forgotten here)
 leaked2=""
-for i in 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130; do
+oks="$(grep -oE '^add_ok [0-9]+' "$0" | awk '{print $2}')"
+for i in $oks; do
 	n=$(awk -F'\t' -v s="f$i" '$1==s{n++} END{print n+0}' "$WORK/des")
 	[ "${n:-0}" -ge 1 ] || leaked2="$leaked2 f$i"
 done

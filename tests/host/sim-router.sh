@@ -536,7 +536,7 @@ check 'scenario 9: no rule errors' '' "$E"
 check 'scenario 9: the multicast rule opens a tcp/udp port' 1 "$(grep -c 'socat_reforged_udp\..*dest_port=21060' "$SIM/fw.log" 2>/dev/null)"
 check 'scenario 9: ...and an IGMP accept rule' 1 "$(grep -c 'socat_reforged_igmp=rule' "$SIM/fw.log" 2>/dev/null)"
 check 'scenario 9: the IGMP rule is proto igmp' 1 "$(grep -c 'socat_reforged_igmp.proto=igmp' "$SIM/fw.log" 2>/dev/null)"
-check 'scenario 9: the unix rule opens no port' 0 "$(grep -c 'socat_reforged_tcp\..*dest_port=21060' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 9: the unix rule opens no port' 0 "$(grep -c 'socat_reforged_tcp\.' "$SIM/fw.log" 2>/dev/null)"
 check 'scenario 9: the unix listener socket exists' 1 "$([ -S "$SIM/run/sim.sock" ] && echo 1 || echo 0)"
 cleanup
 
