@@ -79,8 +79,8 @@ echo "  state dir: $R, listeners: $(awk 'NR>1' $R/state | wc -l)"
 echo
 
 # ---------------------------------------------------------------- sanity ----
-ck "engine loop is running" 1 "$(pgrep -f '/etc/socat-boot.sh$' | wc -l)"
-ck "exactly one engine loop" 1 "$(pgrep -f '/etc/socat-boot.sh$' | wc -l)"
+ck "engine loop is running" 1 "$(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' | wc -l)"
+ck "exactly one engine loop" 1 "$(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' | wc -l)"
 ck "state file has a header" 1 "$(grep -c '^engine ' "$R/state")"
 ck "all desired listeners alive" "$(awk 'NR>1' "$R/state" | wc -l)" "$(awk 'NR>1 && $4!="-"' "$R/state" | wc -l)"
 ck "every socat worker is ours" "$(workers_total)" "$(workers_marked)"
@@ -168,7 +168,6 @@ uci set "socat.$D.firewall_accept=0" >/dev/null
 uci commit socat
 reconcile_now
 wait_alive "$D" 1
-FIRST=$(alive "$D")
 uci set "socat.$D.enable=0" >/dev/null
 uci commit socat
 reconcile_now

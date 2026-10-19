@@ -12,13 +12,11 @@ R=/var/run/socat-reforged
 HZ=$(getconf CLK_TCK 2>/dev/null || echo 100)
 WINDOW=${1:-120}
 
-L=$(pgrep -f '/etc/socat-boot.sh$' | head -1)
+L=$(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' | head -1)
 [ -n "$L" ] || { echo "FAIL: engine loop not running"; exit 1; }
 
 N0=$(logread 2>/dev/null | grep -c socat-boot)
 T1=$(awk '{print $14+$15}' /proc/$L/stat)
-F1=$(awk '{print $10+$11}' /proc/$L/stat)   # minor/major faults ~ fork-ish
-
 sleep "$WINDOW"
 
 T2=$(awk '{print $14+$15}' /proc/$L/stat)

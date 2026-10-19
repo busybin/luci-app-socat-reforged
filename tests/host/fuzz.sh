@@ -30,9 +30,6 @@ rm -rf "$WORK"; mkdir -p "$WORK"
 # assertions can be written as "sid:reason"
 warns() { awk -F'\t' '{printf "%s:%s ", $1, $2}' "$WORK/warn" 2>/dev/null; }
 
-BADS=''
-i=0
-
 # A hostile value is only reachable when the rule is actually configured for
 # that option (a mcast_iface on a plain tcp rule is ignored, by design), so each
 # case states the profile it needs.  The hostile option is written LAST so it

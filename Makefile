@@ -50,6 +50,7 @@ LUCI_URL:=https://github.com/busybin/luci-app-socat-reforged
 # need `$$`.
 define Package/luci-app-socat-reforged/postinst
 [ -n "$${IPKG_INSTROOT}" ] || { \
+	[ -f /etc/config/socat ] || : > /etc/config/socat; \
 	if ! uci -q get socat.reforged >/dev/null 2>&1; then
 		uci set socat.reforged=internal
 		uci set socat.reforged.note='managed by luci-app-socat-reforged'
@@ -64,7 +65,7 @@ define Package/luci-app-socat-reforged/postinst
 	fi
 	ubus call service delete '{"name":"socat"}' >/dev/null 2>&1
 	ubus call service delete '{"name":"socat-reforged"}' >/dev/null 2>&1
-	for p in $$(pgrep -f '/etc/socat-boot.sh$$' 2>/dev/null); do kill -9 "$$p" 2>/dev/null; done
+	for p in $$(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$$' 2>/dev/null); do kill -9 "$$p" 2>/dev/null; done
 	[ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1
 	/etc/init.d/socat-reforged enable
 	/etc/init.d/socat-reforged restart
