@@ -178,12 +178,13 @@ global.form = {
  * check what a *table* column would look like to LuCI */
 const SECTIONS = [];
 class Section {
-	constructor(args) { this.children = []; this.opts = []; this.sc = args ? args[0] : null; }
+	constructor(args) {
+		this.children = []; this.opts = [];
+		this.sc = args ? args[0] : null;              /* the section class */
+		this.cfg = args ? args[1] : null;             /* config/section name */
+		this.title = args ? args[2] : null;
+	}
 	option(type, name) {
-		const o = new Proxy(function () {}, {
-			get: (t, k) => (k === 'depends' || k === 'value') ? () => o : o[k],
-			set: (t, k, v) => { o[k] = v; return true; }
-		});
 		const real = {};
 		const proxy = new Proxy(real, {
 			/* depends() and value() are the chainable *methods* LuCI offers;
@@ -191,8 +192,15 @@ class Section {
 			 * default, placeholder) is a plain property that the view assigns.
 			 * Treating them as methods as well used to put a callable into
 			 * real.description for every option, which made "does this column
-			 * carry a description?" unanswerable. */
-			get: (t, k) => (k === 'depends' || k === 'value') ? () => proxy : real[k],
+			 * carry a description?" unanswerable.
+			 * Record what value()/depends() were called with, so the tests can
+			 * assert the form LuCI really builds (which values are offered,
+			 * what a field depends on) instead of grepping the source. */
+			get: (t, k) => (k === 'depends')
+				? (...a) => { (real.depends = real.depends || []).push(a); return proxy; }
+				: (k === 'value')
+				? (v, label) => { (real.values = real.values || {})[v] = label; return proxy; }
+				: real[k],
 			set: (t, k, v) => { real[k] = v; return true; }
 		});
 		this.children.push(proxy);
@@ -315,14 +323,19 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('meta line rendered', 'socat-meta', all);
 	has('version span has an id', 'socat-t-version', all);
 	has('GitHub link points at the repo', 'github.com/busybin/luci-app-socat-reforged', all);
-	has('engine settings section is declared', "form.NamedSection, 'reforged'", src);
+	ck('the engine settings section is declared', 1,
+		SECTIONS.filter((s) => s.sc === global.form.NamedSection && s.cfg === 'reforged').length);
 	has('engine log section is rendered', 'socat-logbox', all);
 	/* the page owns its padding (a plain view has no CBI container), and the
 	 * Start button must not look like "Save & Apply": the dirty tracker clears
 	 * the unsaved marker on a click of any `.cbi-button-apply` */
 	has('the page is wrapped in socat-page', '"class":"socat-page"', all);
-	has('Start uses the affirmative style', "cbi-button-positive', 'click': ui.createHandlerFn(this, 'handleStart')", src);
-	ck('Start is not the dirty-clearing class', false, /cbi-button-apply', 'click': ui.createHandlerFn\(this, 'handleStart'\)/.test(src));
+	/* the Start button must not look like "Save & Apply" (the dirty tracker
+	 * clears the unsaved marker on any .cbi-button-apply click) — assert the
+	 * button we actually rendered and its wiring, not a source substring */
+	ck('Start is wired to its handler', true, WIRED.indexOf('handleStart') >= 0);
+	ck('Start uses the affirmative style', true, /cbi-button cbi-button-positive/.test(all));
+	ck('Start is not the dirty-clearing class', false, /cbi-button-apply/.test(all));
 
 	/* The backend (ucode) reports failures with plain English detail/error
 	 * strings — the translation catalogue only exists in the browser — so the
@@ -357,7 +370,7 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 		WIRED.indexOf('handleLogRefresh') >= 0);
 	ck('clear button is wired to its handler', true,
 		WIRED.indexOf('handleLogClear') >= 0);
-	has('log box asks the log ubus method', "method: 'log'", src);
+	ck('the log box fetched through the ubus log method', true, CALLS.indexOf('log') >= 0);
 	await v.handleLogClear();
 	ck('clearing the log calls the log_clear ubus method', true,
 		CALLS.indexOf('log_clear') >= 0);
@@ -394,15 +407,15 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	ck('mcast_ttl is a small range', 'range(1,255)', tl && tl.datatype);
 	const nd = optOf('nodelay');
 	ck('nodelay is a flag', true, !!nd);
-	has('proto offers ssl and unix', "['tcp', 'udp', 'ssl', 'unix']", src);
-	has('dest_proto offers mcast', "'mcast'", src);
-	has('import validation knows ssl', "'ssl'", src);
-	has('import validation checks ssl_verify', 'importFlagOk(rule.ssl_verify)', src);
-	has('import validation checks keepalive', 'importFlagOk(rule.keepalive)', src);
-	has('import validation checks user', 'USER_RE.test(String(rule.user))', src);
-	has('import validation checks retry', 'importRangeOk(rule.retry, 0, 3600)', src);
-	has('user is offered for every protocol', "form.Value, 'user'", src);
-	has('retry depends on the tcp/ssl/unix targets', "depends('dest_proto', 'unix')", src);
+	/* the offered values and the dependencies are read back from the form the
+	 * view really built (the stub records value()/depends()), so these check
+	 * behaviour instead of matching source text */
+	const offered = (n) => Object.keys((optOf(n) || {}).values || {}).sort();
+	ck('proto offers tcp, udp, ssl and unix', 'ssl,tcp,udp,unix', offered('proto').join(','));
+	ck('dest_proto offers multicast', true, offered('dest_proto').indexOf('mcast') >= 0);
+	ck('user is offered', true, !!optOf('user'));
+	ck('retry depends on the tcp/ssl/unix targets', true,
+		(((optOf('retry') || {}).depends) || []).some((d) => d[0] === 'dest_proto' && d[1] === 'unix'));
 
 	/* ---- every engine option must be editable and exported ------------------
 	 * This is the check that catches "added to the engine, forgotten in the
@@ -427,9 +440,7 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	 * it is the label the user sees, the generator has no business with it. */
 	const orphan = EXPORT_FIELDS.filter(n => n !== 'remarks' && genOpts.indexOf(n) < 0);
 	ck('no exported field is unknown to the engine', 'none', orphan.length ? orphan.join(',') : 'none');
-	has('range hint shown to the user', '30000-30010', src);
-	has('import validation accepts a port range', '([0-9]{1,5})(?:-([0-9]{1,5}))?$', src);
-has('import validation checks mcast_iface', 'NAME_RE.test(String(rule.mcast_iface))', src);
+	has('range hint shown to the user', '30000-30010', String(optOf('listen_port').placeholder));
 
 	/* importCheck is module-private: evaluate the module a second time and hand
 	 * the function back, so these cases exercise the real code instead of
@@ -457,6 +468,24 @@ has('import validation checks mcast_iface', 'NAME_RE.test(String(rule.mcast_ifac
 	ck('import validation accepts the default proxy pair', null,
 		imp(Object.assign({}, baseRule,
 			{ proxy: 'socks4a', proxy_server: '127.0.0.1', proxy_port: '1080' })));
+	/* the parity options the generator accepts must survive import as well:
+	 * a value importCheck lets through but the generator refuses makes the
+	 * rule silently disappear on import, so each guarded option gets a case */
+	ck('import validation accepts a TLS rule', null,
+		imp(Object.assign({}, baseRule,
+			{ proto: 'ssl', ssl_cert: '/etc/c.pem', ssl_key: '/etc/k.pem' })));
+	ck('import validation rejects a bad ssl_verify', 'a boolean option must be 0 or 1',
+		imp(Object.assign({}, baseRule, { ssl_verify: 'yes' })));
+	ck('import validation rejects a bad keepalive', 'a boolean option must be 0 or 1',
+		imp(Object.assign({}, baseRule, { keepalive: 'yes' })));
+	ck('import validation rejects a bad user', 'bad user',
+		imp(Object.assign({}, baseRule, { user: 'foo bar' })));
+	ck('import validation rejects an out-of-range retry', 'bad retry',
+		imp(Object.assign({}, baseRule, { retry: '9999' })));
+	ck('import validation accepts a port range', null,
+		imp(Object.assign({}, baseRule, { listen_port: '30000-30010' })));
+	ck('import validation rejects a bad mcast_iface', 'bad mcast_iface',
+		imp(Object.assign({}, baseRule, { mcast_iface: 'eth0 bad' })));
 	/* the field's own placeholder must pass its datatype */
 	ck('mcast_iface accepts eth0.2', 'netdevname', optOf('mcast_iface').datatype);
 
@@ -596,10 +625,10 @@ ck('proxy_server takes a host name as well as an IPv4 literal',
 		/if \(this\._updSupported\) \{/.test(src));
 	ck('no standalone update row is left over', false, /socat-upd-line/.test(src));
 	ck('the automatic check is an engine setting', true, !!optOf('update_check'));
-	has('the update check goes through the backend', "method: 'update_check'", src);
-	has('the install goes through the backend', "method: 'update_install'", src);
-	has('progress is polled from the backend', "method: 'update_status'", src);
+	ck('the installer is declared', true, declared.indexOf('update_install') >= 0);
+	ck('the progress poller is declared', true, declared.indexOf('update_status') >= 0);
 	await v.checkUpdates(true, false);
+	ck('the update check goes through the backend', true, CALLS.indexOf('update_check') >= 0);
 	const updBanner = byId['socat-upd'];
 	const updText = updBanner ? flatten(updBanner.children) + JSON.stringify(updBanner.children) : '(no banner)';
 	has('the banner names the new release', 'V5', updText);

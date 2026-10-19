@@ -218,7 +218,6 @@ try() { # try <sid> <kind> <port|-> <cmd>
 	rm -f "$err"
 }
 
-NLINES=$(wc -l < "$WORK/des")
 pair_tcp=""; pair_tcp6=""; pair_port=""
 # a literal tab in IFS, so the five columns come back whole
 while IFS='	' read -r sid kind port key cmd; do
