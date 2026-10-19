@@ -145,7 +145,7 @@ const store = {};
 for (const r of RULES) store[r['.name']] = Object.assign({}, r);
 /* the internal engine-settings section: the view reads `update_check` from it
  * to decide whether to ask GitHub on its own */
-store['reforged'] = { fix_v6_route: '0', wg_dnat_guard: '0', debug: '0', update_check: '1' };
+store['reforged'] = { debug: '0', update_check: '1' };
 
 /* records uci.add() calls, so a test can prove the engine-settings section is
  * created when the config predates it */
@@ -325,16 +325,10 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('GitHub link points at the repo', 'github.com/busybin/luci-app-socat-reforged', all);
 	ck('the engine settings section is declared', 1,
 		SECTIONS.filter((s) => s.sc === global.form.NamedSection && s.cfg === 'reforged').length);
-	/* The two environment-specific engine switches must NOT be offered: they fix
-	 * one ISP's broken IPv6 delegation and watch for a WireGuard DNAT rule, so
-	 * showing them to every user would only advertise the box they were written
-	 * for.  They stay opt-in engine features (`uci set socat.reforged.<x>=1`). */
 	const eng = SECTIONS.filter((s) => s.sc === global.form.NamedSection && s.cfg === 'reforged')[0];
 	const engNames = (eng ? eng.opts : []).map((o) => o.name);
 	ck('the engine settings offer "debug"', true, engNames.indexOf('debug') >= 0);
 	ck('...and the update toggle', true, engNames.indexOf('update_check') >= 0);
-	ck('the IPv6-route switch is not offered', -1, engNames.indexOf('fix_v6_route'));
-	ck('the WireGuard switch is not offered', -1, engNames.indexOf('wg_dnat_guard'));
 	has('engine log section is rendered', 'socat-logbox', all);
 	/* the page owns its padding (a plain view has no CBI container), and the
 	 * Start button must not look like "Save & Apply": the dirty tracker clears
@@ -687,7 +681,7 @@ ck('proxy_server takes a host name as well as an IPv4 literal',
 	ck('a missing engine-settings section is created on load',
 		'internal:reforged', added.map((a) => a[0] + ':' + a[1]).join(','));
 	added.length = 0;
-	store['reforged'] = { fix_v6_route: '0', wg_dnat_guard: '0', debug: '0', update_check: '1' };
+	store['reforged'] = { debug: '0', update_check: '1' };
 	await mkView();
 	ck('an existing engine-settings section is left alone', 0, added.length);
 

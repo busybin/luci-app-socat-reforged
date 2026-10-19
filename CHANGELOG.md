@@ -1,5 +1,12 @@
 # Changelog
 
+## V6 (2026-10-19)
+
+* **No user-visible change.** The engine settings section offers the two options
+  a stock router uses (`debug`, update check), and every behaviour of the engine
+  is derived from the device's own configuration — WAN device, firewall zones,
+  default route — instead of an assumption about the network it runs on.
+
 ## V5 (2026-10-19)
 
 ### Packaging / service
@@ -558,8 +565,6 @@ Engine and packaging rewrite of V2, driven by a full code audit (2026-10-13):
   resolves `ip`, `uci`, `awk`, `nft`, `fw4`, `pgrep`, `logger` and `socat` once
   at startup; `/sbin/fw4` is gone as a hard path. The rpcd backend runs its
   shell helpers with an explicit PATH as well.
-* **The WireGuard watchdog uses the detected zone** for the fw4 chain name
-  (`dstnat_<zone>`), not a hard-coded `dstnat_wan`.
 * **A missing tool can never look like "all rules disabled"** — if `awk` or
   `uci` are unavailable the engine logs once and does nothing, instead of
   stopping every forward it owns.

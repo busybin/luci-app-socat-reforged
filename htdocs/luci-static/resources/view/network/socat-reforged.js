@@ -32,7 +32,7 @@ var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto',
 	'user', 'retry' ];
 
 /* engine settings section (internal) + the options of one forward */
-var SETTING_FIELDS = [ 'fix_v6_route', 'wg_dnat_guard', 'debug', 'update_check' ];
+var SETTING_FIELDS = [ 'debug', 'update_check' ];
 var ENGINE_SECTION = 'reforged';
 
 /* how long the page waits between two polls of a running self-update */
@@ -1586,9 +1586,7 @@ return view.extend({
 			}).then(function() { self.recount(); });
 		};
 
-		/* ---- engine settings (internal section socat.reforged) ----
-		 * fix_v6_route / wg_dnat_guard are engine-only: an ordinary install has
-		 * no use for them, so they are not offered here (uci only). */
+		/* ---- engine settings (internal section socat.reforged) ---- */
 		var g = m.section(form.NamedSection, 'reforged', _('Engine settings'));
 		g.addremove = false;
 

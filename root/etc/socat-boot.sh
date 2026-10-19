@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-#  socat-reforged forwarding engine  (V5)
+#  socat-reforged forwarding engine  (V6)
 # ============================================================================
 #  Reconciles /etc/config/socat against the running socat workers.
 #
@@ -26,9 +26,6 @@
 #  The LuCI view reads that file directly (ubus luci.socat-reforged log).
 #  A steady state is silent on purpose, so a rate-limited "alive:" line every
 #  ~15 min is the log's proof of life.
-#  * The personal-environment behaviour of V2 left the default path: the
-#    2000::/3 route fix and the WireGuard DNAT watchdog are opt-in UCI
-#    switches (default off) and never flush conntrack.
 #  * Firewall sync rate-limits retries, aggregates consecutive ports into
 #    ranges, and self-heals if its rules were removed behind our back.
 #  * A listener is identified by the fact that it still owns the listening
@@ -978,59 +975,6 @@ EOF
 	return 0
 }
 
-# Opt-in (socat.reforged.fix_v6_route=1): keep a 2000::/3 route pointing at the
-# current default gateway.  Off by default: it is an ISP-specific workaround.
-fix_ipv6_route() {
-	[ "$(opt fix_v6_route 0)" = "1" ] || return 0
-	local line gw dev
-	line=$($IP_BIN -6 route show default 2>/dev/null | head -1)
-	[ -n "$line" ] || return 0
-	set -- $line
-	gw=""
-	dev=""
-	while [ $# -ge 2 ]; do
-		case "$1" in
-			via) gw="$2" ;;
-			dev) dev="$2" ;;
-		esac
-		shift
-	done
-	[ -n "$gw" ] && [ -n "$dev" ] || return 0
-	if $IP_BIN -6 route show 2000::/3 2>/dev/null | grep -q "via $gw dev $dev"; then
-		return 0
-	fi
-	if $IP_BIN -6 route replace 2000::/3 via "$gw" dev "$dev" metric 1024 2>/dev/null; then
-		log_rate "v6route" 3600 "2000::/3 route updated -> via $gw dev $dev"
-	fi
-}
-
-# Opt-in (socat.reforged.wg_dnat_guard=1): if the user really configured a
-# 51820 DNAT rule, make sure it is present.  Never touches conntrack.
-check_wg_dnat() {
-	[ "$(opt wg_dnat_guard 0)" = "1" ] || return 0
-	local line want=0 fwin zone
-	fwin=$($UCI_BIN show firewall 2>/dev/null)
-	while IFS= read -r line; do
-		case "$line" in *dest_port*51820*) want=1; break ;; esac
-	done <<EOF
-$fwin
-EOF
-	[ "$want" = "1" ] || return 0
-	# fw4 names the chain after the zone (dstnat_<zone>), so check the zones
-	# we detected instead of assuming one called "wan"
-	load_wan_zones
-	for zone in $WAN_ZONES; do
-		if $NFT_BIN list chain inet fw4 "dstnat_$zone" 2>/dev/null | grep -q '51820.*dnat'; then
-			return 0
-		fi
-	done
-	log_rate "wgdnat" 900 "WARN: configured WG 51820 DNAT rule is missing from nftables"
-	if [ $((CYCLE % (FW_EVERY * 4))) -eq 0 ]; then
-		"$FW4_BIN" reload 2>/dev/null
-		log "reloaded fw4 to restore the WG DNAT rule"
-	fi
-}
-
 # ------------------------------------------------------------ memory health ---
 
 read_mem() { # -> $MEM_TOTAL_KB / $MEM_AVAIL_KB / $MEM_FREE_KB
@@ -1263,12 +1207,6 @@ while true; do
 	fi
 	if [ $((CYCLE % V6_EVERY)) -eq 1 ] || [ -z "$WAN_DEV" ]; then
 		get_wandev
-	fi
-	if [ $((CYCLE % V6_EVERY)) -eq 3 ]; then
-		fix_ipv6_route
-	fi
-	if [ $((CYCLE % FW_EVERY)) -eq 3 ]; then
-		check_wg_dnat
 	fi
 	# firewall zones are only re-detected when something may have changed
 	if [ $((CYCLE % FW_EVERY)) -eq 2 ] || [ ! -f "$RUNDIR/fw.zones" ]; then
