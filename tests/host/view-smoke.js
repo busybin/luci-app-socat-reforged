@@ -363,7 +363,9 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	const la = optOf('listen_addr');
 	ck('listen_addr accepts v4 or v6', 'or(ip4addr, ip6addr)', la && la.datatype);
 	const us = optOf('user');
-	ck('user is a name, not a free string', 'uciname', us && us.datatype);
+	/* uciname would reject a dashed Linux user name that the generator takes;
+	 * the field is a free string validated by the generator's own rule */
+	ck('user is a name, checked by a validator', 'function', typeof (us && us.validate));
 	const rt = optOf('retry');
 	ck('retry is a range', 'range(0,3600)', rt && rt.datatype);
 	const up = optOf('unix_path');
@@ -488,6 +490,39 @@ addRule({ '.name': 'cfgA5', enable: '1', proto: 'udp', listen_port: '9091' });
 ck('two identical binds still conflict', true, flagged('cfgA4'));
 addRule({ '.name': 'cfgA6', enable: '0', proto: 'tcp', listen_port: '9090' });
 ck('a disabled rule is never reported', false, flagged('cfgA6'));
+/* an OPENSSL listener is still a TCP socket on the same port */
+addRule({ '.name': 'cfgA7', enable: '1', proto: 'ssl', listen_port: '9092' });
+addRule({ '.name': 'cfgA8', enable: '1', proto: 'tcp', listen_port: '9092' });
+ck('TLS and tcp on one port conflict', true, flagged('cfgA7'));
+/* ...but only on the stack it can bind */
+addRule({ '.name': 'cfgA9', enable: '1', proto: 'tcp', listen_port: '9093', family: '6' });
+addRule({ '.name': 'cfgA10', enable: '1', proto: 'ssl', listen_port: '9093' });
+ck('a v6-only rule does not clash with TLS (IPv4)', false, flagged('cfgA9'));
+addRule({ '.name': 'cfgA11', enable: '1', proto: 'tcp', listen_port: '9094', family: '4' });
+addRule({ '.name': 'cfgA12', enable: '1', proto: 'tcp', listen_port: '9094', family: '6' });
+ck('a v4-only and a v6-only rule may share a port', false, flagged('cfgA11'));
+addRule({ '.name': 'cfgA13', enable: '1', proto: 'udp', listen_port: '9095' });
+addRule({ '.name': 'cfgA14', enable: '1', proto: 'tcp', listen_port: '9095' });
+ck('tcp and udp may share a port', false, flagged('cfgA13'));
+
+/* ---- form validation: values the engine would silently skip ------------- */
+ck('a listen port of 0 is refused by the form', true,
+	optOf('listen_port').validate('cfgA1', '0') !== true);
+ck('a listen port above 65535 is refused by the form', true,
+	optOf('listen_port').validate('cfgA1', '70000') !== true);
+ck('a listen port range is accepted by the form', true,
+	optOf('listen_port').validate('cfgA1', '30000-30010') === true);
+ck('a destination port of 0 is refused by the form', true,
+	optOf('dest_port').validate('cfgA1', '0') !== true);
+/* the shape LuCI really uses: (section_id, value) */
+ck('a good port passes the LuCI validator call', true,
+	optOf('dest_port').validate('cfgA1', '80') === true);
+ck('a dashed user name is accepted (the generator allows it)', true,
+	optOf('user').validate('cfgA1', 'foo-bar') === true);
+ck('a user name with a space is refused', true,
+	optOf('user').validate('cfgA1', 'foo bar') !== true);
+ck('proxy_server takes a host name as well as an IPv4 literal',
+	'or(hostname, ip4addr)', optOf('proxy_server').datatype);
 
 	const metaText = byId['socat-t-version'] ? byId['socat-t-version'].textContent : '(none)';
 	has('version text after recount', 'v2', metaText);
