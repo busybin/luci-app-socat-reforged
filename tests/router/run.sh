@@ -25,7 +25,7 @@ echo "  (installed build $BUILD)"
 echo
 
 echo "== copying the checks =="
-for f in "$HERE"/engine-checks.sh "$HERE"/perf.sh "$HERE"/backend-checks.uc; do
+for f in "$HERE"/engine-checks.sh "$HERE"/perf.sh "$HERE"/service-checks.sh "$HERE"/backend-checks.uc; do
 	ssh "$HOST" "cat > /tmp/socat-test/$(basename "$f")" < "$f"
 done
 ssh "$HOST" 'chmod +x /tmp/socat-test/*.sh; echo ok'
@@ -46,6 +46,9 @@ ssh "$HOST" 'sh /tmp/socat-test/engine-checks.sh' || rc=1
 echo
 echo "== backend checks =="
 ssh "$HOST" 'ucode /tmp/socat-test/backend-checks.uc' || rc=1
+echo
+echo "== service checks (SIGTERM, not SIGKILL) =="
+ssh "$HOST" 'sh /tmp/socat-test/service-checks.sh' || rc=1
 echo
 echo "== perf checks (120s) =="
 ssh "$HOST" 'sh /tmp/socat-test/perf.sh 120' || rc=1

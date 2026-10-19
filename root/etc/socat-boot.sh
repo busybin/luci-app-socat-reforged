@@ -1114,7 +1114,22 @@ on_signal() { # on_signal <NAME>  (installed only in the main loop)
 	note_exit "signal $1"
 	log "engine: caught SIG$1, stopping"
 	rm -f "$ALIVE_MARK" 2>/dev/null
+	[ -n "${NAP_PID:-}" ] && kill "$NAP_PID" 2>/dev/null
 	exit 0
+}
+
+# Sleep, but stay interruptible.  A plain `sleep 15` is a foreground child, and
+# ash does not run the trap until that child returns, so on a restart procd
+# waited its whole term_timeout (5 s), gave up and SIGKILLed us -- the kernel
+# log even said so ("not stopped on SIGTERM, sending SIGKILL instead") and the
+# signal trap never ran (no `caught SIGTERM` line, no cleanup).  Sleeping in the
+# background and waiting for it keeps the shell in `wait`, which *is*
+# interruptible, so the trap fires at once.
+nap() { # nap <seconds>
+	sleep "$1" &
+	NAP_PID=$!
+	wait "$NAP_PID" 2>/dev/null
+	NAP_PID=''
 }
 
 # -------------------------------------------------------------- one-shots ---
@@ -1288,5 +1303,5 @@ while true; do
 		log "HEALTH: mem=$(mem_pct)% workers=$WORKER_COUNT listeners=$LIST_COUNT ipv6=${IPV6:-none} uptime=$(uptime_s)s"
 	fi
 
-	sleep "$INTERVAL"
+	nap "$INTERVAL"
 done
