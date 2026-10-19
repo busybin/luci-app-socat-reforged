@@ -192,6 +192,10 @@ debug_on() { [ "$(opt debug 0)" = "1" ]; }
 # shows.  /var/log is tmpfs on OpenWrt, so this costs RAM, never flash.
 LOGF=/var/log/socat-reforged.log
 LOG_MAX_KB=64
+# /var/log is tmpfs on OpenWrt and logd normally creates it; on a minimal or
+# logd-less system it may be missing, and then every log write would print
+# "can't create ...: nonexistent directory" to stderr instead of logging.
+mkdir -p "${LOGF%/*}" 2>/dev/null || true
 
 log() {
 	if [ -n "$LOGF" ]; then
@@ -709,7 +713,7 @@ publish_state() {
 	read -r up rest < /proc/uptime 2>/dev/null
 	up=${up%%.*}
 	# report the real engine loop, not the one-shot process that may be running us
-	lp=$($PGREP_BIN -f '/etc/socat-boot.sh$' 2>/dev/null | head -1)
+	lp=$($PGREP_BIN -f '^(/bin/)?sh /etc/socat-boot.sh$' 2>/dev/null | head -1)
 	[ -n "$lp" ] || lp=$$
 	{
 		echo "engine $lp $up $LIST_COUNT $PKG_VERSION $BUILD $BUILT"
@@ -1171,7 +1175,7 @@ if [ "$1" = "status" ]; then
 	listener_pids
 	gen_desired
 	flush_warnings
-	echo "engine loop  : $($PGREP_BIN -f '/etc/socat-boot.sh$' | tr '\n' ' ')"
+	echo "engine loop  : $($PGREP_BIN -f '^(/bin/)?sh /etc/socat-boot.sh$' | tr '\n' ' ')"
 	echo "version       : $(version_line) (built $BUILT)"
 	echo "uptime        : $(uptime_s)s"
 	echo "socat workers : $WORKER_COUNT (listeners $LIST_COUNT)"

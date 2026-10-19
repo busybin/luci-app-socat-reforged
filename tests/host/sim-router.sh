@@ -471,8 +471,6 @@ EOF
 	cleanup
 }
 
-PG=x   # (kept for readability of cleanup; the real loop is below)
-
 echo "layout simulator (real engine, fake uci/ip, real socat, ${SECS}s each)"
 echo
 

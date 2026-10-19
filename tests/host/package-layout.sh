@@ -102,8 +102,28 @@ if command -v make >/dev/null 2>&1; then
 	mv "$WORK/postinst.clean" "$WORK/postinst.sh"
 	if sh -n "$WORK/postinst.sh" 2>"$WORK/syntax.err"; then rc=0; else rc=1; fi
 	check 'the expanded postinst is valid shell' 0 "$rc"
+	has 'the postinst can create a missing config file' \
+		'[ -f /etc/config/socat ] || : > /etc/config/socat' "$(cat "$WORK/postinst.sh")"
 	has 'the backup name keeps its command substitution' '.bak.$(date +' "$(cat "$WORK/postinst.sh")"
-	has 'the pgrep pattern keeps its anchor and quote' "'/etc/socat-boot.sh\$'" "$(cat "$WORK/postinst.sh")"
+	has 'the pgrep pattern keeps its anchor and quote' "'^(/bin/)?sh /etc/socat-boot.sh\$'" "$(cat "$WORK/postinst.sh")"
+	# The old pattern ('/etc/socat-boot.sh$') matched *any* command line that
+	# merely ended with the path — it killed the `docker exec ... /etc/
+	# socat-boot.sh` that was running the install during the first stock-box
+	# test.  Only "sh /etc/socat-boot.sh" (the engine loop) may match.
+	if command -v pgrep >/dev/null 2>&1; then
+		sh -c 'sleep 30 & wait; : /etc/socat-boot.sh' &
+		vpid=$!
+		for i in 1 2 3 4 5 6 7 8 9 10; do
+			pgrep -f '/etc/socat-boot.sh$' | grep -qx "$vpid" && break
+			sleep 0.1
+		done
+		old_hit=$(pgrep -f '/etc/socat-boot.sh$' | grep -cx "$vpid")
+		new_hit=$(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' | grep -cx "$vpid")
+		kill "$vpid" 2>/dev/null
+		wait "$vpid" 2>/dev/null
+		check '...while the old pattern did match it' 1 "$old_hit"
+		check 'the shipped pattern matches only the engine loop' 0 "$new_hit"
+	fi
 else
 	printf '  %-46s %s\n' 'the expanded postinst is valid shell' '(skipped: no make)'
 fi
@@ -115,6 +135,10 @@ check 'install.sh installs the engine 755' 1 "$(grep -c 'root/etc/socat-boot.sh 
 check 'install.sh installs the init script 755' 1 "$(grep -c 'root/etc/init.d/socat-reforged /etc/init.d/socat-reforged 755' "$REPO/install.sh")"
 check 'install.sh installs the ctl helper 755' 1 "$(grep -c 'root/usr/libexec/socat-reforged-ctl /usr/libexec/socat-reforged-ctl 755' "$REPO/install.sh")"
 check 'install.sh keeps data files 644' 1 "$(grep -c 'socat-reforged-gen.awk /usr/libexec/socat-reforged-gen.awk 644' "$REPO/install.sh")"
+# uci set cannot create a missing package file ("Entry not found"), so the
+# section creation has to touch it first — the same guard is in the postinst
+check 'install.sh can create a missing config file' 1 \
+	"$(grep -c '|| : > /etc/config/socat' "$REPO/install.sh")"
 
 # ------------------------------------------------ self-update stays runnable --
 # the "Update now" button exec's this helper through rpcd, and the ACL has to

@@ -12,7 +12,7 @@ PURGE=0
 echo "stopping the engine ..."
 /etc/init.d/socat-reforged stop >/dev/null 2>&1 || true
 /etc/init.d/socat-reforged disable >/dev/null 2>&1 || true
-for p in $(pgrep -f '/etc/socat-boot.sh$' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
+for p in $(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
 [ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1 || true
 
 echo "removing firewall rules ..."

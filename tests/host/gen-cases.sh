@@ -921,6 +921,33 @@ socat.a.dest_ip=10.0.0.9
 socat.a.dest_port=80
 '
 
+# ---- coexistence with the official socat package --------------------------
+# The stock `socat` package (and the old luci-app-socat) stores its instances
+# as `config socat 'name'`, i.e. "socat.<name>=socat" in `uci show`. Those
+# sections are not ours: they must be left completely alone (their listener is
+# started by /etc/init.d/socat from SocatOptions), not half-parsed into a
+# forward with empty proto/listen_port and a warning.
+gen_case 'an official socat instance is ignored' "$V6" '' '' '
+socat.http=socat
+socat.http.enable=1
+socat.http.SocatOptions="TCP6-LISTEN:8000,fork TCP4:192.168.1.20:80"
+socat.http.user=nobody
+'
+
+# ...while a rule added anonymously (`uci add socat config`, printed as
+# "socat.@config[0]") is one of ours and must still run.
+gen_case 'an anonymous config section is one of ours' "$V6" \
+	'@config[0]/tcp @config[0]/tcp6 ' '' '
+socat.@config[0]=config
+socat.@config[0].enable=1
+socat.@config[0].proto=tcp
+socat.@config[0].listen_port=6321
+socat.@config[0].dest_proto=tcp4
+socat.@config[0].dest_ip=10.0.0.9
+socat.@config[0].dest_port=80
+socat.@config[0].firewall_accept=1
+'
+
 # ---- drop privileges (socat ",user=") and retry (",retry=") ------------------
 # Copied from mylucien.  Both are single-token options, so unlike custom_opts
 # they cannot smuggle another option into the command line; the character set

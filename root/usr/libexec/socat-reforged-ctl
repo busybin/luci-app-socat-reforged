@@ -19,7 +19,7 @@ case "$1" in
 		;;
 	stop)
 		ubus call service delete '{"name":"'"$SERVICE"'"}' >/dev/null 2>&1
-		for p in $(pgrep -f '/etc/socat-boot.sh$' 2>/dev/null); do
+		for p in $(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' 2>/dev/null); do
 			kill -9 "$p" 2>/dev/null
 		done
 		/etc/socat-boot.sh cleanup >/dev/null 2>&1

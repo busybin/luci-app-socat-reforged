@@ -93,6 +93,7 @@ inst root/etc/hotplug.d/iface/99-socat-reforged /etc/hotplug.d/iface/99-socat-re
 # predate the section, so "the file exists" is not enough: without
 # socat.reforged every engine setting silently refuses to save (LuCI's
 # uci.set() no-ops on a missing section).
+[ -f /etc/config/socat ] || : > /etc/config/socat   # uci set cannot create the file
 if ! uci -q get socat.reforged >/dev/null 2>&1; then
   uci set socat.reforged=internal
   uci set socat.reforged.note='managed by luci-app-socat-reforged'
@@ -113,7 +114,7 @@ fi
 # --- (re)start the engine from the freshly installed file ---
 ubus call service delete '{"name":"socat"}' >/dev/null 2>&1 || true
 ubus call service delete '{"name":"socat-reforged"}' >/dev/null 2>&1 || true
-for p in $(pgrep -f '/etc/socat-boot.sh$' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+for p in $(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 # drop runtime state of the previous engine (workers are re-adopted/killed by
 # the new one, which only ever touches its own marker processes)
 [ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1 || true

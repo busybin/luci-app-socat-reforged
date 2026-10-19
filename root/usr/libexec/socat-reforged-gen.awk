@@ -39,6 +39,11 @@ function ok_host(v)  { return (v ~ /^[A-Za-z0-9._:-]+$/) }
 # Linux usernames allow, no metacharacters, so it can never become an option.
 function ok_user(v)  { return (v ~ /^[A-Za-z_][A-Za-z0-9_-]*$/ && length(v) <= 32) }
 function ok_name(v)  { return (v ~ /^[A-Za-z0-9_.-]+$/) }
+# a UCI section id: a named section, or the anonymous form "uci show" prints
+# ("@config[0]").  The engine sanitizes the id before using it as a file name,
+# so the brackets are safe; without this a rule added with `uci add socat
+# config` (no name) was parsed and then dropped as a "bad section id".
+function ok_secid(v) { return (v ~ /^[A-Za-z0-9_.-]+$/) || (v ~ /^@[A-Za-z0-9_]+\[[0-9]+\]$/) }
 function ok_flag(v)  { return (v == "" || v == "0" || v == "1") }
 function ipport(v)   { v = plain_num(v); return (v ~ /^[0-9]+$/ && v + 0 >= 1 && v + 0 <= 65535) }
 function ok_uint(v, lo, hi) { v = plain_num(v); return (v ~ /^[0-9]+$/ && v + 0 >= lo && v + 0 <= hi) }
@@ -226,7 +231,7 @@ END {
 				warn(sid, "enable must be 0 or 1, treating as disabled")
 			continue
 		}
-		if (!ok_name(sid))                 { warn(sid, "bad section id, skip"); continue }
+		if (!ok_secid(sid))                { warn(sid, "bad section id, skip"); continue }
 		if (proto != "tcp" && proto != "udp" && proto != "ssl" && proto != "unix") {
 			warn(sid, "bad proto, skip"); continue
 		}

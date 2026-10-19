@@ -182,7 +182,6 @@ awk -v ipv6="2001:db8:1::2" -v socat="$SOCAT" \
 	-f "$GEN" < "$WORK/in.show"
 
 printf '  %-42s %s\n' "rule/sid" "kind, command"
-BEGIN_BUGS=0
 
 # start one command, then assert the listener really exists
 try() { # try <sid> <kind> <port|-> <cmd>
