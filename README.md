@@ -111,8 +111,6 @@ drop-in replacement with a modern, ucode-native view.
 
 | option | default | meaning |
 | --- | --- | --- |
-| `fix_v6_route` | `0` | Keep a static `2000::/3` route pointing at the current default gateway. An ISP-specific workaround; off by default. |
-| `wg_dnat_guard` | `0` | If you configured a 51820 DNAT rule, reload the firewall when it disappears from nftables. Never touches connection tracking. |
 | `debug` | `0` | Log a `HEALTH` line every minute (memory, worker count, IPv6, uptime). |
 | `update_check` | `0` | Ask GitHub for the latest release when the page is opened (and every six hours while it stays open) and show a notice when there is one. Nothing is downloaded or installed until you press **Update now** yourself. |
 
