@@ -117,12 +117,26 @@ fi
 # --- (re)start the engine from the freshly installed file ---
 ubus call service delete '{"name":"socat"}' >/dev/null 2>&1 || true
 ubus call service delete '{"name":"socat-reforged"}' >/dev/null 2>&1 || true
+# procd swallows a start issued while it is still tearing the old instance down
+# (observed: the box was left with its workers up and no engine running), so
+# wait for the old loop to disappear and check that a new one really came up
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' >/dev/null 2>&1 || break
+  sleep 1
+done
 for p in $(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 # drop runtime state of the previous engine (workers are re-adopted/killed by
 # the new one, which only ever touches its own marker processes)
 [ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1 || true
 /etc/init.d/socat-reforged enable >/dev/null 2>&1 || true
+engine_up() { pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' >/dev/null 2>&1; }
 /etc/init.d/socat-reforged start >/dev/null 2>&1 || true
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  engine_up && break
+  /etc/init.d/socat-reforged start >/dev/null 2>&1 || true
+  sleep 1
+done
+engine_up || echo "WARNING: the engine did not come up; run /etc/init.d/socat-reforged start"
 
 # --- triggers + caches ---
 /etc/init.d/ucitrack restart >/dev/null 2>&1 || true
