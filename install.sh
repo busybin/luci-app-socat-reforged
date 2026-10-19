@@ -15,8 +15,7 @@ inst() { # src dst mode
   mkdir -p "$(dirname "$2")"
   cp "$HERE/$1" "$2"
   chmod "$3" "$2"
-  # a copy a package manager deferred (see socat-reforged-apply-deferred) is
-  # older than what we just installed, so it must not survive
+  # a copy the package manager deferred is older than what we just installed
   rm -f "$2.apk-new" "$2.opkg-new"
   echo "installed $2"
 }

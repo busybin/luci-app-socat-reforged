@@ -1,23 +1,7 @@
 #!/bin/sh
-# ============================================================================
-# tests/host/engine-signal.sh — does the engine stop on SIGTERM, or does procd
-# have to SIGKILL it?
-# ============================================================================
-# Observed on the 25.12 router while replacing the engine file:
-#
-#   daemon.info procd: Instance socat-reforged::instance1 pid 18345 not stopped
-#                      on SIGTERM, sending SIGKILL instead
-#
-# and the engine log had no "caught SIGTERM" line: the trap never ran, so
-# neither the reason for the exit nor the runtime cleanup happened.  The cause is
-# the shape of the sleep in the main loop -- `sleep 15` is a foreground child and
-# ash does not run a trap until that child returns, which is longer than procd's
-# 5 s term_timeout.
-#
-# This suite takes `nap()` and `on_signal()` *out of the shipped engine* (not a
-# copy) and drives them with a real signal, so a plain `sleep` in the loop makes
-# it fail.
-#
+# The engine must stop on SIGTERM: a foreground sleep in the loop delayed the
+# trap past procd's 5 s timeout, which SIGKILLed it (no shutdown reason, no
+# cleanup).  Drives the shipped nap()/on_signal() with a real signal.
 # Usage: sh tests/host/engine-signal.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -29,7 +13,6 @@ INITD=$REPO/root/etc/init.d/socat-reforged
 WORK=$HERE/.work-signal
 rm -rf "$WORK"; mkdir -p "$WORK"
 
-# ---------------------------------------------------------- the shipped bits --
 awk '/^on_signal\(\) \{/,/^\}/' "$ENGINE" > "$WORK/fn.sh"
 awk '/^nap\(\) \{/,/^\}/'      "$ENGINE" >> "$WORK/fn.sh"
 has 'the engine defines nap() (the interruptible sleep)' 'nap() {' "$(cat "$ENGINE")"
@@ -39,9 +22,7 @@ absent 'the main loop no longer uses a bare sleep' 'sleep "$INTERVAL"' "$(cat "$
 has 'the signal trap cancels the pending nap' 'kill "$NAP_PID"' "$(cat "$ENGINE")"
 has 'the service gives the engine time to stop' 'procd_set_param term_timeout 20' "$(cat "$INITD")"
 
-# -------------------------------------------------------- one real signal -----
-# Stubs for what on_signal() would touch on a router, then the two functions
-# themselves, then a nap long enough to be unmistakable.
+# the two functions plus stubs for what on_signal() touches on a router
 {
 	echo 'note_exit() { printf "%s\n" "$1" > "'"$WORK"'/exit-reason"; }'
 	echo 'log() { :; }'
