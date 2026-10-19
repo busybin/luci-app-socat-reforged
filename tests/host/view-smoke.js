@@ -218,7 +218,8 @@ const WIRED = [];
 const CALLS = [];
 global.ui = {
 	showModal: () => {}, hideModal: () => {},
-	addNotification: () => { NOTIFICATIONS.push(Array.prototype.slice.call(arguments)); },
+	/* not an arrow function: `arguments` has to be the *call's* arguments */
+	addNotification: function () { NOTIFICATIONS.push(Array.prototype.slice.call(arguments)); },
 	/* keep the bound method name, so a test can prove a button is wired to a
 	 * real handler instead of grepping the source for its name */
 	createHandlerFn: (ctx, name) => {
@@ -650,6 +651,18 @@ ck('proxy_server takes a host name as well as an IPv4 literal',
 	store['reforged'] = { fix_v6_route: '0', wg_dnat_guard: '0', debug: '0', update_check: '1' };
 	await mkView();
 	ck('an existing engine-settings section is left alone', 0, added.length);
+
+	/* a missing /etc/config/socat cannot be created by uci at all (rpcd's
+	 * `uci add` answers "Not found"), so the page must say so instead of
+	 * letting Save & Apply do nothing */
+	STATUS.config_missing = true;
+	NOTIFICATIONS.length = 0;
+	await mkView();
+	const notes = NOTIFICATIONS.map(function(a) {
+		return (a[1] && a[1].textContent) || '';
+	}).join(' | ');
+	has('a missing config file is reported', '/etc/config/socat', notes);
+	STATUS.config_missing = false;
 
 	/* the other half of the contract: the backend has to keep reporting it,
 	 * or every self-hosted build silently loses its update button */

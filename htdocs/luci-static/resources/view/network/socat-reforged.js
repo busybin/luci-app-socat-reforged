@@ -337,6 +337,12 @@ return view.extend({
 			 * it is written out with the next Save & Apply. */
 			if (uci.get('socat', ENGINE_SECTION) == null)
 				uci.add('socat', 'internal', ENGINE_SECTION);
+			/* The file itself missing is a different problem: neither LuCI's
+			 * uci.set() nor rpcd's `uci add` can create /etc/config/socat
+			 * ("Not found"), so saving is guaranteed to fail.  Say so once
+			 * instead of letting the user watch Save & Apply do nothing. */
+			if (self.status && self.status.config_missing)
+				ui.addNotification(null, E('p', {}, _('The configuration file /etc/config/socat is missing. Reinstall luci-app-socat-reforged or create the file before saving rules.')));
 			self.buildSnapshot();
 			return res;
 		});
