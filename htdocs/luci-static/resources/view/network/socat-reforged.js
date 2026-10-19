@@ -221,6 +221,30 @@ function importRangeOk(v, lo, hi) {
 	return n >= lo && n <= hi;
 }
 function importFlagOk(v) { return (v === undefined || v === '' || v === '0' || v === '1'); }
+
+/* LuCI calls a form validator as validate(section_id, value): form.js binds
+ * the section id as the first argument.  Take that shape, while staying
+ * callable with the value alone (the smoke test does) — otherwise every
+ * value would be compared against a section id and nothing could be saved. */
+function formPortOk(sid, b) {
+	var v = (arguments.length > 1) ? b : sid;
+	if (v == null || v === '')
+		return true;
+	return importRangeOk(v, 1, 65535) ? true : _('valid port value (1-65535)');
+}
+function formPortRangeOk(sid, b) {
+	var v = (arguments.length > 1) ? b : sid;
+	if (v == null || v === '')
+		return true;
+	return importPortOk(v) ? true : _('valid port or port range (1-65535)');
+}
+function formUserOk(sid, b) {
+	var v = (arguments.length > 1) ? b : sid;
+	if (v == null || v === '')
+		return true;
+	return (USER_RE.test(String(v)) && String(v).length <= 32)
+		? true : _('valid user name (letters, digits, "_", "-")');
+}
 function importCheck(rule) {
 	if (!rule || typeof rule !== 'object')
 		return _('not an object');
@@ -371,7 +395,10 @@ return view.extend({
 
 	/* two enabled rules on the same proto:port are only a real conflict when
 	 * their listen addresses overlap: two *different* specific addresses can
-	 * both bind that port, but a wildcard (no listen_addr) covers everything */
+	 * both bind that port, but a wildcard (no listen_addr) covers everything.
+	 * The listen *stack* matters too: a v4-only and a v6-only rule share the
+	 * port without touching each other, and an OPENSSL listener is a plain
+	 * TCP socket (socat can only bind it to IPv4). */
 	conflicts: function() {
 		var groups = {};
 		(uci.sections('socat', 'config') || []).forEach(function(s) {
@@ -382,9 +409,17 @@ return view.extend({
 			if (!port)
 				return;
 			var proto = uci.get('socat', sid, 'proto') || 'tcp';
+			if (proto === 'unix')
+				return;                          /* no listening socket at all */
 			var addr = uci.get('socat', sid, 'listen_addr') || '';
-			var k = proto + ':' + port;
-			(groups[k] = groups[k] || []).push({ sid: sid, addr: addr });
+			var fam = uci.get('socat', sid, 'family') || '';
+			var fams = (proto === 'ssl') ? [ '4' ]
+				: (fam === '4') ? [ '4' ]
+				: (fam === '6') ? [ '6' ]
+				: [ '4', '6' ];
+			var kind = (proto === 'ssl') ? 'tcp' : proto;
+			var k = kind + ':' + port;
+			(groups[k] = groups[k] || []).push({ sid: sid, addr: addr, fams: fams });
 		});
 		/* exact port:port collisions are the common case; a range whose span
 		 * intersects another rule's port is reported as its own conflict */
@@ -424,7 +459,8 @@ return view.extend({
 			for (var i = 0; i < list.length; i++) {
 				for (var j = i + 1; j < list.length; j++) {
 					var a = list[i], b = list[j];
-					if (a.addr === '' || b.addr === '' || a.addr === b.addr) {
+					var sameStack = a.fams.some(function(f) { return b.fams.indexOf(f) >= 0; });
+					if (sameStack && (a.addr === '' || b.addr === '' || a.addr === b.addr)) {
 						bad[a.sid] = true;
 						bad[b.sid] = true;
 					}
@@ -1145,6 +1181,7 @@ return view.extend({
 
 		o = s.option(form.Value, 'listen_port', _('Listen'));
 		o.datatype = 'portrange';
+		o.validate = formPortRangeOk;
 		o.rmempty = false;
 		o.placeholder = _('443 or 30000-30010');
 		o.description = _('Single port or a range (one listener is started per port, max 256).');
@@ -1292,6 +1329,7 @@ return view.extend({
 		o.depends('dest_proto', 'udp6');
 		o.depends('dest_proto', 'ssl');
 		o.datatype = 'port';
+		o.validate = formPortOk;
 		o.rmempty = false;
 		o.modalonly = true;
 
@@ -1321,7 +1359,8 @@ return view.extend({
 		o = s.option(form.Value, 'proxy_server', _('Proxy server'));
 		o.placeholder = '127.0.0.1';
 		o.default = '127.0.0.1';
-		o.datatype = 'ip4addr';
+		/* the generator takes a host name here as well as an IPv4 address */
+		o.datatype = 'or(hostname, ip4addr)';
 		o.depends('proxy', 'socks4a');
 		o.depends('proxy', 'http');
 		o.modalonly = true;
@@ -1335,6 +1374,7 @@ return view.extend({
 
 		o = s.option(form.Value, 'mcast_dst_port', _('Relay to multicast port'));
 		o.datatype = 'port';
+		o.validate = formPortOk;
 		o.rmempty = false;
 		o.modalonly = true;
 		o.depends('dest_proto', 'mcast');
@@ -1388,7 +1428,10 @@ return view.extend({
 
 		o = s.option(form.Value, 'user', _('Run listener as'));
 		o.placeholder = _('root (unchanged)');
-		o.datatype = 'uciname';
+		/* uciname rejects the dashes a Linux user name may contain (and the
+		 * generator allows); the callback is the exact generator rule */
+		o.datatype = 'string';
+		o.validate = formUserOk;
 		o.modalonly = true;
 		o.description =
 			_('The user the accepted connections run as, e.g. nobody. Privileges are dropped after the socket is open, so a low listen port still works. Only on the listen side.');
@@ -1479,6 +1522,7 @@ return view.extend({
 
 		o = s.option(form.Value, 'proxy_port', _('Proxy port'));
 		o.datatype = 'port';
+		o.validate = formPortOk;
 		o.placeholder = '1080';
 		o.default = '1080';
 		o.depends('proxy', 'socks4a');
