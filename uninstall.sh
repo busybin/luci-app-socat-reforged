@@ -40,6 +40,7 @@ rm -f /usr/libexec/socat-reforged-gen.awk
 rm -f /usr/libexec/socat-reforged-zones.awk
 rm -f /usr/libexec/socat-reforged-ctl
 rm -f /usr/libexec/socat-reforged-update
+rm -f /usr/libexec/socat-reforged-apply-deferred
 rm -f /usr/libexec/socat-reforged-reload
 rm -f /usr/libexec/socat-reforged-version
 rm -f /usr/share/rpcd/ucode/luci.socat-reforged.uc

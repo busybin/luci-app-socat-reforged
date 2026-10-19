@@ -69,6 +69,12 @@ define Package/luci-app-socat-reforged/postinst
 	ubus call service delete '{"name":"socat-reforged"}' >/dev/null 2>&1
 	for p in $$(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$$' 2>/dev/null); do kill -9 "$$p" 2>/dev/null; done
 	[ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1
+	# apk will not overwrite a file whose content differs from the one it
+	# installed (a tree deployed with deploy.sh, say) and parks the packaged
+	# copy as <file>.apk-new -- take those BEFORE starting the new engine, or
+	# this upgrade runs the previous engine while the page shows the new one.
+	[ -x /usr/libexec/socat-reforged-apply-deferred ] && \
+		/usr/libexec/socat-reforged-apply-deferred >/dev/null 2>&1
 	/etc/init.d/socat-reforged enable
 	/etc/init.d/socat-reforged restart
 	{ echo "PKG_VERSION=$(PKG_VERSION)-$(PKG_RELEASE)"; \
