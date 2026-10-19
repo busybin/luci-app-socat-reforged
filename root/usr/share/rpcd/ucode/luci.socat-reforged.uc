@@ -420,6 +420,18 @@ const UPDATE_UA      = 'luci-app-socat-reforged';
 const UPDATE_TTL     = 21600;   /* seconds between automatic checks (6h) */
 const UPDATE_LOG_MAX = 40;      /* lines of the install log the UI receives */
 
+/*
+ * The self-update helper only ships with the self-hosted (GitHub release)
+ * builds.  This package is also distributed through the OpenWrt/LuCI feeds,
+ * where a package installing root packages fetched from GitHub would bypass
+ * the package manager and its signature checks: there the helper is simply
+ * not installed, every update method answers "unsupported" (without touching
+ * the network) and the view hides the whole feature.  One probe, no forks.
+ */
+function update_supported() {
+	return fs.access(UPDATE_SCRIPT) != null;
+}
+
 /* PKG_VERSION out of the stamp install.sh / the package postinst wrote. */
 function read_version_file() {
 	const txt = readfile(VERSION_FILE);
@@ -563,6 +575,11 @@ function release_info(raw, cur) {
 
 function do_update_check(args) {
 	const cur = installed_version();
+
+	if (!update_supported())
+		return { ok: false, supported: false, current: cur,
+		         error: 'the update helper is not installed' };
+
 	const force = to_int(args?.force ?? 0) != 0;
 
 	if (!force) {
@@ -637,6 +654,7 @@ function pick_assets(assets) {
 function do_update_status() {
 	const st = read_update_state();
 	st.log = read_update_log();
+	st.supported = update_supported();
 	return st;
 }
 
@@ -738,6 +756,9 @@ function do_status() {
 		counts: { total: length(out), enabled, listening, down, errors },
 		connections,
 		config_missing,
+		/* whether this build carries the self-update helper: the view hides
+		 * the update controls when it does not */
+		update_supported: update_supported(),
 		rules: out
 	};
 }

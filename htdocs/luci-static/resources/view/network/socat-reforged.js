@@ -289,6 +289,11 @@ return view.extend({
 	load: function() {
 		var self = this;
 		return Promise.all([ uci.load('socat'), this.refreshStatus() ]).then(function(res) {
+			/* Whether this build can update itself: only the self-hosted
+			 * releases ship the update helper, feed builds report false and
+			 * the whole update UI stays unrendered.  LuCI awaits load() before
+			 * render(), so the answer is known by the time the page is built. */
+			self._updSupported = !!(self.status && self.status.update_supported);
 			self.buildSnapshot();
 			return res;
 		});
@@ -844,6 +849,8 @@ return view.extend({
 	 * check must not paint "up to date" on the page every five seconds) */
 	checkUpdates: function(force, silent) {
 		var self = this;
+		if (!self._updSupported)
+			return Promise.resolve(self._upd);
 		if (self._updBusy)
 			return Promise.resolve(self._upd);
 
@@ -975,13 +982,18 @@ return view.extend({
 
 		var styleEl = E('style', {}, STYLE);
 		var titleEl = E('h2', { 'name': 'content' }, _('Socat Reforged'));
-		/* the update controls live at the top right, on the title row */
-		var updateBox = E('div', { 'class': 'socat-upd-box' }, [
-			E('button', { 'id': 'socat-upd-btn', 'class': 'btn cbi-button', 'type': 'button',
-				'click': ui.createHandlerFn(this, 'handleUpdateCheck') }, [ _('Check for updates') ]),
-			E('span', { 'id': 'socat-upd-msg', 'class': 'socat-upd-msg' }, '')
-		]);
-		var headEl = E('div', { 'class': 'socat-head' }, [ titleEl, updateBox ]);
+		/* the update controls live at the top right, on the title row — in the
+		 * self-hosted builds only; a feed build has no update helper, so the
+		 * button is not rendered at all (see _updSupported) */
+		var headKids = [ titleEl ];
+		if (this._updSupported) {
+			headKids.push(E('div', { 'class': 'socat-upd-box' }, [
+				E('button', { 'id': 'socat-upd-btn', 'class': 'btn cbi-button', 'type': 'button',
+					'click': ui.createHandlerFn(this, 'handleUpdateCheck') }, [ _('Check for updates') ]),
+				E('span', { 'id': 'socat-upd-msg', 'class': 'socat-upd-msg' }, '')
+			]));
+		}
+		var headEl = E('div', { 'class': 'socat-head' }, headKids);
 		/* version of what is installed + a link back to the source: kept out of
 		 * the h2 so they do not inherit its (much larger) font size */
 		var metaEl = E('div', { 'class': 'socat-meta' }, [
@@ -1523,10 +1535,12 @@ return view.extend({
 		o.rmempty = false;
 		o.description = _('Log a HEALTH line every minute (memory, worker count, IPv6, uptime).');
 
-		o = g.option(form.Flag, 'update_check', _('Look for new versions'));
-		o.default = '0';
-		o.rmempty = false;
-		o.description = _('Ask GitHub for the latest release when this page is opened (and every six hours while it stays open) and show a notice when there is one. Nothing is downloaded or installed until you press the button yourself.');
+		if (this._updSupported) {
+			o = g.option(form.Flag, 'update_check', _('Look for new versions'));
+			o.default = '0';
+			o.rmempty = false;
+			o.description = _('Ask GitHub for the latest release when this page is opened (and every six hours while it stays open) and show a notice when there is one. Nothing is downloaded or installed until you press the button yourself.');
+		}
 
 		poll.add(L.bind(function() {
 			return this.refreshStatus().then(L.bind(function() {
@@ -1590,8 +1604,10 @@ return view.extend({
 
 			window.setTimeout(L.bind(function() { this.recount(); this.checkDirty(); }, self), 0);
 
-			/* automatic update check, if the user enabled it */
-			self._autoUpdate = (uci.get('socat', ENGINE_SECTION, 'update_check') == '1');
+			/* automatic update check, if the user enabled it (and this build
+			 * carries the helper at all) */
+			self._autoUpdate = self._updSupported &&
+				(uci.get('socat', ENGINE_SECTION, 'update_check') == '1');
 			if (self._autoUpdate)
 				window.setTimeout(function() { self.checkUpdates(false, true); }, 1200);
 
