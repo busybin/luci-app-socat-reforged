@@ -228,7 +228,7 @@ function importCheck(rule) {
 		return _('bad enable');
 	if (!importFlagOk(rule.nodelay) || !importFlagOk(rule.system_log) ||
 	    !importFlagOk(rule.ssl_verify) || !importFlagOk(rule.mcast_loop) ||
-	    !importFlagOk(rule.keepalive))
+	    !importFlagOk(rule.keepalive) || !importFlagOk(rule.reuseaddr))
 		return _('a boolean option must be 0 or 1');
 	if (rule.listen_addr != null && rule.listen_addr !== '' && !HOST_RE.test(String(rule.listen_addr)))
 		return _('bad listen_addr');
@@ -282,6 +282,17 @@ function importCheck(rule) {
 	    rule.proxy !== 'socks4' && rule.proxy !== 'socks4a' && rule.proxy !== 'http' &&
 	    rule.proxy !== 'proxy')
 		return _('bad proxy');
+	/* the proxy fields only matter with an active proxy, but a value that is
+	 * present must still be usable: the generator defaults an empty pair to
+	 * 127.0.0.1:1080 and skips the rule on a bad one.  proxy_server follows
+	 * the generator (host characters, no colon: the SOCKS4A/PROXY address
+	 * counts fields on ':'), proxy_port is one plain port. */
+	if (rule.proxy_server != null && rule.proxy_server !== '' &&
+	    (!HOST_RE.test(String(rule.proxy_server)) || String(rule.proxy_server).indexOf(':') >= 0))
+		return _('bad proxy_server');
+	if (rule.proxy_port != null && rule.proxy_port !== '' &&
+	    !importRangeOk(rule.proxy_port, 1, 65535))
+		return _('proxy_port must be 1-65535');
 	return null;
 }
 
@@ -294,6 +305,14 @@ return view.extend({
 			 * the whole update UI stays unrendered.  LuCI awaits load() before
 			 * render(), so the answer is known by the time the page is built. */
 			self._updSupported = !!(self.status && self.status.update_supported);
+			/* LuCI's uci.set() is a silent no-op on a section that does not
+			 * exist yet, and /etc/config/socat may come from the official
+			 * socat package (or from an install older than the engine
+			 * settings): without this the whole "Engine settings" block
+			 * would swallow every toggle.  Create it in the working copy;
+			 * it is written out with the next Save & Apply. */
+			if (uci.get('socat', ENGINE_SECTION) == null)
+				uci.add('socat', 'internal', ENGINE_SECTION);
 			self.buildSnapshot();
 			return res;
 		});
@@ -1445,7 +1464,8 @@ return view.extend({
 
 		o = s.option(form.Value, 'mcast_iface', _('Multicast interface'));
 		o.placeholder = 'eth0.2';
-		o.datatype = 'uciname';
+		/* uciname rejects the dot in eth0.2 — i.e. its own placeholder */
+		o.datatype = 'netdevname';
 		o.modalonly = true;
 		o.depends('mcast_group', /.+/);
 		o.description = _('Interface used both for joining the group and for sending (empty = kernel picks).');

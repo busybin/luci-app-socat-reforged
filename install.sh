@@ -88,12 +88,16 @@ fi
 inst root/etc/init.d/socat-reforged /etc/init.d/socat-reforged 755
 inst root/etc/hotplug.d/iface/99-socat-reforged /etc/hotplug.d/iface/99-socat-reforged 755
 
-# --- make sure the config exists (menu/form expect it) ---
-if [ ! -f /etc/config/socat ]; then
+# --- make sure the config + our engine section exist (menu/form expect it) ---
+# The official socat package ships /etc/config/socat, and an old install may
+# predate the section, so "the file exists" is not enough: without
+# socat.reforged every engine setting silently refuses to save (LuCI's
+# uci.set() no-ops on a missing section).
+if ! uci -q get socat.reforged >/dev/null 2>&1; then
   uci set socat.reforged=internal
   uci set socat.reforged.note='managed by luci-app-socat-reforged'
   uci commit socat
-  echo "created /etc/config/socat (placeholder section)"
+  echo "created the engine settings section (socat.reforged) in /etc/config/socat"
 fi
 
 # --- migrate off a legacy init that runs our engine ---

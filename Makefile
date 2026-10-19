@@ -50,11 +50,11 @@ LUCI_URL:=https://github.com/busybin/luci-app-socat-reforged
 # need `$$`.
 define Package/luci-app-socat-reforged/postinst
 [ -n "$${IPKG_INSTROOT}" ] || { \
-	[ -f /etc/config/socat ] || {
+	if ! uci -q get socat.reforged >/dev/null 2>&1; then
 		uci set socat.reforged=internal
 		uci set socat.reforged.note='managed by luci-app-socat-reforged'
 		uci commit socat
-	}
+	fi
 	if [ -f /etc/init.d/socat ] && grep -q socat-boot.sh /etc/init.d/socat 2>/dev/null; then
 		/etc/init.d/socat stop >/dev/null 2>&1
 		/etc/init.d/socat disable >/dev/null 2>&1

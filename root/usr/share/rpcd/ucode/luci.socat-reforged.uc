@@ -465,6 +465,18 @@ function version_number(v) {
 	return (n !== n) ? null : n;
 }
 
+/* is the release newer than what is installed?  Kept in one place because the
+ * cached answer has to be recomputed against the *current* version: after an
+ * update the six-hour cache would otherwise keep offering the release that is
+ * already installed. */
+function newer_than(latest_tag, cur) {
+	const ln = version_number(latest_tag);
+	const cn = version_number(cur);
+	/* a devel/unknown local version is offered the release rather than
+	 * silently declared up to date */
+	return (ln != null && (cn == null || ln > cn));
+}
+
 /* one line: "running <pid>" | "ok <version>" | "fail <reason>" */
 function read_update_state() {
 	const txt = read_trim(UPDATE_STATE);
@@ -553,7 +565,6 @@ function release_info(raw, cur) {
 
 	const tag = raw?.tag_name ?? '';
 	const ln = version_number(tag);
-	const cn = version_number(cur);
 	const body = raw?.body ?? '';
 
 	return {
@@ -561,9 +572,7 @@ function release_info(raw, cur) {
 		current: cur,
 		latest_tag: tag,
 		latest: (ln != null) ? `${ln}` : '',
-		/* a devel/unknown local version is offered the release rather than
-		 * silently declared up to date */
-		update_available: (ln != null && (cn == null || ln > cn)),
+		update_available: newer_than(tag, cur),
 		release_url: raw?.html_url ?? RELEASE_PAGE,
 		published_at: raw?.published_at ?? '',
 		notes: (length(body) > 4000) ? substr(body, 0, 4000) : body,
@@ -587,6 +596,7 @@ function do_update_check(args) {
 		if (c != null && c.ok === true && to_int(c.checked) > 0 &&
 		    (time() - to_int(c.checked)) < UPDATE_TTL) {
 			c.current = cur;
+			c.update_available = newer_than(c.latest_tag, cur);
 			c.cached = true;
 			return c;
 		}
