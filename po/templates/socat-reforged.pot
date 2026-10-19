@@ -291,10 +291,6 @@ msgstr ""
 msgid "Join multicast group"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:1267
-msgid "Keep a static 2000::/3 route pointing at the current default gateway. Only needed on ISPs whose delegation is broken — leave off unless you know you need it."
-msgstr ""
-
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:915
 msgid "Later"
 msgstr ""
@@ -341,10 +337,6 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1524
 msgid "Look for new versions"
-msgstr ""
-
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:1264
-msgid "Maintain a 2000::/3 IPv6 route"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1091
@@ -447,10 +439,6 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:913
 msgid "Reload now"
-msgstr ""
-
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:1272
-msgid "Reload the firewall if a 51820 DNAT rule you configured disappears. Only relevant if you forward WireGuard, and it never touches connection tracking."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1232
@@ -675,10 +663,6 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1165
 msgid "Verify TLS certificate"
-msgstr ""
-
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:1269
-msgid "Watch the WireGuard 51820 DNAT rule"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1026

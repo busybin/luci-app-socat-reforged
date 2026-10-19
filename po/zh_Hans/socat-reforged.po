@@ -293,8 +293,6 @@ msgid "Join multicast group"
 msgstr "加入组播组"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1267
-msgid "Keep a static 2000::/3 route pointing at the current default gateway. Only needed on ISPs whose delegation is broken — leave off unless you know you need it."
-msgstr "保留一条指向当前默认网关的静态 2000::/3 路由。仅在运营商前缀委派有问题时才需要——不确定就别开。"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:915
 msgid "Later"
@@ -345,8 +343,6 @@ msgid "Look for new versions"
 msgstr "检查新版本"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1264
-msgid "Maintain a 2000::/3 IPv6 route"
-msgstr "维护 2000::/3 IPv6 路由"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1091
 msgid "Max concurrent children"
@@ -451,8 +447,6 @@ msgid "Reload now"
 msgstr "立即重新加载"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1272
-msgid "Reload the firewall if a 51820 DNAT rule you configured disappears. Only relevant if you forward WireGuard, and it never touches connection tracking."
-msgstr "当你配置的 51820 DNAT 规则消失时重载防火墙。仅在转发 WireGuard 时相关，且不会动连接跟踪表。"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1232
 #, javascript-format
@@ -679,8 +673,6 @@ msgid "Verify TLS certificate"
 msgstr "校验 TLS 证书"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1269
-msgid "Watch the WireGuard 51820 DNAT rule"
-msgstr "监视 WireGuard 51820 DNAT 规则"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1026
 msgid "Which listen sockets to create. The default binds both IPv4 and IPv6."

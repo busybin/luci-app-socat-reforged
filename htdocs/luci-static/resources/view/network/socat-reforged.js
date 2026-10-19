@@ -31,7 +31,10 @@ var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto',
 	'nodelay', 'backlog', 'max_children', 'timeout', 'system_log', 'keepalive', 'listen_addr',
 	'user', 'retry' ];
 
-/* engine settings section (internal) + the options of one forward */
+/* engine settings section (internal) + the options of one forward.
+ * `fix_v6_route` and `wg_dnat_guard` are tracked here but deliberately NOT
+ * offered in the page (see the engine-settings section below): they are opt-in
+ * engine features for a specific environment. */
 var SETTING_FIELDS = [ 'fix_v6_route', 'wg_dnat_guard', 'debug', 'update_check' ];
 var ENGINE_SECTION = 'reforged';
 
@@ -1586,19 +1589,15 @@ return view.extend({
 			}).then(function() { self.recount(); });
 		};
 
-		/* ---- engine settings (internal section socat.reforged) ---- */
+		/* ---- engine settings (internal section socat.reforged) ----
+		 * Only the engine-side switches an ordinary user may want are offered.
+		 * `fix_v6_route` and `wg_dnat_guard` (see SETTING_FIELDS) stay opt-in
+		 * engine features one sets with `uci set socat.reforged.…=1` on the box
+		 * that needs them: they fix a specific ISP's broken IPv6 delegation or
+		 * watch for a WireGuard DNAT rule, so offering them to everybody would
+		 * advertise nothing but the environment they were written for. */
 		var g = m.section(form.NamedSection, 'reforged', _('Engine settings'));
 		g.addremove = false;
-
-		o = g.option(form.Flag, 'fix_v6_route', _('Maintain a 2000::/3 IPv6 route'));
-		o.default = '0';
-		o.rmempty = false;
-		o.description = _('Keep a static 2000::/3 route pointing at the current default gateway. Only needed on ISPs whose delegation is broken — leave off unless you know you need it.');
-
-		o = g.option(form.Flag, 'wg_dnat_guard', _('Watch the WireGuard 51820 DNAT rule'));
-		o.default = '0';
-		o.rmempty = false;
-		o.description = _('Reload the firewall if a 51820 DNAT rule you configured disappears. Only relevant if you forward WireGuard, and it never touches connection tracking.');
 
 		o = g.option(form.Flag, 'debug', _('Verbose engine logging'));
 		o.default = '0';

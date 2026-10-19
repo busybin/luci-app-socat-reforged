@@ -325,6 +325,16 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('GitHub link points at the repo', 'github.com/busybin/luci-app-socat-reforged', all);
 	ck('the engine settings section is declared', 1,
 		SECTIONS.filter((s) => s.sc === global.form.NamedSection && s.cfg === 'reforged').length);
+	/* The two environment-specific engine switches must NOT be offered: they fix
+	 * one ISP's broken IPv6 delegation and watch for a WireGuard DNAT rule, so
+	 * showing them to every user would only advertise the box they were written
+	 * for.  They stay opt-in engine features (`uci set socat.reforged.<x>=1`). */
+	const eng = SECTIONS.filter((s) => s.sc === global.form.NamedSection && s.cfg === 'reforged')[0];
+	const engNames = (eng ? eng.opts : []).map((o) => o.name);
+	ck('the engine settings offer "debug"', true, engNames.indexOf('debug') >= 0);
+	ck('...and the update toggle', true, engNames.indexOf('update_check') >= 0);
+	ck('the IPv6-route switch is not offered', -1, engNames.indexOf('fix_v6_route'));
+	ck('the WireGuard switch is not offered', -1, engNames.indexOf('wg_dnat_guard'));
 	has('engine log section is rendered', 'socat-logbox', all);
 	/* the page owns its padding (a plain view has no CBI container), and the
 	 * Start button must not look like "Save & Apply": the dirty tracker clears
