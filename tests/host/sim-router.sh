@@ -132,7 +132,7 @@ case "\$*" in
 	esac ;;
 "-o -6 addr show dev eth0.2")    echo "2: eth0.2    inet6 2001:db8:1::55/64 scope global dynamic" ;;
 "-o -6 addr show dev eth1")      : ;;
-"-o -6 addr show dev pppoe-wan") echo "3: pppoe-wan    inet6 2001:db8:2:::9a91/64 scope global dynamic" ;;
+"-o -6 addr show dev pppoe-wan") echo "3: pppoe-wan    inet6 2001:db8:2::9a91/64 scope global dynamic" ;;
 "-o -6 addr show")
 	case "$SC" in
 	3) ;;

@@ -207,11 +207,11 @@ socat.a.enable=1
 socat.a.proto=tcp
 socat.a.listen_port=8080
 socat.a.dest_proto=tcp6
-socat.a.dest_ip=2001:db8:2:::5
+socat.a.dest_ip=2001:db8:2::5
 socat.a.dest_port=80
 FIX
 run_gen "$V6"
-contains 'tcp6 target uses [addr]:port' 'TCP6:[2001:db8:2:::5]:80' "$(cat "$WORK/out.des")"
+contains 'tcp6 target uses [addr]:port' 'TCP6:[2001:db8:2::5]:80' "$(cat "$WORK/out.des")"
 
 # ---- zero-padded ports are canonicalised ------------------------------------
 # The socket tables and the pid registry speak plain decimal ("443"), so a
