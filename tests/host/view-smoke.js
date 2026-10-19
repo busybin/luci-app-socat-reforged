@@ -214,13 +214,23 @@ global.poll = { add: () => {} };
  * must answer *inside* the dialog (a notification lands in #maincontent, which
  * the modal overlay covers) */
 const NOTIFICATIONS = [];
+const WIRED = [];
+const CALLS = [];
 global.ui = {
 	showModal: () => {}, hideModal: () => {},
 	addNotification: () => { NOTIFICATIONS.push(Array.prototype.slice.call(arguments)); },
-	createHandlerFn: () => () => {}
+	/* keep the bound method name, so a test can prove a button is wired to a
+	 * real handler instead of grepping the source for its name */
+	createHandlerFn: (ctx, name) => {
+		WIRED.push(name);
+		const fn = function () { return ctx[name](); };
+		fn.__method = name;
+		return fn;
+	}
 };
 global.rpc = {
 	declare: (o) => function () {
+		CALLS.push(o.method);
 		/* LuCI's rpc.declare packs arguments *positionally* onto the declared
 		 * params, and rpcd then type-checks them against the backend's `args`
 		 * spec: passing an object where a scalar is declared fails the whole
@@ -296,6 +306,7 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	try {
 		await v.loadLog();
 		ck('loadLog() does not throw', true, true);
+		ck('loadLog() calls the log ubus method', true, CALLS.indexOf('log') >= 0);
 	}
 	catch (e) { ck('loadLog() does not throw', true, false); console.error('    ' + e.message); }
 
@@ -341,10 +352,14 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	const stale = cases.filter((c) => back.indexOf("'" + c + "'") < 0);
 	ck('no stale translation mapping', 'none', stale.length ? stale.join(' | ') : 'none');
 	has('log box has a pre element to fill', '"id":"socat-log"', all);
-	has('refresh button is wired', 'handleLogRefresh', src);
-	has('clear button is wired', 'handleLogClear', src);
+	ck('refresh button is wired to its handler', true,
+		WIRED.indexOf('handleLogRefresh') >= 0);
+	ck('clear button is wired to its handler', true,
+		WIRED.indexOf('handleLogClear') >= 0);
 	has('log box asks the log ubus method', "method: 'log'", src);
-	has('log clear uses the log_clear ubus method', "method: 'log_clear'", src);
+	await v.handleLogClear();
+	ck('clearing the log calls the log_clear ubus method', true,
+		CALLS.indexOf('log_clear') >= 0);
 	has('log poll only runs while open', '_logOpen', src);
 	has('import/export buttons carry the accent class', 'socat-io', all);
 	has('meta line carries the GitHub link', 'GitHub', all);
