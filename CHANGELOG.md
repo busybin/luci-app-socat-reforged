@@ -3,23 +3,29 @@
 `V<integer>` releases (see Releases). `main` carries unreleased work on top of
 the last tag; version numbers only change when a release is requested.
 
-## Unreleased
+## V5 (2026-10-19)
 
-### Packaging / self-update (2026-10-19)
+### Packaging / service (hotfix, same tag, 2026-10-19)
 
-* **An "Update now" no longer leaves the previous engine in place.**  apk treats
+* **The V5 packages were rebuilt in place**: the tag (`V5`) and the package
+  version (`5-r1`) are unchanged, the release assets were replaced.
+* **An upgrade no longer leaves the previous engine in place.**  apk treats
   `/etc` as protected (config) paths: an `/etc` file whose on-disk content
   differs from the one the installed package put there is left alone, and the
-  packaged copy is written beside it as `<file>.apk-new`.  A tree deployed with
-  `deploy.sh` (or a file edited on the box) thus produced a router that reported
-  `v5-1` while the packaged engine sat in `.apk-new` — found right after the V5
-  upgrade on the 25.12 router.  A new helper,
-  `socat-reforged-apply-deferred`, takes those copies; the `postinst` runs it
-  **before** restarting the service, and `install.sh` drops any stale one for the
-  files it writes itself.  Guarded by `tests/host/package-layout.sh`, which runs
-  the helper against a throw-away root.
-
-## V5 (2026-10-19)
+  packaged copy is written beside it as `<file>.apk-new`.  A box whose engine had
+  been replaced by hand (or by `install.sh`) therefore reported the new version
+  while still running the old engine.  A new helper, `socat-reforged-apply-deferred`,
+  takes those copies; the `postinst` runs it **before** restarting the service,
+  and `install.sh` drops any stale one for the files it writes itself.
+* **The engine stops on SIGTERM instead of being SIGKILLed.**  The main loop
+  slept as a foreground child, and a shell does not run a signal trap until that
+  child returns — longer than procd's 5 s term timeout, so a restart killed the
+  engine (no shutdown reason recorded, no runtime cleanup).  The loop naps in the
+  background now and the service allows 20 s as a backstop.
+* Both are guarded by `tests/host/package-layout.sh` and the new
+  `tests/host/engine-signal.sh` (which drives the shipped `nap()`/`on_signal()`
+  with a real signal), plus `tests/router/service-checks.sh` on the platform
+  where the trap actually used to be delayed.
 
 ### Works from the form (2026-10-19)
 
@@ -36,11 +42,10 @@ the last tag; version numbers only change when a release is requested.
   (both are TCP sockets), while a v4-only and a v6-only rule may share a port.
 * **Engine settings save on a stock router.**  `/etc/config/socat` is provided
   by the official `socat` package, and LuCI's `uci.set()` is a silent no-op on a
-  section that does not exist yet — so on such a box every toggle (debug,
-  `fix_v6_route`, `wg_dnat_guard`, "look for new versions") was dropped without
-  a word, and the page did not even look dirty.  The view now creates the
-  `reforged` section in its working copy, and when the config file itself is
-  missing, Save & Apply says so instead of doing nothing.
+  section that does not exist yet — so on such a box every engine setting was
+  dropped without a word, and the page did not even look dirty.  The view now
+  creates the `reforged` section in its working copy, and when the config file
+  itself is missing, Save & Apply says so instead of doing nothing.
 
 ### Engine robustness (2026-10-19)
 
@@ -545,10 +550,10 @@ Engine and packaging rewrite of V2, driven by a full code audit (2026-10-13):
   * No IPv6 no longer disables the engine: only the IPv6 listeners are omitted,
     IPv4 forwards run normally. (V2 skipped the whole reconcile and spammed a
     warning every 30s.)
-  * The WireGuard DNAT watchdog and the `2000::/3` route fix left the default
-    path: they are opt-in UCI switches (`wg_dnat_guard`, `fix_v6_route`, default
-    `0`) and never flush conntrack (V2 reloaded fw4 and flushed conntrack every
-    minute on routers without that rule).
+  * Two environment-specific workarounds left the default path: they are opt-in
+    UCI switches (default `0`) and never flush conntrack (V2 reloaded fw4 and
+    flushed conntrack every minute on routers without the rule it was watching
+    for).
 * **Correctness**
   * UDP rules were IPv4-only and `family=6` on UDP silently meant IPv4; UDP now
     honours `family` exactly like TCP, and `family=6` without IPv6 is reported.

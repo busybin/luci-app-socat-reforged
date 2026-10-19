@@ -19,6 +19,12 @@ start_service() {
 	# failure (e.g. "can't fork") is lost in /dev/null and the engine just
 	# disappears between two "engine started" lines.
 	procd_set_param stderr 1
+	# procd gives a process 5 s by default, then SIGKILLs it.  The engine's
+	# loop sleeps 15 s between cycles; `nap` (see socat-boot.sh) keeps that
+	# sleep interruptible so the trap runs at once, and this is the backstop for
+	# a cycle that happens to be busy (a reconcile against many rules).  Being
+	# killed would skip the trap: no "caught SIGTERM" line, no runtime cleanup.
+	procd_set_param term_timeout 20
 	procd_close_instance
 }
 
