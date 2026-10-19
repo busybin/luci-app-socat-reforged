@@ -147,13 +147,19 @@ for (const r of RULES) store[r['.name']] = Object.assign({}, r);
  * to decide whether to ask GitHub on its own */
 store['reforged'] = { fix_v6_route: '0', wg_dnat_guard: '0', debug: '0', update_check: '1' };
 
+/* records uci.add() calls, so a test can prove the engine-settings section is
+ * created when the config predates it */
+const added = [];
 global.uci = {
 	load: () => Promise.resolve(),
 	unload: () => {},
-	get: (cfg, sec, opt) => (store[sec] ? store[sec][opt] : undefined),
+	/* like LuCI: two arguments return the section object (or null) */
+	get: (cfg, sec, opt) => (opt === undefined ? (store[sec] || null)
+		: (store[sec] ? store[sec][opt] : undefined)),
 	sections: (cfg, type) => (type === 'config' ? RULES.slice() : []),
 	set: (cfg, sec, opt, val) => { (store[sec] = store[sec] || {})[opt] = val; },
-	add: () => 'cfg3333',
+	/* LuCI's signature is add(conf, type, name) */
+	add: (cfg, type, name) => { added.push([type, name]); return name || 'cfg3333'; },
 	remove: () => {},
 	save: () => Promise.resolve(),
 	apply: () => Promise.resolve()
@@ -407,6 +413,35 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	has('import validation accepts a port range', '([0-9]{1,5})(?:-([0-9]{1,5}))?$', src);
 has('import validation checks mcast_iface', 'NAME_RE.test(String(rule.mcast_iface))', src);
 
+	/* importCheck is module-private: evaluate the module a second time and hand
+	 * the function back, so these cases exercise the real code instead of
+	 * grep-matching its source. */
+	const importFn = (function () {
+		const head = src.replace(/^return view\.extend\([\s\S]*$/m, '');
+		const w = '(function (view, poll, ui, uci, form, rpc, E, _, L, document, window) {\n' +
+			head + '\n;return importCheck;\n})';
+		const factory = eval(w);                       // eslint-disable-line no-eval
+		return factory(global.view, global.poll, global.ui, global.uci, global.form,
+			global.rpc, E, global._, global.L, document, global.window);
+	})();
+	const imp = (r) => { const e = importFn(r); return (e == null) ? null : String(e); };
+	const baseRule = { enable: '1', proto: 'tcp', listen_port: '8080', dest_proto: 'tcp4',
+		dest_ip: '192.168.1.10', dest_port: '80' };
+	ck('import validation accepts a plain rule', null, imp(baseRule));
+	ck('import validation accepts reuseaddr=0', null,
+		imp(Object.assign({}, baseRule, { reuseaddr: '0' })));
+	ck('import validation rejects reuseaddr=yes', 'a boolean option must be 0 or 1',
+		imp(Object.assign({}, baseRule, { reuseaddr: 'yes' })));
+	ck('import validation rejects a proxy server with a colon', 'bad proxy_server',
+		imp(Object.assign({}, baseRule, { proxy: 'socks4a', proxy_server: '2001:db8::1' })));
+	ck('import validation rejects a proxy port above 65535', 'proxy_port must be 1-65535',
+		imp(Object.assign({}, baseRule, { proxy: 'http', proxy_port: '70000' })));
+	ck('import validation accepts the default proxy pair', null,
+		imp(Object.assign({}, baseRule,
+			{ proxy: 'socks4a', proxy_server: '127.0.0.1', proxy_port: '1080' })));
+	/* the field's own placeholder must pass its datatype */
+	ck('mcast_iface accepts eth0.2', 'netdevname', optOf('mcast_iface').datatype);
+
 /* A grid section prints a *description row* under the header for every column
  * that has a description, which put the listen_port hint straight into the
  * forward list.  Either that row is suppressed on the grid, or no table column
@@ -543,6 +578,28 @@ ck('a disabled rule is never reported', false, flagged('cfgA6'));
 		ck('no helper: checkUpdates is a no-op', undefined, await v2.checkUpdates(true, false));
 	}
 	STATUS.update_supported = true;
+
+	/* ---- a config without the engine-settings section self-heals ----------
+	 * LuCI's uci.set() ignores a section that does not exist yet, so on a
+	 * router whose /etc/config/socat comes from the official socat package
+	 * every engine toggle used to be dropped without a word. */
+	const mkView = async () => {
+		const VC = eval(wrapped);                       // eslint-disable-line no-eval
+		const V = VC(global.view, global.poll, global.ui, global.uci, global.form,
+			global.rpc, E, global._, global.L, document, global.window);
+		const v = new V();
+		await v.load();
+		return v;
+	};
+	delete store['reforged'];
+	added.length = 0;
+	await mkView();
+	ck('a missing engine-settings section is created on load',
+		'internal:reforged', added.map((a) => a[0] + ':' + a[1]).join(','));
+	added.length = 0;
+	store['reforged'] = { fix_v6_route: '0', wg_dnat_guard: '0', debug: '0', update_check: '1' };
+	await mkView();
+	ck('an existing engine-settings section is left alone', 0, added.length);
 
 	/* the other half of the contract: the backend has to keep reporting it,
 	 * or every self-hosted build silently loses its update button */
