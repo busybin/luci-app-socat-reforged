@@ -67,13 +67,26 @@ define Package/luci-app-socat-reforged/postinst
 	fi
 	ubus call service delete '{"name":"socat"}' >/dev/null 2>&1
 	ubus call service delete '{"name":"socat-reforged"}' >/dev/null 2>&1
+	# wait for the old loop, then restart and check a new one really came up:
+	# procd swallows a start issued while it is still tearing the old instance
+	# down, which leaves the box with its workers up and no engine
+	for i in 1 2 3 4 5 6 7 8 9 10; do
+		pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$$' >/dev/null 2>&1 || break
+		sleep 1
+	done
 	for p in $$(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$$' 2>/dev/null); do kill -9 "$$p" 2>/dev/null; done
 	[ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1
-	# apk parks a packaged file it refuses to overwrite as <file>.apk-new
 	[ -x /usr/libexec/socat-reforged-apply-deferred ] && \
 		/usr/libexec/socat-reforged-apply-deferred >/dev/null 2>&1
 	/etc/init.d/socat-reforged enable
 	/etc/init.d/socat-reforged restart
+	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+		pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$$' >/dev/null 2>&1 && break
+		/etc/init.d/socat-reforged restart >/dev/null 2>&1
+		sleep 1
+	done
+	pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$$' >/dev/null 2>&1 || \
+		logger -t socat-reforged 'engine did not come up after the upgrade; start it with /etc/init.d/socat-reforged restart'
 	{ echo "PKG_VERSION=$(PKG_VERSION)-$(PKG_RELEASE)"; \
 	  echo "BUILD=$(PKG_VERSION)-$(PKG_RELEASE)"; \
 	  echo "BUILT=package"; } > /usr/libexec/socat-reforged-version

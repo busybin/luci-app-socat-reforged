@@ -1107,6 +1107,7 @@ heartbeat() {
 
 # Why the loop stopped, for the next start to report.
 note_exit() { # note_exit <reason>
+	mkdir -p "$RUNDIR" 2>/dev/null   # cleanup may have removed it already
 	printf '%s %s %s\n' "$(uptime_s)" "$$" "$1" > "$RUNDIR/last-exit" 2>/dev/null
 }
 

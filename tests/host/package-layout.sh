@@ -176,6 +176,19 @@ check 'install.sh keeps data files 644' 1 "$(grep -c 'socat-reforged-gen.awk /us
 # section creation has to touch it first — the same guard is in the postinst
 check 'install.sh can create a missing config file' 1 \
 	"$(grep -c '|| : > /etc/config/socat' "$REPO/install.sh")"
+# procd swallows a start issued while it tears the old instance down: the box
+# then has its workers up and no engine, so both installers wait for the old
+# loop and check that a new one really came up
+has 'install.sh waits for the old engine loop' \
+	"pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$'" "$(cat "$REPO/install.sh")"
+has 'install.sh reports an engine that did not come up' \
+	'WARNING: the engine did not come up' "$(cat "$REPO/install.sh")"
+if [ -f "$WORK/postinst.sh" ]; then
+	has 'the postinst waits for the old engine loop' \
+		'pgrep -f' "$(cat "$WORK/postinst.sh")"
+	has 'the postinst reports an engine that did not come up' \
+		'engine did not come up after the upgrade' "$(cat "$WORK/postinst.sh")"
+fi
 
 # ------------------------------------------------ self-update stays runnable --
 # the "Update now" button exec's this helper through rpcd, and the ACL has to
