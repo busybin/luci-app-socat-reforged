@@ -138,7 +138,6 @@ case "\$*" in
 	3) ;;
 	*) echo "2: eth0.2    inet6 2001:db8:1::55/64 scope global dynamic" ;;
 	esac ;;
-"route show 2000::/3") : ;;
 *) : ;;
 esac
 exit 0
