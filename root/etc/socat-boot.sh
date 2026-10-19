@@ -1118,13 +1118,7 @@ on_signal() { # on_signal <NAME>  (installed only in the main loop)
 	exit 0
 }
 
-# Sleep, but stay interruptible.  A plain `sleep 15` is a foreground child, and
-# ash does not run the trap until that child returns, so on a restart procd
-# waited its whole term_timeout (5 s), gave up and SIGKILLed us -- the kernel
-# log even said so ("not stopped on SIGTERM, sending SIGKILL instead") and the
-# signal trap never ran (no `caught SIGTERM` line, no cleanup).  Sleeping in the
-# background and waiting for it keeps the shell in `wait`, which *is*
-# interruptible, so the trap fires at once.
+# Interruptible sleep: a foreground sleep delays the trap until procd SIGKILLs us.
 nap() { # nap <seconds>
 	sleep "$1" &
 	NAP_PID=$!

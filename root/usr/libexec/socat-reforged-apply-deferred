@@ -1,31 +1,13 @@
 #!/bin/sh
-# ============================================================================
-#  socat-reforged-apply-deferred — take the packaged copies a package manager
-#  parked next to a protected file it refused to overwrite.
-# ============================================================================
-#  apk treats /etc as "protected" (config) paths: an /etc file whose on-disk
-#  content differs from the one the installed package put there is left alone,
-#  and the packaged copy is written beside it as `<file>.apk-new`.  So
-#  "Upgrading luci-app-socat-reforged (4-r1 -> 5-r1)" can finish with the
-#  PREVIOUS engine still in place: on 2026-10-19 a tree deployed with deploy.sh
-#  made /etc/socat-boot.sh differ, and the router kept running the old script
-#  while the page showed v5-1 (the packaged copy sat in .apk-new).  Files
-#  outside /etc are overwritten normally, which is why only the engine was
-#  affected.  Everything we ship is code — never user configuration — so the
-#  packaged copy wins.
-#
-#  opkg behaves the same way for its conffiles, hence the second suffix.
-#
-#  Usage: socat-reforged-apply-deferred [<root>]
-#    <root> is for the test suite; the postinst runs it with no argument.
-#  Exit status: 0 = every deferred copy was applied (or there was none),
-#               1 = something could not be applied.
+# Take the packaged copies apk/opkg park as <file>.apk-new beside an /etc file
+# they refuse to overwrite; the postinst runs this before starting the engine.
+# Usage: socat-reforged-apply-deferred [<root>]  (root for tests)
+# Exit: 0 = applied (or nothing to do), 1 = something could not be applied.
 set -u
 
 ROOT=${1:-}
 
-# Every file the package installs except the version stamp, which the postinst
-# generates.  Keep in step with install.sh / the Makefile.
+# every installed file except the version stamp the postinst generates
 FILES='
 etc/socat-boot.sh
 etc/init.d/socat-reforged
@@ -43,7 +25,6 @@ usr/share/ucitrack/luci-app-socat-reforged.json
 www/luci-static/resources/view/network/socat-reforged.js
 '
 
-applied=0
 failed=0
 for rel in $FILES; do
 	f="$ROOT/$rel"
@@ -51,7 +32,6 @@ for rel in $FILES; do
 		[ -f "$f.$suffix" ] || continue
 		if mv -f "$f.$suffix" "$f"; then
 			echo "applied the packaged copy of $f ($suffix)"
-			applied=$((applied + 1))
 		else
 			echo "WARNING: could not apply $f.$suffix" >&2
 			failed=1

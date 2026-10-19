@@ -31,10 +31,7 @@ var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto',
 	'nodelay', 'backlog', 'max_children', 'timeout', 'system_log', 'keepalive', 'listen_addr',
 	'user', 'retry' ];
 
-/* engine settings section (internal) + the options of one forward.
- * `fix_v6_route` and `wg_dnat_guard` are tracked here but deliberately NOT
- * offered in the page (see the engine-settings section below): they are opt-in
- * engine features for a specific environment. */
+/* engine settings section (internal) + the options of one forward */
 var SETTING_FIELDS = [ 'fix_v6_route', 'wg_dnat_guard', 'debug', 'update_check' ];
 var ENGINE_SECTION = 'reforged';
 
@@ -1590,12 +1587,8 @@ return view.extend({
 		};
 
 		/* ---- engine settings (internal section socat.reforged) ----
-		 * Only the engine-side switches an ordinary user may want are offered.
-		 * `fix_v6_route` and `wg_dnat_guard` (see SETTING_FIELDS) stay opt-in
-		 * engine features one sets with `uci set socat.reforged.…=1` on the box
-		 * that needs them: they fix a specific ISP's broken IPv6 delegation or
-		 * watch for a WireGuard DNAT rule, so offering them to everybody would
-		 * advertise nothing but the environment they were written for. */
+		 * fix_v6_route / wg_dnat_guard are engine-only: an ordinary install has
+		 * no use for them, so they are not offered here (uci only). */
 		var g = m.section(form.NamedSection, 'reforged', _('Engine settings'));
 		g.addremove = false;
 

@@ -7,25 +7,16 @@ the last tag; version numbers only change when a release is requested.
 
 ### Packaging / service (hotfix, same tag, 2026-10-19)
 
-* **The V5 packages were rebuilt in place**: the tag (`V5`) and the package
-  version (`5-r1`) are unchanged, the release assets were replaced.
-* **An upgrade no longer leaves the previous engine in place.**  apk treats
-  `/etc` as protected (config) paths: an `/etc` file whose on-disk content
-  differs from the one the installed package put there is left alone, and the
-  packaged copy is written beside it as `<file>.apk-new`.  A box whose engine had
-  been replaced by hand (or by `install.sh`) therefore reported the new version
-  while still running the old engine.  A new helper, `socat-reforged-apply-deferred`,
-  takes those copies; the `postinst` runs it **before** restarting the service,
-  and `install.sh` drops any stale one for the files it writes itself.
-* **The engine stops on SIGTERM instead of being SIGKILLed.**  The main loop
-  slept as a foreground child, and a shell does not run a signal trap until that
-  child returns — longer than procd's 5 s term timeout, so a restart killed the
-  engine (no shutdown reason recorded, no runtime cleanup).  The loop naps in the
-  background now and the service allows 20 s as a backstop.
-* Both are guarded by `tests/host/package-layout.sh` and the new
-  `tests/host/engine-signal.sh` (which drives the shipped `nap()`/`on_signal()`
-  with a real signal), plus `tests/router/service-checks.sh` on the platform
-  where the trap actually used to be delayed.
+* **The V5 packages were rebuilt in place**: same tag, same version (`5-r1`),
+  assets replaced.
+* **An upgrade no longer leaves the previous engine in place.**  apk keeps an
+  `/etc` file it will not overwrite and parks the packaged copy as
+  `<file>.apk-new`; a new helper takes those, the `postinst` runs it before
+  starting the engine, and `install.sh` drops stale ones.
+* **The engine stops on SIGTERM instead of being SIGKILLed.**  A foreground sleep
+  delayed the trap past procd's 5 s timeout; the loop naps in the background and
+  the service allows 20 s.  Guarded by `tests/host/engine-signal.sh` and
+  `tests/router/service-checks.sh`.
 
 ### Works from the form (2026-10-19)
 

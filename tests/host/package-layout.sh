@@ -129,14 +129,9 @@ else
 	printf '  %-46s %s\n' 'the expanded postinst is valid shell' '(skipped: no make)'
 fi
 
-# ------------------------------------- package managers defer modified files --
-# apk will not overwrite a file whose on-disk content differs from the one it
-# installed: it parks the packaged copy as `<file>.apk-new` and keeps the old
-# content.  That is exactly how a router went on running the V4 engine after
-# "upgrading" to V5 (a tree deployed with deploy.sh made /etc/socat-boot.sh
-# differ), while the page showed the new version.  The helper takes those
-# copies; the postinst must run it *before* it restarts the service, or the new
-# package starts the previous engine.
+# a package manager parks a protected file it will not overwrite as
+# <file>.apk-new; the helper takes those, and the postinst runs it before it
+# restarts the service (otherwise the new package starts the previous engine)
 DEFER=$REPO/root/usr/libexec/socat-reforged-apply-deferred
 sh -n "$DEFER" 2>/dev/null && rc=0 || rc=1
 check 'the deferred-copy helper is valid shell' 0 "$rc"
