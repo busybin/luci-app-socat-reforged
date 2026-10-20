@@ -70,7 +70,7 @@ var STYLE = '\
 .socat-dirty{background:var(--error-color-medium,#c62828);color:var(--on-error-color,#fff);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.95em}\
 .socat-alert{background:var(--warn-color-medium,#f0c629);color:var(--on-warn-color,#3a2f00);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
 .socat-empty{border:1px dashed var(--border-color-medium,rgba(128,128,128,.4));border-radius:8px;padding:24px;text-align:center;margin:.6em 0}\
-tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-medium,#f0c629)}\tr.socat-fwconflict>td:first-child{box-shadow:inset 3px 0 0 var(--error-color-medium,#c62828)}\.socat-conns{cursor:pointer;text-decoration:underline dotted}\.socat-peers{width:100%;border-collapse:collapse;font-size:.92em}\.socat-peers th,.socat-peers td{padding:4px 8px;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.25));text-align:left;white-space:nowrap}\.socat-peers th{opacity:.7;font-weight:600}\
+tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-medium,#f0c629)}\tr.socat-fwconflict>td:first-child{box-shadow:inset 3px 0 0 var(--error-color-medium,#c62828)}\.socat-fwshadow>td:first-child{box-shadow:inset 3px 0 0 var(--border-color-medium,rgba(128,128,128,.4))}\.socat-conns{cursor:pointer;text-decoration:underline dotted}\.socat-peers{width:100%;border-collapse:collapse;font-size:.92em}\.socat-peers th,.socat-peers td{padding:4px 8px;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.25));text-align:left;white-space:nowrap}\.socat-peers th{opacity:.7;font-weight:600}\
 .socat-errs{background:var(--error-color-low,rgba(198,40,40,.12));border:1px solid var(--error-color-medium,#c62828);color:var(--error-color-medium,#c62828);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
 .socat-reason{font-size:.8em;opacity:.75;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22em}\
 .socat-log{max-height:20em;overflow:auto;font-family:var(--mono-font-family,monospace);font-size:.8em;white-space:pre-wrap;word-break:break-all;background:var(--background-color-low,rgba(128,128,128,.06));border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:6px;padding:8px 10px;margin:.5em 0 0}\
@@ -626,39 +626,59 @@ return view.extend({
 		}
 	},
 
-	/* a fw4 redirect on the same WAN port DNATs the packet before the
-	 * listener sees it: the rule looks healthy and forwards nothing */
+	/* a fw4 redirect on the same port DNATs the packet before the listener
+	 * sees it; only report it as a conflict when it sends the traffic
+	 * somewhere else than this rule would */
 	applyFwConflicts: function() {
 		var self = this;
 		var list = (self.status && self.status.fw_conflicts) || [];
-		var bad = {};
-		list.forEach(function(x) { bad[x.sid] = x; });
+		var errs = list.filter(function(x) { return x.conflict; });
+		var notes = list.filter(function(x) { return !x.conflict; });
+		var bad = {}, shadow = {};
+		errs.forEach(function(x) { bad[x.sid] = x; });
+		notes.forEach(function(x) { shadow[x.sid] = x; });
 
 		(uci.sections('socat', 'config') || []).forEach(function(s) {
 			var sid = s['.name'];
 			var tr = self._mapNode ? self._mapNode.querySelector('tr[data-sid="' + sid + '"]') : null;
-			if (tr)
-				tr.classList.toggle('socat-fwconflict', !!bad[sid]);
+			if (!tr)
+				return;
+			tr.classList.toggle('socat-fwconflict', !!bad[sid]);
+			tr.classList.toggle('socat-fwshadow', !!shadow[sid]);
 		});
 
 		var el = document.getElementById('socat-fwconflicts');
 		if (!el)
 			return;
-		if (list.length) {
-			var names = list.map(function(x) {
-				var who = x.redirect.name || x.redirect.sid;
-				if (x.redirect.src)
-					who += ', ' + x.redirect.src;
-				return x.ports + '/' + x.proto + ' (' + who + ')';
-			});
-			el.style.display = '';
-			el.textContent = '';
-			el.appendChild(E('strong', {}, _('⚠ Also forwarded by the firewall (DNAT): ') + names.join('; ')));
-			el.appendChild(E('div', { 'class': 'socat-hint' },
-				_('A firewall redirect is applied in the kernel before the listener sees the packet, so that rule cannot work while both exist.')));
-		} else {
+		if (!list.length) {
 			el.style.display = 'none';
+			return;
 		}
+
+		function label(x) {
+			var rd = x.redirect || {};
+			var who = rd.name || rd.sid || '?';
+			if (rd.src)
+				who += ', ' + rd.src;
+			if (rd.dest_ip)
+				who += ' → ' + rd.dest_ip + (rd.dest_port ? ':' + rd.dest_port : '');
+			return x.ports + '/' + x.proto + ' (' + who + ')';
+		}
+
+		el.style.display = '';
+		el.textContent = '';
+		if (errs.length)
+			el.appendChild(E('div', { 'class': 'socat-errs' }, [
+				E('strong', {}, _('⚠ Firewall DNAT sends these ports elsewhere: ') + errs.map(label).join('; ')),
+				E('div', { 'class': 'socat-hint' },
+					_('A firewall redirect is applied in the kernel before the listener sees the packet, so those rules stay idle.'))
+			]));
+		if (notes.length)
+			el.appendChild(E('div', { 'class': 'socat-note' }, [
+				E('strong', {}, _('Already DNATed by the firewall: ') + notes.map(label).join('; ')),
+				E('div', { 'class': 'socat-hint' },
+					_('Traffic from those zones is forwarded by the firewall and never reaches these socat rules; they still serve every other zone.'))
+			]));
 	},
 
 	/* rules the engine could not start: show the reason it captured */
@@ -1347,7 +1367,7 @@ return view.extend({
 			_('Click "Save & Apply" to apply them (leaving the page will prompt you).')
 		]);
 		var conflictBanner = E('div', { 'id': 'socat-conflicts', 'class': 'socat-alert', 'style': 'display:none' });
-		var fwConflictBanner = E('div', { 'id': 'socat-fwconflicts', 'class': 'socat-errs', 'style': 'display:none' });
+		var fwConflictBanner = E('div', { 'id': 'socat-fwconflicts', 'style': 'display:none' });
 		var errorBanner = E('div', { 'id': 'socat-errors', 'class': 'socat-errs', 'style': 'display:none' });
 		var updateBanner = E('div', { 'id': 'socat-upd', 'class': 'socat-upd', 'style': 'display:none' });
 

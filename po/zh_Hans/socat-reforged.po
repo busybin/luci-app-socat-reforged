@@ -1131,12 +1131,20 @@ msgid "Could not add the rule: %s"
 msgstr "添加规则失败：%s"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js
-msgid "⚠ Also forwarded by the firewall (DNAT): "
-msgstr "⚠ 防火墙（DNAT）也在转发："
+msgid "⚠ Firewall DNAT sends these ports elsewhere: "
+msgstr "⚠ 防火墙 DNAT 把这些端口送到了别处："
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js
-msgid "A firewall redirect is applied in the kernel before the listener sees the packet, so that rule cannot work while both exist."
-msgstr "防火墙重定向在内核里先于监听生效，两者同时存在时这条规则不会工作。"
+msgid "A firewall redirect is applied in the kernel before the listener sees the packet, so those rules stay idle."
+msgstr "防火墙重定向在内核里先于监听生效，这些规则在这条链路上收不到包。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Already DNATed by the firewall: "
+msgstr "防火墙已经在转发："
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Traffic from those zones is forwarded by the firewall and never reaches these socat rules; they still serve every other zone."
+msgstr "这些区域的流量由防火墙直接转发，不会到达对应的 socat 规则；其它区域仍走 socat。"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js
 #, javascript-format

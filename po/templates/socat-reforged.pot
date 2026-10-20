@@ -1122,11 +1122,19 @@ msgid "Could not add the rule: %s"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js
-msgid "⚠ Also forwarded by the firewall (DNAT): "
+msgid "⚠ Firewall DNAT sends these ports elsewhere: "
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js
-msgid "A firewall redirect is applied in the kernel before the listener sees the packet, so that rule cannot work while both exist."
+msgid "A firewall redirect is applied in the kernel before the listener sees the packet, so those rules stay idle."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Already DNATed by the firewall: "
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Traffic from those zones is forwarded by the firewall and never reaches these socat rules; they still serve every other zone."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js
