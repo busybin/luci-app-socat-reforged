@@ -78,6 +78,18 @@ ck('engine age is sane', true, st.engine.age >= 0 && st.engine.age <= 90);
 ck('config_missing is false here', false, st.config_missing);
 has('engine reports its listeners', '"listeners"', sprintf('%J', st.engine));
 ck('status reports firewall conflicts as an array', 'array', type(st.fw_conflicts));
+/* each entry is either a real conflict (the redirect sends the port to a
+ * different host:port) or just a note: a redirect to the very same target
+ * still completes the forward, so it must not be flagged as broken */
+ck('fw_conflicts entries carry a boolean conflict flag', true, (function() {
+	for (let i = 0; i < length(st.fw_conflicts); i++) {
+		const c = st.fw_conflicts[i];
+		if (type(c.conflict) != 'bool' || type(c.redirect) != 'object' || c.sid == null)
+			return false;
+	}
+	return true;
+})());
+
 
 /* ---- peers / pause (read-only paths only: no marker is written here) --- */
 const pr = obj.peers.call({ args: { sid: 'does-not-exist' } });
@@ -125,6 +137,14 @@ ck('test: a TLS target is understood', true,
    understood(obj.test.call({ args: { dest_ip: '192.0.2.1', dest_port: 443, dest_proto: 'ssl' } })));
 ck('test: a unix target is understood', true,
    understood(obj.test.call({ args: { dest_proto: 'unix', dest_unix_path: '/tmp/no-such-socket.sock' } })));
+/* an absolute path must get past the validator: it then fails on connect,
+ * which is a different answer than "needs an absolute dst_unix_path" */
+has('test: an absolute unix path is accepted',
+    'connection failed',
+    obj.test.call({ args: { dest_proto: 'unix', dest_unix_path: '/tmp/no-such-socket.sock' } }).detail);
+ck('test: a path with .. is refused by the validator', true,
+   index(obj.test.call({ args: { dest_proto: 'unix', dest_unix_path: '/tmp/../etc/passwd' } }).detail ?? '',
+         'needs an absolute dst_unix_path') >= 0);
 ck('test: a multicast target is understood', true,
    understood(obj.test.call({ args: { dest_proto: 'mcast', mcast_dst_group: '239.10.10.10', mcast_dst_port: 5000 } })));
 /* ...and a unix target with a relative path is refused, like the generator does */

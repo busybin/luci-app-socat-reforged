@@ -371,8 +371,7 @@ function sid_ok(s) {
  * A hostname must go in unbracketed ("TCP6:example.org:80") or socat cannot
  * resolve it — the "IPv6 domain does not forward" class of bug. */
 function dial_host(h) {
-	const i = index(h, ':');
-	return (i != null && i >= 0) ? `[${h}]` : h;
+	return (index(h, ':') >= 0) ? `[${h}]` : h;
 }
 
 /* The absolute-path shape ok_path() enforces in the generator, so the Test
@@ -380,7 +379,7 @@ function dial_host(h) {
 function path_ok(s) {
 	if (s == null || s == '' || substr(s, 0, 1) != '/')
 		return false;
-	if (index(s, '..') != null)
+	if (index(s, '..') >= 0)
 		return false;
 	for (let i = 0; i < length(s); i++) {
 		const c = substr(s, i, 1);
@@ -412,7 +411,7 @@ function first_port(v) {
 	if (v == null)
 		return 0;
 	const i = index(v, '-');
-	return to_int((i != null && i > 0) ? substr(v, 0, i) : v);
+	return to_int((i > 0) ? substr(v, 0, i) : v);
 }
 
 /* every port a listen_port value covers; capped like the generator (256) */
@@ -421,7 +420,7 @@ function listen_ports(v) {
 	if (v == null || v == '')
 		return out;
 	const i = index(v, '-');
-	if (i == null || i < 0) {
+	if (i < 0) {
 		const n = to_int(v);
 		if (n > 0)
 			push(out, n);
@@ -496,9 +495,10 @@ function read_pauses() {
 /* ------------------------------------------------- firewall redirects --- */
 
 /* fw4 redirects are DNATed in the kernel *before* a local listener sees the
- * packet, so a redirect on the same WAN port silently wins over socat.  The
- * page flags that instead of leaving a rule that looks "listening" and
- * forwards nothing. */
+ * packet, so a redirect on the same port takes that traffic away from socat.
+ * A redirect that lands on exactly the host:port the rule would have used is
+ * harmless (the packet still gets where it was meant to go) and is reported
+ * as a note; only a redirect to a *different* target is a real conflict. */
 function port_spans(v) {
 	const out = [];
 	const parts = split(trim(v ?? ''), /[ ,]+/);
@@ -507,7 +507,7 @@ function port_spans(v) {
 		if (p == '')
 			continue;
 		const d = index(p, '-');
-		if (d == null || d < 0) {
+		if (d < 0) {
 			const n = to_int(p);
 			if (n > 0)
 				push(out, [ n, n ]);
@@ -534,10 +534,57 @@ function list_str(v) {
 }
 
 function proto_has(p, want) {
-	p = p ?? '';
-	if (p == 'all' || p == 'any' || p == 'tcpudp')
+	const parts = split(lc(list_str(p)), /[ ,]+/);
+	for (let i = 0; i < length(parts); i++) {
+		const t = parts[i];
+		if (t == want || t == 'all' || t == 'any' || t == 'tcpudp')
+			return true;
+	}
+	return false;
+}
+
+/* fw4 "family" is empty (or "any") when the redirect covers both stacks */
+function family_ok(rd_family, rule_family) {
+	const f = lc(trim(list_str(rd_family)));
+	if (f == '' || f == 'any')
 		return true;
-	return (index(p, want) != null && index(p, want) >= 0);
+	if (f == 'ipv4')
+		return rule_family != '6';
+	if (f == 'ipv6')
+		return rule_family != '4';
+	return true;
+}
+
+function addr_key(v) {
+	let s = trim(v ?? '');
+	const e = index(s, ']');
+	if (substr(s, 0, 1) == '[' && e > 0)
+		s = substr(s, 1, e - 1);
+	return lc(s);
+}
+
+function addr_v6(a) {
+	return index(a, ':') >= 0;
+}
+
+function first_span_port(v) {
+	const s = port_spans(v);
+	return (length(s) > 0) ? s[0][0] : 0;
+}
+
+/* Does the redirect deliver to the place this rule forwards to?
+ * "unknown" means the addresses cannot be compared (a zone target, or the
+ * two sides are on different stacks) - that is not proof of a conflict. */
+function compare_target(rd, r) {
+	const them = addr_key(rd.dest_ip);
+	const mine = addr_key(r.dest_ip);
+	if (them == '' || mine == '' || addr_v6(them) != addr_v6(mine))
+		return 'unknown';
+	const dport = to_int(rd.dest_port);
+	const want = (dport > 0) ? dport : first_span_port(r.listen_raw);
+	if (them != mine || want != to_int(r.dest_port))
+		return 'differ';
+	return 'same';
 }
 
 let _fwcache = null, _fwcache_at = 0;
@@ -558,7 +605,13 @@ function read_redirects() {
 		const sid = s['.name'];
 		if ((uci.get('firewall', sid, 'enabled') ?? '1') == '0')
 			return;
-		const ports = list_str(uci.get('firewall', sid, 'src_dport') ?? uci.get('firewall', sid, 'dest_port'));
+		/* only DNAT-style redirects take the port away from a listener */
+		const target = lc(list_str(uci.get('firewall', sid, 'target') ?? 'dnat'));
+		if (index(target, 'dnat') < 0)
+			return;
+		/* src_dport is the port matched on the incoming side; a redirect
+		 * without it matches every port and cannot shadow one listener */
+		const ports = list_str(uci.get('firewall', sid, 'src_dport'));
 		if (ports == '')
 			return;
 		push(out, {
@@ -566,8 +619,10 @@ function read_redirects() {
 			name: list_str(uci.get('firewall', sid, 'name')),
 			proto: lc(list_str(uci.get('firewall', sid, 'proto'))),
 			ports,
+			family: list_str(uci.get('firewall', sid, 'family')),
 			src: list_str(uci.get('firewall', sid, 'src')),
-			dest_ip: list_str(uci.get('firewall', sid, 'dest_ip'))
+			dest_ip: list_str(uci.get('firewall', sid, 'dest_ip')),
+			dest_port: list_str(uci.get('firewall', sid, 'dest_port'))
 		});
 	});
 	uci.unload('firewall');
@@ -587,17 +642,33 @@ function find_fw_conflicts(rules) {
 			continue;
 		const kind = (r.proto == 'ssl') ? 'tcp' : r.proto;
 		const mine = port_spans(r.listen_raw);
+		let hit = null, differ = null;
 		for (let j = 0; j < length(red); j++) {
 			const rd = red[j];
-			if (!proto_has(rd.proto, kind) || !spans_overlap(mine, port_spans(rd.ports)))
+			if (!proto_has(rd.proto, kind) || !family_ok(rd.family, r.family))
 				continue;
-			push(out, {
-				sid: r.sid, name: r.name, proto: kind,
-				ports: r.listen_raw,
-				redirect: { name: rd.name, sid: rd.sid, proto: rd.proto, ports: rd.ports, src: rd.src, dest_ip: rd.dest_ip }
-			});
-			break;
+			if (!spans_overlap(mine, port_spans(rd.ports)))
+				continue;
+			const cmp = compare_target(rd, r);
+			if (cmp == 'differ') {
+				differ = rd;
+				break;
+			}
+			if (hit == null)
+				hit = rd;
 		}
+		const rep = differ ?? hit;
+		if (rep == null)
+			continue;
+		push(out, {
+			sid: r.sid, name: r.name, proto: kind,
+			ports: r.listen_raw,
+			conflict: (differ != null),
+			redirect: {
+				name: rep.name, sid: rep.sid, proto: rep.proto, ports: rep.ports,
+				family: rep.family, src: rep.src, dest_ip: rep.dest_ip, dest_port: rep.dest_port
+			}
+		});
 	}
 	return out;
 }
