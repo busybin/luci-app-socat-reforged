@@ -16,9 +16,11 @@
   rule dialog has *Show connections*: established TCP peers with address, port,
   listen port and family, read from `/proc/net/tcp{,6}`.  UDP says so instead of
   showing an empty list.
-* **Firewall DNAT conflicts.**  A `fw4` redirect on the same WAN port is applied
-  before the listener sees the packet; those rules are flagged with the
-  redirect's name and source zone.
+* **Firewall DNAT conflicts.**  A `fw4` redirect on the same port is applied
+  before the listener sees the packet, so WAN traffic goes to the redirect's
+  target instead.  Only a redirect to a *different* target is flagged as a
+  conflict (red); one that lands on the very address:port the rule would use
+  still completes the forward and is shown as a note instead.
 
 ### Operations
 
