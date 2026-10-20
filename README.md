@@ -60,6 +60,23 @@ drop-in replacement with a modern, ucode-native view.
   answer is cached for six hours; `Engine settings → Look for new versions` (off
   by default) makes the page check on its own when you open it and put a notice at
   the top.  Nothing is downloaded or installed until you press the button.
+* **Peer allowlist per rule** (`Only accept from`): a comma-separated list of
+  CIDRs (`192.168.1.0/24, 2001:db8::/32`).  socat keeps the listener up and
+  refuses every other peer (`range=`).  Both families are filtered separately:
+  a stack with no entry is **not** started (with a warning and the allow-all
+  CIDR to use), so adding an IPv4 allowlist cannot silently leave IPv6 open.
+* **Who is connected**: click the connection count (or *Show connections* in the
+  rule dialog) for the established TCP peers of that rule: peer address, peer
+  port, listen port and address family.
+* **Temporary stop**: pause a rule for 1–10080 minutes.  Its listener and WAN
+  port are closed at once and the rule comes back on its own; the table shows
+  `⏸ paused until HH:MM`.
+* **Templates**: *Add from template* creates a disabled, pre-filled rule (RDP,
+  SSH, SMB, HTTP(S), RTMP, RTSP, VNC, Minecraft, WireGuard, …), optionally as a
+  TCP + UDP pair.  Set the target and enable it.
+* **Firewall DNAT conflicts**: a `fw4` redirect on the same WAN port wins in the
+  kernel before the listener sees the packet.  Such a rule is flagged with the
+  redirect's name, instead of looking healthy and forwarding nothing.
 * **Port-conflict detection**: two enabled rules sharing a `proto:port` are
   flagged in the table and in a warning banner.
 * **Down-reason reporting**: a rule that cannot start shows the listener's own
@@ -99,7 +116,7 @@ drop-in replacement with a modern, ucode-native view.
 * A `firewall4`/`nftables` system for the automatic WAN rule (everything else works
   without it; the firewall sync simply no-ops).
 * BusyBox userland (standard on OpenWrt) for `sh`, `awk`, `sort`, `grep`, `tr`,
-  `sed`, `awk`, `pgrep`, `killall`, `ubus`, `uci`, `logger`.
+  `sed`, `pgrep`, `killall`, `find`, `tail`, `date`, `ubus`, `uci`, `logger`.
 * For the built-in updater: a route from the **router** to `api.github.com` and a
   downloader (`uclient-fetch` is a package dependency; `curl` and `wget` are
   fallbacks), plus the CA bundle for certificate verification. Only the
@@ -113,7 +130,7 @@ drop-in replacement with a modern, ucode-native view.
 | `update_check` | `0` | Ask GitHub for the latest release when the page is opened (and every six hours while it stays open) and show a notice when there is one. Nothing is downloaded or installed until you press **Update now** yourself. |
 
 Runtime state lives in `/var/run/socat-reforged/` (`desired`, `state`, `fw.sig`, `fw.zones`,
-`err/<kind>-<port>.log`, `ratelog/`), the heartbeat in `/var/run/socat-reforged.hb`.
+`err/<sid>-<kind>-<port>.log`, `pause/<sid>`, `ratelog/`), the heartbeat in `/var/run/socat-reforged.hb`.
 `socat-boot.sh status` prints a human-readable summary.
 
 ## What the engine works out for itself

@@ -24,10 +24,12 @@ rm -rf "$WORK"; mkdir -p "$WORK"
 
 V6="2001:db8:1::55"
 
-run_gen() { # run_gen <mode>  →  writes $WORK/out.des / out.warn / out.fw
-	: > "$WORK/out.des"; : > "$WORK/out.warn"; : > "$WORK/out.fw"
+run_gen() { # run_gen <mode> [paused "sid<TAB>until"]
+	: > "$WORK/out.des"; : > "$WORK/out.warn"; : > "$WORK/out.fw"; : > "$WORK/out.paused"
+	[ -n "${2:-}" ] && printf '%s\n' "$2" > "$WORK/out.paused"
 	$AWK -v ipv6="$1" -v socat=/usr/bin/socat \
 		-v desf="$WORK/out.des" -v warnf="$WORK/out.warn" -v fwf="$WORK/out.fw" \
+		-v pausef="$WORK/out.paused" \
 		-f "$GEN" < "$WORK/in.show"
 }
 
@@ -355,6 +357,87 @@ FIX
 	run_gen ''
 	check "bad listen port '$bad' -> skipped" 'b:bad listen port, skip ' "$(warns)"
 done
+
+# ---- peer allowlist (socat range=) ----------------------------------------
+cat > "$WORK/in.show" <<'FIX'
+socat.a=config
+socat.a.enable=1
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.src_allow=192.168.1.0/24
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+FIX
+run_gen "$V6"
+contains 'src_allow adds range= to the v4 listener' 'range=192.168.1.0/24' "$(cat "$WORK/out.des")"
+check 'a v4-only allowlist does not open an unrestricted v6 listener' 'a/tcp ' "$(kinds)"
+contains 'a v4-only allowlist says how to allow IPv6' 'use ::/0 to allow all' "$(warns)"
+check 'src_allow keeps the WAN port open' 'tcp:8080 ' "$(fwls)"
+
+cat > "$WORK/in.show" <<'FIX'
+socat.a=config
+socat.a.enable=1
+socat.a.proto=udp
+socat.a.listen_port=9000
+socat.a.src_allow=10.0.0.0/8, 2001:db8::/32
+socat.a.dest_proto=udp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=53
+FIX
+run_gen "$V6"
+contains 'a bare IPv6 CIDR gets the brackets socat needs' 'range=[2001:db8::]/32' "$(cat "$WORK/out.des")"
+contains 'both entries reach the command' 'range=10.0.0.0/8' "$(cat "$WORK/out.des")"
+check 'a mixed allowlist keeps both stacks' 'a/udp a/udp6 ' "$(kinds)"
+check 'both stacks carry their own ranges' 2 "$(grep -c 'range=' "$WORK/out.des")"
+check 'the v4 listener got only the v4 range' 1 "$(grep 'UDP-LISTEN:' "$WORK/out.des" | grep -c 'range=10.0.0.0/8')"
+check 'the v6 listener got only the bracketed v6 range' 1 "$(grep 'UDP6-LISTEN:' "$WORK/out.des" | grep -c 'range=\[2001:db8::\]/32')"
+
+for bad in '10.0.0.0/33' '10.0.0.0' '300.1.1.1/8' 'example.org/8' '2001:db8::/129' '10.0.0.0/8,/nope'; do
+	cat > "$WORK/in.show" <<FIX
+socat.b=config
+socat.b.enable=1
+socat.b.proto=tcp
+socat.b.listen_port=8081
+socat.b.src_allow=$bad
+socat.b.dest_proto=tcp4
+socat.b.dest_ip=10.0.0.9
+socat.b.dest_port=80
+FIX
+	run_gen ''
+	contains "bad src_allow '$bad' -> skipped" 'bad source range' "$(warns)"
+	check "bad src_allow '$bad' -> no listener" '' "$(kinds)"
+done
+
+cat > "$WORK/in.show" <<'FIX'
+socat.u=config
+socat.u.enable=1
+socat.u.proto=unix
+socat.u.unix_path=/tmp/x.sock
+socat.u.src_allow=10.0.0.0/8
+socat.u.dest_proto=tcp4
+socat.u.dest_ip=10.0.0.9
+socat.u.dest_port=80
+FIX
+run_gen ''
+contains 'src_allow on a unix listener is ignored with a warning' 'source ranges need a network listener' "$(warns)"
+check 'the unix rule still starts' 'u/unix ' "$(kinds)"
+
+# ---- temporary pause: no listener and no WAN port --------------------------
+cat > "$WORK/in.show" <<'FIX'
+socat.p=config
+socat.p.enable=1
+socat.p.proto=tcp
+socat.p.listen_port=8082
+socat.p.dest_proto=tcp4
+socat.p.dest_ip=10.0.0.9
+socat.p.dest_port=80
+socat.p.firewall_accept=1
+FIX
+run_gen "$V6" "$(printf 'p\t9999999999')"
+check 'a paused rule has no listener' '' "$(kinds)"
+check 'a paused rule has no WAN port' '' "$(fwls)"
+check 'a paused rule produces no warnings' '' "$(warns)"
 
 # ---- destination that is a hostname must not be bracketed ------------------
 # socat only accepts brackets around a literal IPv6 address; "[example.org]"

@@ -375,6 +375,41 @@ firewall.@zone[1].network=wan wan6
 firewall.@zone[1].input=REJECT
 EOF
 		;;
+	11)
+		# a paused rule (temporary stop) and a peer allowlist: the paused rule
+		# must not be started or open a WAN port, and the v4-only allowlist must
+		# not leave an unrestricted v6 listener behind
+		cat > "$SIM/etc/socat" <<'EOF'
+socat.reforged=internal
+socat.simpaused=config
+socat.simpaused.enable='1'
+socat.simpaused.proto=tcp
+socat.simpaused.listen_port='21070'
+socat.simpaused.src_allow='127.0.0.0/8'
+socat.simpaused.dest_proto='tcp4'
+socat.simpaused.dest_ip=192.168.1.10
+socat.simpaused.dest_port='80'
+socat.simpaused.firewall_accept='1'
+socat.simfree=config
+socat.simfree.enable='1'
+socat.simfree.proto=tcp
+socat.simfree.listen_port='21071'
+socat.simfree.dest_proto='tcp4'
+socat.simfree.dest_ip=192.168.1.10
+socat.simfree.dest_port='80'
+socat.simfree.firewall_accept='1'
+EOF
+		cat > "$SIM/etc/firewall" <<'EOF'
+firewall.@zone[0]=zone
+firewall.@zone[0].name=lan
+firewall.@zone[0].network=lan
+firewall.@zone[0].input=ACCEPT
+firewall.@zone[1]=zone
+firewall.@zone[1].name=wan
+firewall.@zone[1].network=wan wan6
+firewall.@zone[1].input=REJECT
+EOF
+		;;
 	10)
 		# a TLS rule: the engine must see the OPENSSL-LISTEN worker like any
 		# other, or it can never stop it again
@@ -545,6 +580,50 @@ check 'scenario 9: ...and an IGMP accept rule' 1 "$(grep -c 'socat_reforged_igmp
 check 'scenario 9: the IGMP rule is proto igmp' 1 "$(grep -c 'socat_reforged_igmp.proto=igmp' "$SIM/fw.log" 2>/dev/null)"
 check 'scenario 9: the unix rule opens no port' 0 "$(grep -c 'socat_reforged_tcp\.' "$SIM/fw.log" 2>/dev/null)"
 check 'scenario 9: the unix listener socket exists' 1 "$([ -S "$SIM/run/sim.sock" ] && echo 1 || echo 0)"
+cleanup
+
+# scenario 11: temporary pause + peer allowlist.  The pause marker is written
+# before the engine starts; its expiry is then moved into the past and a
+# one-shot reconcile must prune it and bring the rule back.
+SC=11
+prepare "$SC"
+fixtures "$SC"
+mkdir -p "$SIM/run/pause"
+printf '%s\n' "$(( $(date +%s) + 3600 ))" > "$SIM/run/pause/simpaused"
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
+LOOP=$!
+sleep "$SECS"
+kill "$LOOP" 2>/dev/null
+wait "$LOOP" 2>/dev/null
+for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
+sleep 1
+IFS='|' read -r Z L S E <<EOF
+$(results)
+EOF
+check 'scenario 11: zones' 'wan' "$Z"
+check 'scenario 11: only the unpaused rule listens' 'tcp tcp6' "$L"
+check 'scenario 11: no rule errors' '' "$E"
+check 'scenario 11: the paused port stays closed' 0 "$(grep -c '21070' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 11: the free rule opens its port' 1 "$(grep -c '21071' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 11: the paused rule contributes no listener' 0 \
+	"$(grep -c '21070' "$SIM/run/desired" 2>/dev/null)"
+check 'scenario 11: a v4-only allowlist drops the v6 listener' 0 \
+	"$(grep -c 'range=127.0.0.0/8.*TCP6\|TCP6.*range=127.0.0.0/8' "$SIM/run/desired" 2>/dev/null)"
+check 'scenario 11: a paused rule emits no warning' 0 \
+	"$(grep -c 'no IPv6 range' "$SIM/engine-logfile.log" 2>/dev/null)"
+
+# expire the marker: the next reconcile prunes it and the rule comes back
+printf '%s\n' "$(( $(date +%s) - 60 ))" > "$SIM/run/pause/simpaused"
+PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" reconcile >/dev/null 2>&1
+sleep 1
+check 'scenario 11: an expired pause marker is removed' 0 \
+	"$(ls "$SIM/run/pause" 2>/dev/null | grep -c simpaused)"
+check 'scenario 11: the rule runs again after expiry' 1 \
+	"$(grep -c '^simpaused tcp 21070 ' "$SIM/run/state" 2>/dev/null)"
+check 'scenario 11: the v6 narrowing is logged once it runs' 1 \
+	"$(grep -c 'no IPv6 range' "$SIM/engine-logfile.log" 2>/dev/null)"
+check 'scenario 11: the allowlist reaches the running command' 1 \
+	"$(grep -c 'range=127.0.0.0/8' "$SIM/run/desired" 2>/dev/null)"
 cleanup
 
 # ---- a TLS listener must be visible to the engine ---------------------------

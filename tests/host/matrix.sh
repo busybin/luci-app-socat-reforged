@@ -74,6 +74,7 @@ socat.mssl.ssl_key=/tmp/matrix-k.pem
 socat.mssl.dest_proto=ssl
 socat.mssl.dest_ip=127.0.0.1
 socat.mssl.dest_port=24199
+socat.mssl.src_allow=127.0.0.0/8
 socat.mssl.ssl_verify=1
 socat.mssl.ssl_cafile=/tmp/matrix-c.pem
 socat.mssl.keepalive=1
@@ -163,6 +164,14 @@ socat.mrange.nodelay=1
 socat.mrange.keepalive=1
 socat.mrange.user=nobody
 socat.mrange.retry=3
+socat.mallow=config
+socat.mallow.enable=1
+socat.mallow.proto=udp
+socat.mallow.listen_port=24118
+socat.mallow.src_allow=127.0.0.0/8, [::1]/128
+socat.mallow.dest_proto=udp4
+socat.mallow.dest_ip=127.0.0.1
+socat.mallow.dest_port=24199
 EOF
 
 # a certificate for the TLS rules (socat needs a real one)
@@ -217,6 +226,10 @@ try() { # try <sid> <kind> <port|-> <cmd>
 	fi
 	rm -f "$err"
 }
+
+# the allowlist is a listener option, so it has to reach both stacks
+has 'src_allow reaches the generated command' 'range=127.0.0.0/8' "$(grep mallow "$WORK/des")"
+has 'src_allow keeps the IPv6 entry' 'range=[::1]/128' "$(grep mallow "$WORK/des")"
 
 pair_tcp=""; pair_tcp6=""; pair_port=""
 # a literal tab in IFS, so the five columns come back whole

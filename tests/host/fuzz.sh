@@ -208,6 +208,18 @@ add_bad 87 v6tcp 'dest_ip'   '10.0.0.9'
 # a relay rule (dest_proto=mcast, no joined group) still puts mcast_iface in the
 # dial address: it must be checked there too, not only on the receive side
 add_bad 86 mcastdial 'mcast_iface' 'eth0 -T99 evil'
+# the peer allowlist is concatenated into the listener address: only plain
+# CIDRs may pass, and a bad entry must drop the rule rather than half-apply
+add_bad 88 tcp 'src_allow' '10.0.0.0/8;id'
+add_bad 89 tcp 'src_allow' '10.0.0.0/8$(id)'
+add_bad 90 tcp 'src_allow' '10.0.0.0/33'
+add_bad 91 tcp 'src_allow' '::1'
+add_bad 92 tcp 'src_allow' '[::1]/129'
+add_bad 93 tcp 'src_allow' '1.2.3.4/8,/etc/passwd'
+add_bad 94 tcp 'src_allow' '10.0.0.0/8 -T99'
+add_bad 95 tcp 'src_allow' '10.0.0.0/8,,,::/0`id`'
+add_bad 96 tcp 'src_allow' '10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8,10.0.0.0/8'
+add_bad 97 tcp 'src_allow' '300.1.1.1/8'
 
 
 # ---- values that must be ACCEPTED (the whitelist is not a blanket no) ------
@@ -243,6 +255,11 @@ add_ok 130 mcast 'mcast_dst_group' '239.0.0.0'
 add_ok 128 mcast 'mcast_ttl'  '32'
 add_ok 129 unix 'unix_path'  '/var/run/ok.sock'
 add_ok 132 ssl 'listen_addr' '2001:db8::9'
+add_ok 135 tcp 'src_allow' '192.168.1.0/24'
+add_ok 136 tcp 'src_allow' '10.0.0.0/8, 2001:db8::/32'
+add_ok 137 tcp 'src_allow' '2001:db8::/32'
+add_ok 138 tcp 'src_allow' '[2001:db8::]/32'
+add_ok 139 tcp 'src_allow' '10.0.0.0/8,'
 
 # the unix rule needs its paths, the ssl rule its files, or it is refused for a
 # reason that has nothing to do with the value under test

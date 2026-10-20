@@ -432,7 +432,7 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	 * source rather than reaching into the closure */
 	const EXPORT_FIELDS = /var EXPORT_FIELDS = \[([^\]]*)\]/.exec(src)[1]
 		.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
-	ck('the generator really was parsed', 34, genOpts.length);
+	ck('the generator really was parsed', 35, genOpts.length);
 	const missingField = genOpts.filter(n => !optOf(n));
 	ck('every engine option has a form field', genOpts.length + ' fields',
 		missingField.length ? missingField.length + ' missing: ' + missingField.join(',') : genOpts.length + ' fields');

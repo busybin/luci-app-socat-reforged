@@ -20,6 +20,8 @@ import { cursor } from 'uci';
  *   start / stop / restart
  *   reload                per-rule reconcile (only changed rules restart)
  *   rule_restart{sid}     restart exactly one rule
+ *   rule_pause{sid,minutes} / rule_resume{sid}   temporary stop
+ *   peers{sid}            established TCP peers of one rule
  *   log{lines}            tail of the engine's persistent log file
  *   log_clear             truncate that file
  *   update_check{force}   latest GitHub release vs the installed version
@@ -32,6 +34,7 @@ import { cursor } from 'uci';
 
 const HB_FILE   = '/var/run/socat-reforged.hb';
 const STATE_FILE = '/var/run/socat-reforged/state';
+const PAUSEDIR   = '/var/run/socat-reforged/pause';
 const LOG_FILE  = '/var/log/socat-reforged.log';   /* engine's own log */
 const LOG_LINES = 300;                             /* lines one call returns */
 const ENGINE   = '/etc/socat-boot.sh';
@@ -96,6 +99,75 @@ function net_table(path) {
 		if (lp == null)
 			continue;
 		push(out, { local: lp, remote: rp, state: f[3] });
+	}
+	return out;
+}
+
+/* /proc/net keeps IPv4 addresses as one little-endian 32-bit word and IPv6 as
+ * four of them, so both need a byte swap before they read like an address. */
+function fmt_v4(h) {
+	if (h == null || length(h) != 8)
+		return h ?? '';
+	const o = [];
+	for (let i = 6; i >= 0; i -= 2)
+		push(o, `${hex(substr(h, i, 2))}`);
+	return join('.', o);
+}
+
+function fmt_v6(h) {
+	if (h == null || length(h) != 32)
+		return h ?? '';
+	const g = [];
+	for (let w = 0; w < 4; w++) {
+		const s = substr(h, w * 8, 8);
+		const rev = substr(s, 6, 2) + substr(s, 4, 2) + substr(s, 2, 2) + substr(s, 0, 2);
+		push(g, substr(rev, 0, 4));
+		push(g, substr(rev, 4, 4));
+	}
+	/* longest run of zero groups -> "::" (purely cosmetic) */
+	let bs = -1, bl = 0, cs = -1, cl = 0;
+	for (let i = 0; i < 8; i++) {
+		if (g[i] == '0000') {
+			if (cs < 0) { cs = i; cl = 0; }
+			cl++;
+			if (cl > bl) { bl = cl; bs = cs; }
+		} else { cs = -1; cl = 0; }
+	}
+	let out = '';
+	for (let i = 0; i < 8; i++) {
+		if (bl >= 2 && i == bs) { out += '::'; i += bl - 1; continue; }
+		if (out != '' && substr(out, length(out) - 1, 1) != ':')
+			out += ':';
+		let grp = lc(replace(g[i], /^0+/, ''));
+		out += (grp == '') ? '0' : grp;
+	}
+	return (out == '') ? '::' : out;
+}
+
+/* Established TCP connections from one /proc table, with real addresses. */
+function net_conns(path, fam) {
+	const out = [];
+	const data = readfile(path);
+	if (data == null)
+		return out;
+	const lines = split(data, '\n');
+	for (let i = 1; i < length(lines); i++) {
+		const l = trim(lines[i]);
+		if (l == '')
+			continue;
+		const f = split(l, /\s+/);
+		if (length(f) < 4 || f[3] != '01')
+			continue;
+		const la = split(f[1], ':');
+		const ra = split(f[2], ':');
+		if (length(la) < 2 || length(ra) < 2)
+			continue;
+		const lp = hex(la[1]), rp = hex(ra[1]);
+		if (lp == null || rp == null)
+			continue;
+		push(out, {
+			fam, lport: lp, rip: (fam == '6') ? fmt_v6(ra[0]) : fmt_v4(ra[0]), rport: rp
+		});
 	}
 	return out;
 }
@@ -279,6 +351,22 @@ function host_ok(s) {
 	return true;
 }
 
+/* section ids become file names (pause markers), so keep them to the same
+ * character set the generator/engine accept. */
+function sid_ok(s) {
+	if (s == null || s == '' || length(s) > 64)
+		return false;
+	for (let i = 0; i < length(s); i++) {
+		const c = substr(s, i, 1);
+		const ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		           (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' ||
+		           c == '@' || c == '[' || c == ']';
+		if (!ok)
+			return false;
+	}
+	return true;
+}
+
 /* socat address host part: brackets only around a *literal* IPv6 address.
  * A hostname must go in unbracketed ("TCP6:example.org:80") or socat cannot
  * resolve it — the "IPv6 domain does not forward" class of bug. */
@@ -327,6 +415,27 @@ function first_port(v) {
 	return to_int((i != null && i > 0) ? substr(v, 0, i) : v);
 }
 
+/* every port a listen_port value covers; capped like the generator (256) */
+function listen_ports(v) {
+	const out = [];
+	if (v == null || v == '')
+		return out;
+	const i = index(v, '-');
+	if (i == null || i < 0) {
+		const n = to_int(v);
+		if (n > 0)
+			push(out, n);
+		return out;
+	}
+	const a = to_int(substr(v, 0, i)), b = to_int(substr(v, i + 1));
+	if (a <= 0 || b < a)
+		return out;
+	const last = (b - a > 255) ? a + 255 : b;
+	for (let p = a; p <= last; p++)
+		push(out, p);
+	return out;
+}
+
 function read_rules() {
 	const rules = [];
 
@@ -350,6 +459,7 @@ function read_rules() {
 			enable: (uci.get(UCI_CFG, sid, 'enable') ?? '1') != '0',
 			proto: uci.get(UCI_CFG, sid, 'proto') ?? 'tcp',
 			listen: first_port(uci.get(UCI_CFG, sid, 'listen_port')),
+			listen_raw: uci.get(UCI_CFG, sid, 'listen_port') ?? '',
 			dest_proto: uci.get(UCI_CFG, sid, 'dest_proto') ?? 'tcp4',
 			dest_ip: uci.get(UCI_CFG, sid, 'dest_ip') ?? '',
 			dest_port: to_int(uci.get(UCI_CFG, sid, 'dest_port')),
@@ -361,6 +471,135 @@ function read_rules() {
 	uci.unload(UCI_CFG);
 
 	return rules;
+}
+
+/* ------------------------------------------------------- temporary pause */
+
+/* A pause is a file named after the section holding an epoch deadline; the
+ * engine leaves the rule out (listener + WAN port) until it expires. */
+function read_pauses() {
+	const out = {};
+	let names = null;
+	try { names = fs.lsdir(PAUSEDIR); } catch (e) { return out; }
+	if (names == null)
+		return out;
+	const now = time();
+	for (let i = 0; i < length(names); i++) {
+		const sid = names[i];
+		const until = to_int(trim(readfile(`${PAUSEDIR}/${sid}`) ?? ''));
+		if (until > now)
+			out[sid] = until;
+	}
+	return out;
+}
+
+/* ------------------------------------------------- firewall redirects --- */
+
+/* fw4 redirects are DNATed in the kernel *before* a local listener sees the
+ * packet, so a redirect on the same WAN port silently wins over socat.  The
+ * page flags that instead of leaving a rule that looks "listening" and
+ * forwards nothing. */
+function port_spans(v) {
+	const out = [];
+	const parts = split(trim(v ?? ''), /[ ,]+/);
+	for (let i = 0; i < length(parts); i++) {
+		const p = trim(parts[i]);
+		if (p == '')
+			continue;
+		const d = index(p, '-');
+		if (d == null || d < 0) {
+			const n = to_int(p);
+			if (n > 0)
+				push(out, [ n, n ]);
+		} else {
+			const a = to_int(substr(p, 0, d)), b = to_int(substr(p, d + 1));
+			if (a > 0 && b >= a)
+				push(out, [ a, b ]);
+		}
+	}
+	return out;
+}
+
+function spans_overlap(a, b) {
+	for (let i = 0; i < length(a); i++)
+		for (let j = 0; j < length(b); j++)
+			if (a[i][0] <= b[j][1] && b[j][0] <= a[i][1])
+				return true;
+	return false;
+}
+
+/* a UCI list option comes back as an array (fw4 allows "list proto") */
+function list_str(v) {
+	return (type(v) == 'array') ? join(' ', v) : (v ?? '');
+}
+
+function proto_has(p, want) {
+	p = p ?? '';
+	if (p == 'all' || p == 'any' || p == 'tcpudp')
+		return true;
+	return (index(p, want) != null && index(p, want) >= 0);
+}
+
+let _fwcache = null, _fwcache_at = 0;
+
+function read_redirects() {
+	const out = [];
+	if (!fs.access('/etc/config/firewall'))
+		return out;
+	/* the page polls every few seconds; the firewall config changes rarely */
+	if (_fwcache != null && (time() - _fwcache_at) < 15)
+		return _fwcache;
+	try {
+		uci.load('firewall');
+	} catch (e) {
+		return out;
+	}
+	uci.foreach('firewall', 'redirect', function(s) {
+		const sid = s['.name'];
+		if ((uci.get('firewall', sid, 'enabled') ?? '1') == '0')
+			return;
+		const ports = list_str(uci.get('firewall', sid, 'src_dport') ?? uci.get('firewall', sid, 'dest_port'));
+		if (ports == '')
+			return;
+		push(out, {
+			sid,
+			name: list_str(uci.get('firewall', sid, 'name')),
+			proto: lc(list_str(uci.get('firewall', sid, 'proto'))),
+			ports,
+			src: list_str(uci.get('firewall', sid, 'src')),
+			dest_ip: list_str(uci.get('firewall', sid, 'dest_ip'))
+		});
+	});
+	uci.unload('firewall');
+	_fwcache = out;
+	_fwcache_at = time();
+	return out;
+}
+
+function find_fw_conflicts(rules) {
+	const red = read_redirects();
+	const out = [];
+	if (length(red) == 0)
+		return out;
+	for (let i = 0; i < length(rules); i++) {
+		const r = rules[i];
+		if (!r.enable || r.proto == 'unix')
+			continue;
+		const kind = (r.proto == 'ssl') ? 'tcp' : r.proto;
+		const mine = port_spans(r.listen_raw);
+		for (let j = 0; j < length(red); j++) {
+			const rd = red[j];
+			if (!proto_has(rd.proto, kind) || !spans_overlap(mine, port_spans(rd.ports)))
+				continue;
+			push(out, {
+				sid: r.sid, name: r.name, proto: kind,
+				ports: r.listen_raw,
+				redirect: { name: rd.name, sid: rd.sid, proto: rd.proto, ports: rd.ports, src: rd.src, dest_ip: rd.dest_ip }
+			});
+			break;
+		}
+	}
+	return out;
 }
 
 /* ------------------------------------------------------------ engine log */
@@ -713,20 +952,26 @@ function do_status() {
 	const lv = live_state();
 	const es = engine_state();
 	const er = engine_rules();
+	const pauses = read_pauses();
 	const config_missing = !fs.access('/etc/config/' + UCI_CFG);
 
 	const out = [];
-	let enabled = 0, listening = 0, down = 0, connections = 0, errors = 0;
+	let enabled = 0, listening = 0, down = 0, paused = 0, connections = 0, errors = 0;
 
 	for (let i = 0; i < length(rules); i++) {
 		const r = rules[i];
 		const sock_up = (r.proto == 'udp') ? (lv.udp[r.listen] != null) : (lv.tcp[r.listen] != null);
 		const conns = (r.proto == 'tcp') ? (lv.conns[r.listen] ?? 0) : 0;
 		const st = er ? er[r.sid] : null;
+		const puntil = pauses[r.sid];
 
-		let status, error = null;
+		let status, error = null, paused_until = null;
 		if (!r.enable) {
 			status = 'disabled';
+		}
+		else if (puntil != null) {
+			status = 'paused';
+			paused_until = puntil;
 		}
 		else if (st != null) {
 			/* the engine knows better than a port lookup */
@@ -746,6 +991,8 @@ function do_status() {
 			enabled++;
 			if (status == 'listening')
 				listening++;
+			else if (status == 'paused')
+				paused++;
 			else if (status != 'disabled')
 				down++;
 			if (error != null)
@@ -757,14 +1004,16 @@ function do_status() {
 			sid: r.sid, name: r.name, enable: r.enable, proto: r.proto,
 			listen: r.listen, dest_proto: r.dest_proto, dest_ip: r.dest_ip,
 			dest_port: r.dest_port, family: r.family, proxy: r.proxy,
-			firewall_accept: r.firewall_accept, status, conns, error
+			firewall_accept: r.firewall_accept, status, conns, error,
+			paused_until
 		});
 	}
 
 	return {
 		engine: es,
-		counts: { total: length(out), enabled, listening, down, errors },
+		counts: { total: length(out), enabled, listening, down, paused, errors },
 		connections,
+		fw_conflicts: find_fw_conflicts(rules),
 		config_missing,
 		/* whether this build carries the self-update helper: the view hides
 		 * the update controls when it does not */
@@ -854,6 +1103,83 @@ function do_test(args) {
 		: { ok: false, detail: `connection failed (socat exit ${rc})` };
 }
 
+/* Who is connected right now.  TCP only: UDP has no connection table, so the
+ * page says so instead of showing an empty list that looks like "nobody". */
+function do_peers(args) {
+	const sid = args?.sid ?? '';
+	if (!sid_ok(sid))
+		return { ok: false, detail: 'bad section id' };
+
+	const rules = read_rules();
+	let rule = null;
+	for (let i = 0; i < length(rules); i++)
+		if (rules[i].sid == sid) { rule = rules[i]; break; }
+	if (rule == null)
+		return { ok: false, detail: 'no such rule' };
+	if (rule.proto == 'udp')
+		return { ok: true, sid, proto: 'udp', peers: [], note: 'UDP has no connection table' };
+
+	const ports = listen_ports(rule.listen_raw);
+	const fams = [];
+	if (rule.proto == 'ssl' || rule.family == '' || rule.family == '4')
+		push(fams, '4');
+	if (rule.proto != 'ssl' && (rule.family == '' || rule.family == '6'))
+		push(fams, '6');
+
+	const peers = [];
+	for (let p = 0; p < length(ports); p++) {
+		for (let f = 0; f < length(fams); f++) {
+			const tab = (fams[f] == '6') ? '/proc/net/tcp6' : '/proc/net/tcp';
+			const conns = net_conns(tab, fams[f]);
+			for (let c = 0; c < length(conns); c++) {
+				if (conns[c].lport != ports[p])
+					continue;
+				push(peers, { ip: conns[c].rip, port: conns[c].rport, fam: conns[c].fam, listen: ports[p] });
+				if (length(peers) >= 200)
+					return { ok: true, sid, proto: rule.proto, peers, truncated: true };
+			}
+		}
+	}
+
+	return { ok: true, sid, proto: rule.proto, peers };
+}
+
+function do_pause(args) {
+	const sid = args?.sid ?? '';
+	if (!sid_ok(sid))
+		return { ok: false, detail: 'bad section id' };
+	let found = false;
+	const rules = read_rules();
+	for (let i = 0; i < length(rules); i++)
+		if (rules[i].sid == sid) { found = true; break; }
+	if (!found)
+		return { ok: false, detail: 'no such rule' };
+
+	const minutes = to_int(args?.minutes ?? 0);
+	if (minutes < 1 || minutes > 10080)
+		return { ok: false, detail: 'minutes must be 1-10080' };
+
+	/* the engine may be stopped (no run dir at all): create the whole path */
+	shell_rc(SAFE_PATH + 'mkdir -p ' + shellquote(PAUSEDIR));
+	const until = time() + minutes * 60;
+	try {
+		writefile(`${PAUSEDIR}/${sid}`, `${until}\n`);
+	} catch (e) {
+		return { ok: false, detail: `could not write the pause marker: ${e}` };
+	}
+	shell_rc(SAFE_PATH + shellquote(ENGINE) + ' reconcile >/dev/null 2>&1');
+	return { ok: true, sid, until, minutes };
+}
+
+function do_resume(args) {
+	const sid = args?.sid ?? '';
+	if (!sid_ok(sid))
+		return { ok: false, detail: 'bad section id' };
+	try { fs.unlink(`${PAUSEDIR}/${sid}`); } catch (e) { /* not paused */ }
+	shell_rc(SAFE_PATH + shellquote(ENGINE) + ' reconcile >/dev/null 2>&1');
+	return { ok: true, sid };
+}
+
 function do_action(what, arg) {
 	let cmd;
 
@@ -911,6 +1237,24 @@ return {
 				if (sid == '')
 					return { ok: false, detail: 'section id is required' };
 				return do_action('rule_restart', sid);
+			}
+		},
+		peers: {
+			args: { sid: '' },
+			call: function(request) {
+				return do_peers(request.args);
+			}
+		},
+		rule_pause: {
+			args: { sid: '', minutes: 0 },
+			call: function(request) {
+				return do_pause(request.args);
+			}
+		},
+		rule_resume: {
+			args: { sid: '' },
+			call: function(request) {
+				return do_resume(request.args);
 			}
 		},
 		log: {
