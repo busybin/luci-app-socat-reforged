@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+* **Peer allowlist per rule** (`src_allow`).  A comma-separated list of CIDRs
+  becomes socat `range=` options, so the listener stays up and refuses every
+  other peer.  IPv4 and IPv6 entries are kept apart: socat rejects a v4 range on
+  an IPv6 socket, and a stack with no entry is dropped instead of being left
+  open (the warning names `0.0.0.0/0` / `::/0`).
+
+### Observability
+
+* **Who is connected.**  The per-rule connection count is now clickable and the
+  rule dialog has *Show connections*: established TCP peers with address, port,
+  listen port and family, read from `/proc/net/tcp{,6}`.  UDP says so instead of
+  showing an empty list.
+* **Firewall DNAT conflicts.**  A `fw4` redirect on the same WAN port is applied
+  before the listener sees the packet; those rules are flagged with the
+  redirect's name and source zone.
+
+### Operations
+
+* **Temporary stop.**  Pause a rule for 1–10080 minutes; the engine stops its
+  listener and closes its WAN port, and the rule returns when the deadline
+  passes.  Markers live in `/var/run/socat-reforged/pause/` (never in the
+  config), so a reboot ends the pause instead of leaving a rule disabled.
+* **Templates.**  *Add from template* creates a disabled, pre-filled rule
+  (optionally TCP + UDP on the same port).
+* Oversized per-rule stderr files are trimmed once a minute; a rejected peer
+  (`range=`) is one log line per attempt, which a port scan could otherwise
+  grow without bound.
+
+### Translations
+
+* Simplified Chinese covers the new strings (allowlist, connections, pause,
+  templates, DNAT conflicts).
+
+
 ## V6 (2026-10-19)
 
 * **No user-visible change.** The engine settings section offers the two options

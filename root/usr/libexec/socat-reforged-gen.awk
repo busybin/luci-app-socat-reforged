@@ -6,6 +6,7 @@
 # -v desf=<file>   desired records : sid \t kind \t port \t key \t command
 # -v warnf=<file>  warnings        : sid \t message
 # -v fwf=<file>    firewall ports  : proto \t port   ("igmp\t-" joins groups)
+# -v pausef=<file> paused rules    : sid \t until   (temporarily stopped)
 #
 # "key" is the argv of the listener with spaces removed; it is what the shell
 # matches against the NUL-stripped /proc/<pid>/cmdline of a running worker, so
@@ -57,6 +58,61 @@ function ok_mgroup(v,  o) {
 	split(v, o, ".")
 	if (o[1] + 0 < 224 || o[1] + 0 > 239) return 0
 	if (o[2] + 0 > 255 || o[3] + 0 > 255 || o[4] + 0 > 255) return 0
+	return 1
+}
+
+# A peer allowlist entry: "10.0.0.0/8" or "[2001:db8::]/32".  Brackets are
+# added back for a bare IPv6 literal because socat's range= needs them, and a
+# hostname is deliberately not accepted (it would resolve at bind time and
+# silently widen the rule).
+function ok_v4(s,  o, i) {
+	if (s !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) return 0
+	split(s, o, ".")
+	for (i = 1; i <= 4; i++)
+		if (o[i] + 0 > 255) return 0
+	return 1
+}
+
+function ok_cidr(v,  n, a, b) {
+	n = index(v, "/")
+	if (n == 0) return 0
+	a = substr(v, 1, n - 1)
+	b = substr(v, n + 1)
+	if (b !~ /^[0-9]+$/ || length(b) > 3) return 0
+	b = plain_num(b) + 0
+	if (a ~ /:/) {
+		if (substr(a, 1, 1) == "[" && substr(a, length(a), 1) == "]")
+			a = substr(a, 2, length(a) - 2)
+		if (a !~ /^[0-9A-Fa-f:.]+$/ || a !~ /:/) return 0
+		return (b <= 128)
+	}
+	if (!ok_v4(a)) return 0
+	return (b <= 32)
+}
+
+# "a,b , c" -> ",range=a,range=b,range=c"; sets CIDR_ERR on a bad entry.
+# Empty entries are ignored; the count is capped so the command line stays
+# bounded even if the field is pasted full of networks.
+function cidr_opts(v,  arr, n, i, item, at, addr) {
+	CIDR_ERR = ""; SRC4 = ""; SRC6 = ""
+	if (v == "") return 0
+	n = split(v, arr, ",")
+	if (n > 16) { CIDR_ERR = "too many source ranges (max 16)"; return 0 }
+	for (i = 1; i <= n; i++) {
+		item = arr[i]
+		gsub(/^[ \t]+/, "", item)
+		gsub(/[ \t]+$/, "", item)
+		if (item == "") continue
+		if (!ok_cidr(item)) { CIDR_ERR = "bad source range, skip"; return 0 }
+		at = index(item, "/")
+		addr = substr(item, 1, at - 1)
+		if (addr ~ /:/) {
+			if (substr(addr, 1, 1) == "[") addr = substr(addr, 2, length(addr) - 2)
+			SRC6 = SRC6 ",range=[" addr "]" substr(item, at)
+		} else {
+			SRC4 = SRC4 ",range=" item
+		}
+	}
 	return 1
 }
 
@@ -132,6 +188,15 @@ BEGIN {
 	# max listeners one rule may spawn through a port range
 	LPORT_CAP = 256
 	if (ipv6 == "" || ipv6 == "-") ipv6 = ""
+	# Rules with a temporary stop marker are left out entirely: no listener,
+	# and no WAN port either (the firewall sync follows this file).
+	if (pausef != "") {
+		while ((getline pl < pausef) > 0) {
+			split(pl, pf, "\t")
+			if (pf[1] != "") PAUSED[pf[1]] = 1
+		}
+		close(pausef)
+	}
 }
 
 function parse_line(line,   rest,eq,val,lhs,dot,sec,optname,i) {
@@ -223,6 +288,8 @@ END {
 		mcdp    = V[sid, "mcast_dst_port"]
 		mcttl   = V[sid, "mcast_ttl"]
 		mcloop  = V[sid, "mcast_loop"]
+		# peer allowlist: comma separated CIDRs -> socat range= options
+		srcallow = V[sid, "src_allow"]
 
 		if (en == "")                      # missing enable == enabled (UI default)
 			en = "1"
@@ -231,12 +298,30 @@ END {
 				warn(sid, "enable must be 0 or 1, treating as disabled")
 			continue
 		}
+		if (sid in PAUSED)                 # temporarily stopped from the UI
+			continue
 		if (!ok_secid(sid))                { warn(sid, "bad section id, skip"); continue }
 		if (proto != "tcp" && proto != "udp" && proto != "ssl" && proto != "unix") {
 			warn(sid, "bad proto, skip"); continue
 		}
 		if (proto == "unix" && (upath == "" || !ok_path(upath))) {
 			warn(sid, "bad unix_path, skip"); continue
+		}
+		# Peer allowlist (socat range=).  A unix socket has no peer address,
+		# so the field only means something on a network listener.
+		SRC4 = ""; SRC6 = ""; V4OK = 1; V6OK = 1
+		if (srcallow != "") {
+			if (proto == "unix")
+				warn(sid, "source ranges need a network listener, ignored")
+			else {
+				cidr_opts(srcallow)
+				if (CIDR_ERR != "") { warn(sid, CIDR_ERR ", skip"); continue }
+				# A family with no entry is not "everyone": falling back to
+				# open would silently widen the rule, so that listener is
+				# dropped instead (warned below, with the allow-all CIDR).
+				V4OK = (SRC4 != "")
+				V6OK = (SRC6 != "")
+			}
 		}
 		if (!ok_flag(nodelay))             { warn(sid, "bad nodelay, skip"); continue }
 		if (!ok_flag(syslog))              { warn(sid, "bad system_log, skip"); continue }
@@ -300,7 +385,7 @@ END {
 				MC_RECV = ",ip-add-membership=" mcgrp ":" lp_if ",bind=" mcgrp
 				if (mcif != "")
 					MC_RECV = MC_RECV ",so-bindtodevice=" mcif
-				MC_RECV = MC_RECV RA
+				MC_RECV = MC_RECV RA SRC4
 			}
 		}
 
@@ -473,6 +558,15 @@ END {
 		if (dproto == "ssl" && uverify == "1" && ucafile == "")
 			warn(sid, "ssl_verify is on but ssl_cafile is empty (the target certificate is not verified)")
 
+		if (srcallow != "" && proto != "unix") {
+			if (!V4OK && fam != "6")
+				warn(sid, "source allowlist has no IPv4 range, IPv4 listener skipped (use 0.0.0.0/0 to allow all)")
+			if (!V6OK && fam != "4" && ipv6 != "" && proto != "ssl")
+				warn(sid, "source allowlist has no IPv6 range, IPv6 listener skipped (use ::/0 to allow all)")
+			if (!V4OK && proto == "ssl")
+				continue
+		}
+
 		for (lp = LP_FROM; lp <= LP_TO; lp++) {
 			if (proto == "unix") {
 				# no port at all: one listener on the socket path, then done.
@@ -491,12 +585,12 @@ END {
 				# (OpenWrt) listen on 0.0.0.0, where pf=ip4 is a no-op, so
 				# pinning it keeps the command identical in effect across
 				# versions.
-				if (fam != "6")
-					emit(sid, "tcp", lp, build_cmd("TCP-LISTEN:" lp ",pf=ip4,fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
-				if (fam != "4" && (ipv6 != "" || BIND6 != "")) {
+				if (fam != "6" && V4OK)
+					emit(sid, "tcp", lp, build_cmd("TCP-LISTEN:" lp ",pf=ip4,fork" RA BIND4 LOPT KAD USR SRC4 " " DIAL ND RTY KADL))
+				if (fam != "4" && V6OK && (ipv6 != "" || BIND6 != "")) {
 					B6 = BIND6
 					if (B6 == "") B6 = ",bind=" ipv6 ",ip-freebind=1"
-					emit(sid, "tcp6", lp, build_cmd("TCP6-LISTEN:" lp ",fork" RA LOPT B6 KAD USR " " DIAL ND RTY KADL))
+					emit(sid, "tcp6", lp, build_cmd("TCP6-LISTEN:" lp ",fork" RA LOPT B6 KAD USR SRC6 " " DIAL ND RTY KADL))
 				}
 			}
 			else if (proto == "ssl") {
@@ -511,14 +605,15 @@ END {
 				# getaddrinfo error, so only the v4 listener is emitted and the
 				# narrowing is warned about (the listener block above turned an
 				# explicit family=6 into a skip, because that cannot be honoured).
-				emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",pf=ip4,cert=" ucert ",key=" ukey ",verify=0,fork" RA BIND4 LOPT KAD USR " " DIAL ND RTY KADL))
+				if (V4OK)
+					emit(sid, "ssltcp", lp, build_cmd("OPENSSL-LISTEN:" lp ",pf=ip4,cert=" ucert ",key=" ukey ",verify=0,fork" RA BIND4 LOPT KAD USR SRC4 " " DIAL ND RTY KADL))
 			}
 			else {
 				if (MC_RECV != "") {
 					# multicast receive: RECVFROM + fork hands each datagram to a
 					# child while the listener itself keeps running
-					if (fam != "6")
-						emit(sid, "udp", lp, build_cmd("UDP4-RECVFROM:" lp MC_RECV ",fork" USR " " DIAL))
+					if (fam != "6" && V4OK)
+						emit(sid, "udp", lp, build_cmd("UDP4-RECVFROM:" lp MC_RECV ",fork" USR SRC4 " " DIAL))
 				}
 				else {
 					if (fam != "6")
@@ -528,12 +623,12 @@ END {
 						# UDP6-LISTEN and UDP4-RECVFROM carry the family in their name.
 						# Pinning it costs nothing on 1.7.4 and 1.8.1 and keeps the
 						# command portable across the socat versions the suite runs on.
-						emit(sid, "udp", lp, build_cmd("UDP-LISTEN:" lp ",pf=ip4,fork" BIND4 LOPT USR " " DIAL))
+						emit(sid, "udp", lp, build_cmd("UDP-LISTEN:" lp ",pf=ip4,fork" BIND4 LOPT USR SRC4 " " DIAL))
 					# NB: socat rejects bind= on UDP6-LISTEN ("port specification not
 					# allowed in this bind option"), and a plain UDP6-LISTEN binds the
 					# v6 wildcard (v6only), so it coexists with the v4 listener.
-					if (fam != "4" && ipv6 != "")
-						emit(sid, "udp6", lp, build_cmd("UDP6-LISTEN:" lp ",fork" USR " " DIAL))
+					if (fam != "4" && V6OK && ipv6 != "")
+						emit(sid, "udp6", lp, build_cmd("UDP6-LISTEN:" lp ",fork" USR SRC6 " " DIAL))
 				}
 			}
 

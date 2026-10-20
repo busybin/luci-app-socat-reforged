@@ -13,6 +13,9 @@ var callStart       = rpc.declare({ object: 'luci.socat-reforged', method: 'star
 var callStop        = rpc.declare({ object: 'luci.socat-reforged', method: 'stop' });
 var callRestart     = rpc.declare({ object: 'luci.socat-reforged', method: 'restart' });
 var callRuleRestart = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_restart', params: [ 'sid' ] });
+var callPeers       = rpc.declare({ object: 'luci.socat-reforged', method: 'peers', params: [ 'sid' ] });
+var callRulePause   = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_pause', params: [ 'sid', 'minutes' ] });
+var callRuleResume  = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_resume', params: [ 'sid' ] });
 var callLog         = rpc.declare({ object: 'luci.socat-reforged', method: 'log', params: [ 'lines' ] });
 var callLogClear    = rpc.declare({ object: 'luci.socat-reforged', method: 'log_clear' });
 var callUpdCheck    = rpc.declare({ object: 'luci.socat-reforged', method: 'update_check', params: [ 'force' ] });
@@ -28,7 +31,7 @@ var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto',
 	'unix_path', 'dst_unix_path',
 	'ssl_cert', 'ssl_key', 'ssl_cafile', 'ssl_verify',
 	'mcast_group', 'mcast_iface', 'mcast_localip', 'mcast_dst_group', 'mcast_dst_port', 'mcast_ttl', 'mcast_loop',
-	'nodelay', 'backlog', 'max_children', 'timeout', 'system_log', 'keepalive', 'listen_addr',
+	'nodelay', 'backlog', 'max_children', 'timeout', 'system_log', 'keepalive', 'listen_addr', 'src_allow',
 	'user', 'retry' ];
 
 /* engine settings section (internal) + the options of one forward */
@@ -67,7 +70,7 @@ var STYLE = '\
 .socat-dirty{background:var(--error-color-medium,#c62828);color:var(--on-error-color,#fff);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.95em}\
 .socat-alert{background:var(--warn-color-medium,#f0c629);color:var(--on-warn-color,#3a2f00);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
 .socat-empty{border:1px dashed var(--border-color-medium,rgba(128,128,128,.4));border-radius:8px;padding:24px;text-align:center;margin:.6em 0}\
-tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-medium,#f0c629)}\
+tr.socat-conflict>td:first-child{box-shadow:inset 3px 0 0 var(--warn-color-medium,#f0c629)}\tr.socat-fwconflict>td:first-child{box-shadow:inset 3px 0 0 var(--error-color-medium,#c62828)}\.socat-conns{cursor:pointer;text-decoration:underline dotted}\.socat-peers{width:100%;border-collapse:collapse;font-size:.92em}\.socat-peers th,.socat-peers td{padding:4px 8px;border-bottom:1px solid var(--border-color-low,rgba(128,128,128,.25));text-align:left;white-space:nowrap}\.socat-peers th{opacity:.7;font-weight:600}\
 .socat-errs{background:var(--error-color-low,rgba(198,40,40,.12));border:1px solid var(--error-color-medium,#c62828);color:var(--error-color-medium,#c62828);padding:8px 12px;border-radius:6px;margin:.5em 0;font-size:.92em}\
 .socat-reason{font-size:.8em;opacity:.75;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22em}\
 .socat-log{max-height:20em;overflow:auto;font-family:var(--mono-font-family,monospace);font-size:.8em;white-space:pre-wrap;word-break:break-all;background:var(--background-color-low,rgba(128,128,128,.06));border:1px solid var(--border-color-low,rgba(128,128,128,.25));border-radius:6px;padding:8px 10px;margin:.5em 0 0}\
@@ -164,6 +167,8 @@ function trDetail(s) {
 		return _('connection failed (socat exit %s)').format(m[1]);
 	if ((m = s.match(/^send failed \(socat exit (\d+)\)$/)))
 		return _('send failed (socat exit %s)').format(m[1]);
+	if ((m = s.match(/^could not write the pause marker: (.+)$/)))
+		return _('could not write the pause marker: %s').format(m[1]);
 	if ((m = s.match(/^socat exit (\d+)$/)))
 		return _('socat exited with status %s').format(m[1]);
 	if ((m = s.match(/^exit (\d+)$/)))
@@ -180,6 +185,9 @@ function trDetail(s) {
 	case 'multicast datagram sent (no handshake to verify)':
 	case 'section id is required':
 	case 'unknown action':
+	case 'bad section id':
+	case 'no such rule':
+	case 'minutes must be 1-10080':
 	case 'log file not created yet':
 	case 'GitHub could not be reached':
 	case 'GitHub returned an unexpected answer':
@@ -226,6 +234,42 @@ function importFlagOk(v) { return (v === undefined || v === '' || v === '0' || v
  * the section id as the first argument.  Take that shape, while staying
  * callable with the value alone (the smoke test does) — otherwise every
  * value would be compared against a section id and nothing could be saved. */
+/* peer allowlist entry: "10.0.0.0/8" or "[2001:db8::]/32" (bare v6 is fine
+ * too; the generator adds the brackets socat wants) */
+function srcRangeOk(s) {
+	var m = /^([0-9]{1,3}(?:\.[0-9]{1,3}){3})\/([0-9]{1,2})$/.exec(s);
+	if (m) {
+		var o = m[1].split('.');
+		for (var i = 0; i < 4; i++)
+			if (parseInt(o[i], 10) > 255)
+				return false;
+		return parseInt(m[2], 10) <= 32;
+	}
+	m = /^\[?([0-9A-Fa-f:.]+)\]?\/([0-9]{1,3})$/.exec(s);
+	if (!m || m[1].indexOf(':') < 0)
+		return false;
+	return parseInt(m[2], 10) <= 128;
+}
+function srcAllowOk(v) {
+	var parts = String(v ?? '').split(',');
+	if (parts.length > 16)
+		return false;
+	for (var i = 0; i < parts.length; i++) {
+		var x = parts[i].trim();
+		if (x === '')
+			continue;
+		if (!srcRangeOk(x))
+			return false;
+	}
+	return true;
+}
+function formSrcAllowOk(sid, b) {
+	var v = (arguments.length > 1) ? b : sid;
+	if (v == null || v === '')
+		return true;
+	return srcAllowOk(v) ? true
+		: _('comma-separated CIDRs, e.g. 192.168.1.0/24 or 2001:db8::/32');
+}
 function formPortOk(sid, b) {
 	var v = (arguments.length > 1) ? b : sid;
 	if (v == null || v === '')
@@ -269,6 +313,8 @@ function importCheck(rule) {
 		return _('ssl_cert and ssl_key must be absolute paths');
 	if (rule.proto !== 'unix' && !importPortOk(rule.listen_port))
 		return _('listen_port must be 1-65535 or a range');
+	if (rule.src_allow != null && rule.src_allow !== '' && !srcAllowOk(rule.src_allow))
+		return _('bad src_allow');
 	if (['tcp4', 'udp4', 'tcp6', 'udp6', 'unix', 'ssl', 'mcast'].indexOf(rule.dest_proto) < 0)
 		return _('bad dest_proto');
 	if (rule.dest_proto === 'unix' && !importPathOk(rule.dst_unix_path))
@@ -371,6 +417,16 @@ return view.extend({
 		var r = this.rulesById ? this.rulesById[sid] : null;
 		if (!r)
 			return { cls: '', dot: '?', label: _('unknown'), bucket: 'down', conns: 0 };
+		if (r.status === 'paused') {
+			var t = '';
+			if (r.paused_until) {
+				var d = new Date(r.paused_until * 1000);
+				t = String(d.getHours() < 10 ? '0' : '') + d.getHours() + ':' +
+				    String(d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+			}
+			return { cls: 'socat-off', dot: '⏸', label: t ? _('paused until %s').format(t) : _('paused'),
+				bucket: 'disabled', conns: 0, paused: true };
+		}
 		if (r.status === 'listening')
 			return { cls: 'socat-up', dot: '●', label: _('listening'), bucket: 'listening', conns: r.conns || 0 };
 		if (r.status === 'partial')
@@ -497,8 +553,14 @@ return view.extend({
 				el.title = r.error;
 			else
 				el.removeAttribute('title');
-			if (r.conns > 0)
-				el.appendChild(E('span', { 'class': 'conns' }, '· ' + r.conns));
+			if (r.conns > 0) {
+				var cb = E('span', { 'class': 'conns socat-conns', 'title': _('Show connections') }, '· ' + r.conns);
+				cb.addEventListener('click', L.bind(function(ev) {
+					ev.stopPropagation();
+					this.handlePeers(sid);
+				}, self));
+				el.appendChild(cb);
+			}
 		});
 
 		var set = function(id, text, cls) {
@@ -523,10 +585,13 @@ return view.extend({
 				txt = _('reconciled %s s ago').format(es.age);
 			if (c.errors)
 				txt = (txt ? txt + ' · ' : '') + _('%d rule(s) failing').format(c.errors);
+			if (c.paused)
+				txt = (txt ? txt + ' · ' : '') + _('%d rule(s) paused').format(c.paused);
 			age.textContent = txt;
 		}
 
 		self.applyConflicts();
+		self.applyFwConflicts();
 		self.applyErrors();
 		self.applyFilter();
 		self.applyEmpty();
@@ -556,6 +621,41 @@ return view.extend({
 			el.style.display = '';
 			el.textContent = '';
 			el.appendChild(E('strong', {}, _('⚠ Conflicting listen ports: ') + names.join('; ')));
+		} else {
+			el.style.display = 'none';
+		}
+	},
+
+	/* a fw4 redirect on the same WAN port DNATs the packet before the
+	 * listener sees it: the rule looks healthy and forwards nothing */
+	applyFwConflicts: function() {
+		var self = this;
+		var list = (self.status && self.status.fw_conflicts) || [];
+		var bad = {};
+		list.forEach(function(x) { bad[x.sid] = x; });
+
+		(uci.sections('socat', 'config') || []).forEach(function(s) {
+			var sid = s['.name'];
+			var tr = self._mapNode ? self._mapNode.querySelector('tr[data-sid="' + sid + '"]') : null;
+			if (tr)
+				tr.classList.toggle('socat-fwconflict', !!bad[sid]);
+		});
+
+		var el = document.getElementById('socat-fwconflicts');
+		if (!el)
+			return;
+		if (list.length) {
+			var names = list.map(function(x) {
+				var who = x.redirect.name || x.redirect.sid;
+				if (x.redirect.src)
+					who += ', ' + x.redirect.src;
+				return x.ports + '/' + x.proto + ' (' + who + ')';
+			});
+			el.style.display = '';
+			el.textContent = '';
+			el.appendChild(E('strong', {}, _('⚠ Also forwarded by the firewall (DNAT): ') + names.join('; ')));
+			el.appendChild(E('div', { 'class': 'socat-hint' },
+				_('A firewall redirect is applied in the kernel before the listener sees the packet, so that rule cannot work while both exist.')));
 		} else {
 			el.style.display = 'none';
 		}
@@ -718,6 +818,183 @@ return view.extend({
 			ui.hideModal();
 			ui.addNotification(null, E('p', {}, _('Action failed: %s').format(e)));
 		});
+	},
+
+	/* ---- who is connected right now ---- */
+	handlePeers: function(sid) {
+		var name = uci.get('socat', sid, 'remarks') || sid;
+		callPeers(sid).then(function(res) {
+			var kids = [];
+			if (!res || res.ok !== true) {
+				kids.push(E('p', {}, _('Could not read the connections: %s').format(trDetail(res && res.detail) || '?')));
+			}
+			else if (res.note) {
+				kids.push(E('p', {}, _('UDP has no connection table, so there is nothing to list.')));
+			}
+			else if (!res.peers || !res.peers.length) {
+				kids.push(E('p', {}, _('No established connections right now.')));
+			}
+			else {
+				var rows = [ E('tr', {}, [
+					E('th', {}, _('Peer')), E('th', {}, _('Peer port')),
+					E('th', {}, _('Listen')), E('th', {}, _('Stack'))
+				]) ];
+				res.peers.forEach(function(p) {
+					rows.push(E('tr', {}, [
+						E('td', {}, String(p.ip)), E('td', {}, String(p.port)),
+						E('td', {}, String(p.listen)), E('td', {}, (p.fam === '6') ? 'IPv6' : 'IPv4')
+					]));
+				});
+				kids.push(E('table', { 'class': 'table socat-peers' }, rows));
+				if (res.truncated)
+					kids.push(E('p', { 'class': 'socat-hint' }, _('Showing the first 200 connections.')));
+			}
+			kids.push(E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Close') ])
+			]));
+			ui.showModal(_('Connections: %s').format(name), kids);
+		}).catch(function(e) {
+			ui.addNotification(null, E('p', {}, _('Could not read the connections: %s').format(e)));
+		});
+	},
+
+	/* ---- temporary stop (listener + WAN port closed until it expires) ---- */
+	handlePause: function(sid, btn) {
+		var self = this;
+		var r = self.rulesById ? self.rulesById[sid] : null;
+		var refresh = function() {
+			return self.refreshStatus().then(function() { self.recount(); });
+		};
+
+		if (r && r.status === 'paused') {
+			ui.showModal(_('Resume this rule?'), [
+				E('p', {}, _('The listener and its WAN port come back immediately.')),
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Cancel') ]),
+					' ',
+					E('button', { 'class': 'btn cbi-button-positive', 'click': function() {
+						ui.hideModal();
+						modalNote(btn, _('Resuming…'), 'busy');
+						callRuleResume(sid).then(function(res) {
+							if (!res || res.ok !== true)
+								throw new Error(trDetail(res && res.detail) || '?');
+							return new Promise(function(ok) { window.setTimeout(ok, 1200); });
+						}).then(refresh).then(function() {
+							modalNote(btn, _('Rule resumed.'), 'ok');
+						}).catch(function(e) {
+							modalNote(btn, _('Action failed: %s').format(e), 'fail');
+						});
+					} }, [ _('Resume') ])
+				])
+			]);
+			return;
+		}
+
+		var input = E('input', { 'type': 'number', 'min': '1', 'max': '10080', 'value': '30', 'style': 'width:8em' });
+		ui.showModal(_('Pause this rule'), [
+			E('p', {}, _('Stop this rule for a while: its listener and WAN port are closed, and it comes back on its own.')),
+			E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('Minutes')),
+				E('div', { 'class': 'cbi-value-field' }, [ input ])
+			]),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Cancel') ]),
+				' ',
+				E('button', { 'class': 'btn cbi-button-negative', 'click': function() {
+					var m = parseInt(input.value, 10) || 0;
+					if (m < 1 || m > 10080) { input.focus(); return; }
+					ui.hideModal();
+					modalNote(btn, _('Pausing…'), 'busy');
+					callRulePause(sid, m).then(function(res) {
+						if (!res || res.ok !== true)
+							throw new Error(trDetail(res && res.detail) || '?');
+						return new Promise(function(ok) { window.setTimeout(ok, 1200); });
+					}).then(refresh).then(function() {
+						modalNote(btn, _('Rule paused.'), 'ok');
+					}).catch(function(e) {
+						modalNote(btn, _('Action failed: %s').format(e), 'fail');
+					});
+				} }, [ _('Pause') ])
+			])
+		]);
+		input.focus();
+	},
+
+	/* ---- templates: create a disabled, pre-filled rule ----
+	 * Same path as Import (uci.add + save + apply + reload), so it cannot leave
+	 * half-written sections behind. */
+	handlePreset: function() {
+		var presets = [
+			[ 'rdp', 'RDP', 'tcp', 3389 ],
+			[ 'ssh', 'SSH', 'tcp', 22 ],
+			[ 'smb', 'SMB', 'tcp', 445 ],
+			[ 'http', 'HTTP', 'tcp', 80 ],
+			[ 'https', 'HTTPS', 'tcp', 443 ],
+			[ 'rtmp', 'RTMP', 'tcp', 1935 ],
+			[ 'rtsp', 'RTSP', 'tcp', 554 ],
+			[ 'vnc', 'VNC', 'tcp', 5900 ],
+			[ 'minecraft', 'Minecraft', 'tcp', 25565 ],
+			[ 'bedrock', 'Minecraft Bedrock', 'udp', 19132 ],
+			[ 'wireguard', 'WireGuard', 'udp', 51820 ]
+		];
+		var sel = E('select', { 'class': 'cbi-input-select' }, presets.map(function(p) {
+			return E('option', { 'value': p[0] }, p[1] + ' — ' + p[2].toUpperCase() + ' ' + p[3]);
+		}));
+		var both = E('input', { 'type': 'checkbox' });
+
+		function add(proto, name, port) {
+			var sid = 'cfg' + Date.now().toString(16) + Math.random().toString(16).slice(2, 8);
+			uci.add('socat', 'config', sid);
+			uci.set('socat', sid, 'remarks', name);
+			uci.set('socat', sid, 'proto', proto);
+			uci.set('socat', sid, 'listen_port', String(port));
+			uci.set('socat', sid, 'dest_proto', (proto === 'udp') ? 'udp4' : 'tcp4');
+			uci.set('socat', sid, 'dest_port', String(port));
+			uci.set('socat', sid, 'firewall_accept', '1');
+			/* disabled until a target is set: an empty dest_ip must not spawn
+			 * a listener that dies and fills the table with "down" */
+			uci.set('socat', sid, 'enable', '0');
+		}
+		function pick(id) {
+			for (var i = 0; i < presets.length; i++)
+				if (presets[i][0] === id)
+					return presets[i];
+			return presets[0];
+		}
+
+		ui.showModal(_('Add from template'), [
+			E('p', {}, _('A disabled rule is created; open it, set the target and enable it.')),
+			E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('Template')),
+				E('div', { 'class': 'cbi-value-field' }, [ sel ])
+			]),
+			E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('TCP and UDP')),
+				E('div', { 'class': 'cbi-value-field' }, [ both, ' ', _('Create both rules on the same port') ])
+			]),
+			E('p', { 'class': 'socat-hint' }, _('Pending changes on this page are saved as well.')),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Cancel') ]),
+				' ',
+				E('button', { 'class': 'btn cbi-button-positive', 'click': function() {
+					var p = pick(sel.value);
+					ui.hideModal();
+					if (both.checked) {
+						add('tcp', p[1] + ' (TCP)', p[3]);
+						add('udp', p[1] + ' (UDP)', p[3]);
+					} else {
+						add(p[2], p[1], p[3]);
+					}
+					ui.showModal(_('Adding'), [ E('p', { 'class': 'spinning' }, _('Saving…')) ]);
+					uci.save().then(function() { return uci.apply(10); }).then(function() {
+						window.location.reload();
+					}).catch(function(e) {
+						ui.hideModal();
+						ui.addNotification(null, E('p', {}, _('Could not add the rule: %s').format(e)));
+					});
+				} }, [ _('Add') ])
+			])
+		]);
 	},
 
 	handleStart: function() { return this.doAction(callStart, _('Starting socat engine…'), 5000); },
@@ -1070,6 +1347,7 @@ return view.extend({
 			_('Click "Save & Apply" to apply them (leaving the page will prompt you).')
 		]);
 		var conflictBanner = E('div', { 'id': 'socat-conflicts', 'class': 'socat-alert', 'style': 'display:none' });
+		var fwConflictBanner = E('div', { 'id': 'socat-fwconflicts', 'class': 'socat-errs', 'style': 'display:none' });
 		var errorBanner = E('div', { 'id': 'socat-errors', 'class': 'socat-errs', 'style': 'display:none' });
 		var updateBanner = E('div', { 'id': 'socat-upd', 'class': 'socat-upd', 'style': 'display:none' });
 
@@ -1148,6 +1426,7 @@ return view.extend({
 			search, chips,
 			/* outlined accent buttons: visually distinct from the engine
 			 * controls above (green Start / red Stop / grey Restart) */
+			E('button', { 'class': 'btn cbi-button socat-io', 'click': ui.createHandlerFn(this, 'handlePreset') }, [ _('Add from template') ]),
 			E('button', { 'class': 'btn cbi-button socat-io', 'click': ui.createHandlerFn(this, 'handleImport') }, [ _('Import') ]),
 			E('button', { 'class': 'btn cbi-button socat-io', 'click': ui.createHandlerFn(this, 'handleExport') }, [ _('Export') ])
 		]);
@@ -1201,6 +1480,15 @@ return view.extend({
 		o.depends('proto', 'ssl');
 		o.description = _('Bind the listener to one local address instead of every address.');
 
+		o = s.option(form.Value, 'src_allow', _('Only accept from'));
+		o.placeholder = '192.168.1.0/24, 2001:db8::/32';
+		o.modalonly = true;
+		o.depends('proto', 'tcp');
+		o.depends('proto', 'udp');
+		o.depends('proto', 'ssl');
+		o.validate = formSrcAllowOk;
+		o.description = _('Peer allowlist: comma-separated CIDRs. Empty means everyone. Other peers are refused while the listener stays up (socat range=).');
+
 		/* table-only: target IP (+ small proto suffix) */
 		o = s.option(form.DummyValue, '_target', _('Target'));
 		o.modalonly = false;
@@ -1227,8 +1515,14 @@ return view.extend({
 		o.textvalue = function(section_id) {
 			var r = self.statFor(section_id);
 			var kids = [ r.dot + ' ' + r.label ];
-			if (r.conns > 0)
-				kids.push(E('span', { 'class': 'conns' }, '· ' + r.conns));
+			if (r.conns > 0) {
+				var cb = E('span', { 'class': 'conns socat-conns', 'title': _('Show connections') }, '· ' + r.conns);
+				cb.addEventListener('click', L.bind(function(ev) {
+					ev.stopPropagation();
+					this.handlePeers(section_id);
+				}, self));
+				kids.push(cb);
+			}
 			if (r.error)
 				kids.push(E('div', { 'class': 'socat-reason', 'title': r.error }, '⚠ ' + r.error));
 			return E('span', { 'id': 'socat-st-' + section_id, 'class': 'socat-st ' + r.cls }, kids);
@@ -1302,6 +1596,27 @@ return view.extend({
 					btn.disabled = false;
 				modalNote(btn, _('Action failed: %s').format(e), 'fail');
 			});
+		}, this);
+
+		/* modal-only: who is connected, and a timed stop */
+		o = s.option(form.Button, '_peers', _('Connections'));
+		o.inputtitle = _('Show connections');
+		o.inputstyle = 'apply';
+		o.modalonly = true;
+		o.write = function() {};
+		o.remove = function() {};
+		o.onclick = L.bind(function(ev, section_id) {
+			this.handlePeers(section_id);
+		}, this);
+
+		o = s.option(form.Button, '_pause', _('Pause'));
+		o.inputtitle = _('Pause / resume this rule');
+		o.inputstyle = 'apply';
+		o.modalonly = true;
+		o.write = function() {};
+		o.remove = function() {};
+		o.onclick = L.bind(function(ev, section_id) {
+			this.handlePause(section_id, ev && ev.currentTarget);
 		}, this);
 
 		/* modal-only: destination details */
@@ -1672,7 +1987,7 @@ return view.extend({
 				window.setTimeout(function() { self.checkUpdates(false, true); }, 1200);
 
 			return E([ styleEl, E('div', { 'class': 'socat-page' }, [
-				headEl, metaEl, updateBanner, descEl, banner, conflictBanner, errorBanner,
+				headEl, metaEl, updateBanner, descEl, banner, conflictBanner, fwConflictBanner, errorBanner,
 				card, toolbar, empty, logBox
 			]), mapNode ]);
 		});

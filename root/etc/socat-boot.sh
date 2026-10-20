@@ -47,6 +47,8 @@
 #     pids/<kind>-<port> pid of the running listener
 #     err/<kind>-<port>.log  stderr of that listener
 #     gen.warn           validation warnings of the last generation
+#     pause/<sid>        temporary stop: epoch deadline for that rule
+#     paused             snapshot of the active pauses the generator reads
 #     ratelog/           rate-limit bookkeeping for log messages
 # ============================================================================
 LOG_TAG="socat-boot"
@@ -78,6 +80,7 @@ CUT_BIN=$(find_bin cut)
 HEAD_BIN=$(find_bin head)
 SED_BIN=$(find_bin sed)
 GREP_BIN=$(find_bin grep)
+FIND_BIN=$(find_bin find)
 
 RUNDIR=/var/run/socat-reforged
 DESF=$RUNDIR/desired
@@ -89,6 +92,8 @@ FWSIG=$RUNDIR/fw.sig
 WARNF=$RUNDIR/gen.warn
 PIDDIR=$RUNDIR/pids
 ERRDIR=$RUNDIR/err
+PAUSEDIR=$RUNDIR/pause
+PAUSEF=$RUNDIR/paused
 RATELOG=$RUNDIR/ratelog
 HB=/var/run/socat-reforged.hb
 ALIVE_MARK=$RUNDIR/engine.alive    # present only while our loop is running
@@ -169,7 +174,7 @@ log_rate() {
 # --------------------------------------------------------------- run state ---
 
 mkrun() {
-	mkdir -p "$RUNDIR" "$PIDDIR" "$ERRDIR" "$RATELOG" 2>/dev/null
+	mkdir -p "$RUNDIR" "$PIDDIR" "$ERRDIR" "$RATELOG" "$PAUSEDIR" 2>/dev/null
 }
 
 # engine's own settings live in the (internal) socat.reforged section
@@ -260,6 +265,44 @@ copy_file() { cp -f "$1" "$2" 2>/dev/null; }
 line_count() { local n=0; [ -f "$1" ] && n=$(wc -l < "$1"); echo "$n"; }
 
 # ------------------------------------------------- desired state generation ---
+# A temporary stop ("pause 30 min") is recorded as $PAUSEDIR/<sid> holding an
+# epoch deadline.  The generator is told which rules are paused and leaves
+# them out completely, so the listener is stopped *and* its WAN port closes.
+prune_pauses() {
+	local f until now any=0
+	[ -d "$PAUSEDIR" ] || return 0
+	for f in "$PAUSEDIR"/*; do
+		[ -f "$f" ] && { any=1; break; }
+	done
+	[ "$any" = 1 ] || return 0
+	now=$($DATE_BIN +%s 2>/dev/null)
+	[ -n "$now" ] || return 0
+	for f in "$PAUSEDIR"/*; do
+		[ -f "$f" ] || continue
+		until=""
+		read -r until < "$f" 2>/dev/null
+		case "$until" in
+			''|*[!0-9]*) rm -f "$f"; continue ;;
+		esac
+		if [ "$until" -le "$now" ]; then
+			rm -f "$f"; log "pause expired: ${f##*/}"
+		fi
+	done
+}
+
+pause_snapshot() {
+	: > "$PAUSEF"
+	[ -d "$PAUSEDIR" ] || return 0
+	local f sid until
+	for f in "$PAUSEDIR"/*; do
+		[ -f "$f" ] || continue
+		sid=${f##*/}
+		until=""
+		read -r until < "$f" 2>/dev/null
+		[ -n "$until" ] && printf '%s\t%s\n' "$sid" "$until" >> "$PAUSEF"
+	done
+}
+
 # 2 forks (`uci show` + awk) and no more.  $RUNDIR/fw gets the WAN ports.
 gen_desired() {
 	if [ ! -f "$GPROG" ]; then
@@ -279,8 +322,10 @@ gen_desired() {
 	# last forward (or turning firewall_accept off everywhere) would keep its
 	# WAN port open forever.
 	: > "$FWF"
+	prune_pauses
+	pause_snapshot
 	$UCI_BIN show socat 2>/dev/null | "$AWK_BIN" -v ipv6="$IPV6" -v socat="$SOCAT_BIN" \
-		-v desf="$DESF" -v warnf="$WARNF" -v fwf="$FWF" -f "$GPROG"
+		-v desf="$DESF" -v warnf="$WARNF" -v fwf="$FWF" -v pausef="$PAUSEF" -f "$GPROG"
 	return 0
 }
 
@@ -1023,6 +1068,15 @@ check_health() {
 	if [ "$pct" -lt "$MEM_WARN" ]; then
 		log_rate "memwarn" 3600 "WARN: free memory ${pct}% (${MEM_AVAIL_KB}kB)"
 	fi
+
+	# A rejected peer (range=) is one socat warning per attempt, and stderr
+	# goes to $ERRDIR: a port scan could otherwise grow that file without
+	# bound.  Trim only the rare oversized one, keep the newest bytes.
+	local f
+	for f in $($FIND_BIN "$ERRDIR" -type f -size +64k 2>/dev/null); do
+		[ -f "$f" ] || continue
+		$TAIL_BIN -c 8192 "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"
+	done
 }
 
 pet_watchdog() {
@@ -1094,6 +1148,7 @@ fi
 if [ "$1" = "restart-rule" ]; then
 	_sec="$2"
 	case "$_sec" in ''|*[!A-Za-z0-9_.-]*) log "restart-rule: bad section id '$2'"; exit 1 ;; esac
+	[ -f "$PAUSEDIR/$_sec" ] && { log "restart-rule $_sec: rule is paused, not restarting"; exit 0; }
 	init_once
 	gen_desired || exit 1
 	flush_warnings

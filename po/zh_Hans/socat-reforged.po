@@ -985,3 +985,185 @@ msgstr "⚠ 监听端口冲突："
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:754
 msgid "⚠ Unsaved changes"
 msgstr "⚠ 有未保存的更改"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Only accept from"
+msgstr "仅接受来自"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "comma-separated CIDRs, e.g. 192.168.1.0/24 or 2001:db8::/32"
+msgstr "逗号分隔的 CIDR，例如 192.168.1.0/24 或 2001:db8::/32"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Peer allowlist: comma-separated CIDRs. Empty means everyone. Other peers are refused while the listener stays up (socat range=)."
+msgstr "来源白名单：逗号分隔的 CIDR。留空表示所有人。不在列表里的对端会被拒绝，监听保持在线（socat range=）。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "bad src_allow"
+msgstr "来源范围无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "paused"
+msgstr "已暂停"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "paused until %s"
+msgstr "暂停至 %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Show connections"
+msgstr "查看连接"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "Connections: %s"
+msgstr "连接：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "Could not read the connections: %s"
+msgstr "读取连接失败：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "UDP has no connection table, so there is nothing to list."
+msgstr "UDP 没有连接表，无法列出。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "No established connections right now."
+msgstr "当前没有已建立的连接。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Peer"
+msgstr "对端"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Peer port"
+msgstr "对端端口"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Stack"
+msgstr "协议栈"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Showing the first 200 connections."
+msgstr "只显示前 200 条连接。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Resume this rule?"
+msgstr "恢复这条规则？"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "The listener and its WAN port come back immediately."
+msgstr "监听和 WAN 端口会立即恢复。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Resuming…"
+msgstr "正在恢复…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Rule resumed."
+msgstr "规则已恢复。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pause this rule"
+msgstr "暂停这条规则"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pause"
+msgstr "暂停"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Stop this rule for a while: its listener and WAN port are closed, and it comes back on its own."
+msgstr "临时停止这条规则：监听和 WAN 端口会关闭，到点自动恢复。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Minutes"
+msgstr "分钟"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pausing…"
+msgstr "正在暂停…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Rule paused."
+msgstr "规则已暂停。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Add from template"
+msgstr "从模板添加"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "A disabled rule is created; open it, set the target and enable it."
+msgstr "会创建一条停用的规则；打开它、填好目标再启用。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Template"
+msgstr "模板"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "TCP and UDP"
+msgstr "TCP 和 UDP"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Create both rules on the same port"
+msgstr "在同一端口上各建一条"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pending changes on this page are saved as well."
+msgstr "本页未保存的改动也会一起保存。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Adding"
+msgstr "正在添加"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Saving…"
+msgstr "正在保存…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Add"
+msgstr "添加"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "Could not add the rule: %s"
+msgstr "添加规则失败：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "⚠ Also forwarded by the firewall (DNAT): "
+msgstr "⚠ 防火墙（DNAT）也在转发："
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "A firewall redirect is applied in the kernel before the listener sees the packet, so that rule cannot work while both exist."
+msgstr "防火墙重定向在内核里先于监听生效，两者同时存在时这条规则不会工作。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "could not write the pause marker: %s"
+msgstr "写入暂停标记失败：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "bad section id"
+msgstr "配置节 ID 无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "no such rule"
+msgstr "没有这条规则"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "minutes must be 1-10080"
+msgstr "分钟必须在 1-10080 之间"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "%d rule(s) paused"
+msgstr "%d 条规则已暂停"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Resume"
+msgstr "恢复"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pause / resume this rule"
+msgstr "暂停 / 恢复这条规则"

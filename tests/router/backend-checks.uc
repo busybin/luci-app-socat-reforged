@@ -63,20 +63,34 @@ ck('rules array has entries', true, length(st.rules) > 0);
 ck('every rule has a status', true, (function() {
 	for (let i = 0; i < length(st.rules); i++) {
 		const s = st.rules[i].status;
-		if (s != 'listening' && s != 'down' && s != 'partial' && s != 'disabled')
+		if (s != 'listening' && s != 'down' && s != 'partial' && s != 'disabled' && s != 'paused')
 			return false;
 	}
 	return true;
 })());
 /* the counters the page displays must be mutually consistent: an enabled rule
  * is either listening or down, never both and never neither */
-ck('counts: listening + down = enabled', st.counts.enabled,
-   st.counts.listening + st.counts.down);
+ck('counts: listening + down + paused = enabled', st.counts.enabled,
+   st.counts.listening + st.counts.down + (st.counts.paused ?? 0));
 ck('counts: enabled <= total', true, st.counts.enabled <= st.counts.total);
 ck('counts: errors <= enabled', true, st.counts.errors <= st.counts.enabled);
 ck('engine age is sane', true, st.engine.age >= 0 && st.engine.age <= 90);
 ck('config_missing is false here', false, st.config_missing);
 has('engine reports its listeners', '"listeners"', sprintf('%J', st.engine));
+ck('status reports firewall conflicts as an array', 'array', type(st.fw_conflicts));
+
+/* ---- peers / pause (read-only paths only: no marker is written here) --- */
+const pr = obj.peers.call({ args: { sid: 'does-not-exist' } });
+ck('peers rejects an unknown rule', false, pr.ok);
+has('peers says why', 'no such rule', pr.detail ?? '');
+const pz = obj.rule_pause.call({ args: { sid: 'does-not-exist', minutes: 5 } });
+ck('rule_pause rejects an unknown rule', false, pz.ok);
+const firstSid = (st.rules[0] ?? {}).sid;
+if (firstSid != null) {
+	const pm = obj.rule_pause.call({ args: { sid: firstSid, minutes: 0 } });
+	ck('rule_pause rejects a zero duration', false, pm.ok);
+	has('rule_pause explains the range', 'minutes must be 1-10080', pm.detail ?? '');
+}
 
 /* ---- test (reachability) ---------------------------------------------- */
 ck('test: missing host is refused', false, obj.test.call({ args: { dest_ip: '', dest_port: 0, dest_proto: 'tcp4' } }).ok);
