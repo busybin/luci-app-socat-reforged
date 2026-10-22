@@ -1,5 +1,9 @@
 # luci-app-socat-reforged
 
+<p align="center">
+  <a href="https://buymeacoffee.com/busybin"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="56"></a>
+</p>
+
 > ### Beta
 >
 > The engine, the packaging and the interface still change between releases.
