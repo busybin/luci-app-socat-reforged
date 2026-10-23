@@ -6,10 +6,10 @@
 # installing a working tree by hand.  It writes .build-stamp into the tarball
 # so the LuCI page can show which commit is actually running.
 #
-# Usage: sh deploy.sh [ssh-host]      (default: router)
+# Usage: sh deploy.sh <ssh-host>      (any host in ~/.ssh/config that runs OpenWrt)
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
-HOST="${1:-router}"
+HOST="${1:?usage: sh deploy.sh <ssh-host>}"
 
 BUILD=$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo devel)
 echo "deploying $BUILD to $HOST"
