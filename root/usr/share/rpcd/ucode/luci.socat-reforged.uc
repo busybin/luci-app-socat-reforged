@@ -978,6 +978,16 @@ function do_update_status() {
 	return st;
 }
 
+/* The package manager installs whatever we hand it as root, so only accept
+ * assets from this repository's own release download path. */
+function update_url_ok(url) {
+	if (type(url) != 'string')
+		return false;
+	if (substr(url, 0, 8) != 'https://')
+		return false;
+	return match(url, /^https:\/\/github\.com\/busybin\/luci-app-socat-reforged\/releases\/download\/[^/]+\/[^/]+$/) != null;
+}
+
 function do_update_install() {
 	const st = read_update_state();
 	if (st.state == 'running' && st.alive)
@@ -1002,6 +1012,8 @@ function do_update_install() {
 	const urls = [];
 	const names = [];
 	for (let i = 0; i < length(picks); i++) {
+		if (!update_url_ok(picks[i].url))
+			return { ok: false, error: 'the release asset does not come from this project' };
 		push(urls, shellquote(picks[i].url));
 		push(names, picks[i].name);
 	}
