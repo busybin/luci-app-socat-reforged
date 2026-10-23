@@ -2,7 +2,7 @@
 # ============================================================================
 # tests/router/run.sh — deploy + run all router-side checks
 # ============================================================================
-# Usage: sh tests/router/run.sh [ssh-host]      (default: router)
+# Usage: sh tests/router/run.sh <ssh-host>     (an OpenWrt host from ~/.ssh/config)
 #
 # 1. installs the current working tree on the router (tar | ssh, idempotent)
 # 2. copies the checks over and runs them
@@ -10,7 +10,7 @@
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
-HOST="${1:-router}"
+HOST="${1:?usage: sh tests/router/run.sh <ssh-host>}"
 
 echo "router test suite -> $HOST"
 echo
