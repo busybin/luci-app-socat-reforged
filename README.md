@@ -23,7 +23,6 @@ Existing socat LuCI apps (`chenmozhijin/luci-app-socat`, `big-tooth/luci-app-soc
 are written for the old Lua/CBI LuCI and **do not run on the new LuCI**. This is a
 drop-in replacement with a modern, ucode-native view.
 
-![screenshot](docs/screenshot.png)
 
 ## Features
 
@@ -91,8 +90,8 @@ drop-in replacement with a modern, ucode-native view.
   an optional IPv4-only / IPv6-only per rule.
 * **Reach the target through a proxy** (SOCKS4a / HTTP CONNECT) per rule.
 * **Standalone / self-healing**: the engine loop reconciles against the running
-  workers every cycle (and on demand), fixes the WAN IPv6 default route, re-checks
-  the WG DNAT rule and exercises the hardware watchdog. A **single-instance lock**
+  workers every cycle (and on demand), so a worker that died or drifted is
+  restarted on its own. A **single-instance lock**
   guarantees only ever *one* engine loop reconciles — even if a competing init
   (e.g. a socat build shipping its own init for this engine) is present, the extra
   loop just idles, and the lock self-heals if the holder dies uncleanly.
