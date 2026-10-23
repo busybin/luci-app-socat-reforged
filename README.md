@@ -23,6 +23,7 @@ Existing socat LuCI apps (`chenmozhijin/luci-app-socat`, `big-tooth/luci-app-soc
 are written for the old Lua/CBI LuCI and **do not run on the new LuCI**. This is a
 drop-in replacement with a modern, ucode-native view.
 
+![screenshot](docs/screenshot.png)
 
 ## Features
 
