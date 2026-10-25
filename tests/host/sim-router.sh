@@ -314,6 +314,7 @@ socat.simrange=config
 socat.simrange.enable='1'
 socat.simrange.proto=tcp
 socat.simrange.listen_port='21090-21092'
+socat.simrange.src_allow='10.0.0.0/8, 2001:db8::/32'
 socat.simrange.dest_proto='tcp4'
 socat.simrange.dest_ip=192.168.1.10
 socat.simrange.dest_port='80'
@@ -557,6 +558,15 @@ check 'scenario 8: per-rule pid files for a shared port' 4 \
 	"$(ls "$SIM/run/pids" 2>/dev/null | grep -c '21075')"
 check 'scenario 8: per-rule stderr files for a shared port' 4 \
 	"$(ls "$SIM/run/err" 2>/dev/null | grep -c '21075')"
+
+check 'scenario 8: the allowlist reaches the firewall (v4)' 1 \
+	"$(grep -c 'socat_reforged_tcp_[0-9]*_[0-9]*\.src_ip=10\.0\.0\.0/8' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 8: the allowlist reaches the firewall (v6)' 1 \
+	"$(grep -c 'socat_reforged_tcp_[0-9]*_[0-9]*\.src_ip=2001:db8::/32' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 8: a port range is one accept rule' 1 \
+	"$(grep -c 'socat_reforged_tcp_[0-9]*_[0-9]*=rule' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 8: all three ports are in its dest_port list' 3 \
+	"$(grep -c 'socat_reforged_tcp_[0-9]*_[0-9]*\.dest_port=2109[0-2]' "$SIM/fw.log" 2>/dev/null)"
 cleanup
 
 # scenario 9: a multicast listener and a unix-socket listener.  Both kinds are
