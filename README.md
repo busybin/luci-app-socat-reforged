@@ -84,9 +84,10 @@ drop-in replacement with a modern, ucode-native view.
   half-bound rules (e.g. IPv4 up, IPv6 refused) show as `partial`.
 * **Unsaved-changes guard**: red banner + a save/discard dialog when you leave
   the page with pending edits (banner clears the moment you revert a value).
-* **Automatic WAN firewall** (`firewall_accept`, on by default): keeps a dedicated
+* **Automatic WAN firewall** (`firewall_accept`, off by default): keeps a dedicated
   `socat-reforged` accept rule in sync with your rules, validated before reload and
-  persisted in `/etc/config/firewall`.
+  persisted in `/etc/config/firewall`. The rule honours the rule's `src_allow`
+  networks, so the allowlist is enforced by the firewall, not only by socat.
 * **IPv6-aware**: listens on IPv4 + IPv6 by default (bind to the live WAN v6), with
   an optional IPv4-only / IPv6-only per rule.
 * **Reach the target through a proxy** (SOCKS4a / HTTP CONNECT) per rule.
@@ -269,8 +270,10 @@ installs the new package with `apk`/`opkg` when you press **Update now**. Turn o
 show a notice at the top. The check needs a route from the **router** to
 `api.github.com`; the download goes through `uclient-fetch` (a dependency of this
 package; `curl`/`wget` are used as fallbacks) with certificate verification on, so
-`ca-bundle` must be installed. The engine restarts while the package installs,
-which interrupts active forwards for a few seconds.
+`ca-bundle` must be installed (it is a package dependency). The engine restarts
+while the package installs, which interrupts active forwards for a few seconds.
+Downloads are checked against the release's `sha256sums` asset before the package
+manager runs them; a release without that file is refused.
 
 ### 4. Translations
 
@@ -329,8 +332,11 @@ Each `config config` section is one forward:
 | `dest_proto` | `tcp4` / `udp4` / `tcp6` / `udp6` / `ssl` / `unix` / `mcast` |
 | `dest_ip` / `dest_port` | target |
 | `family` | `''` = IPv4+IPv6, `4` = IPv4 only, `6` = IPv6 only |
+| `src_allow` | comma-separated source CIDRs allowed to connect (also applied to the firewall rule) |
+| `unix_path` | listen socket for `proto=unix`, under `/var/run`, `/run` or `/tmp` |
 | `proxy` | `''` / `socks4a` / `http` (+ `proxy_server`, `proxy_port`) |
-| `firewall_accept` | `1` = keep the WAN port open automatically |
+| `ssl_verify` | `1` (default) verifies a TLS target against the system store or `ssl_cafile` |
+| `firewall_accept` | `1` = keep the WAN port open automatically (default `0`; `src_allow` CIDRs become firewall `src_ip`) |
 | `reuseaddr` | `1`/`0` (default `1`) |
 
 ## Tests
@@ -339,7 +345,7 @@ Everything that does not need a router runs anywhere (BusyBox/Linux + `socat`):
 
 ```sh
 sh tests/run.sh                  # 8 suites: view, generator, zones, simulator, matrix, fuzz, engine keys, package layout
-sh tests/run.sh --router router  # also install on a router, test engine/backend/perf
+sh tests/run.sh --router <ssh-host>  # also install on a router, test engine/backend/perf
 ```
 
 See `tests/README.md` for what each suite covers. The **layout simulator** (real

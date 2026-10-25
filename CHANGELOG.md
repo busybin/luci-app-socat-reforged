@@ -10,6 +10,24 @@
   an IPv6 socket, and a stack with no entry is dropped instead of being left
   open (the warning names `0.0.0.0/0` / `::/0`).
 
+### Hardening
+
+* **`firewall_accept` is off for new rules**, and when it is on the rule's
+  `src_allow` becomes `src_ip` on the generated accept rule.  Previously the
+  port was open to every source and only socat filtered afterwards.
+* **Stopping the service removes its firewall rules.**  They used to stay
+  behind, so a port could remain open for whatever bound it next.
+* **`unix_path` must be under `/var/run`, `/run` or `/tmp`**, and the engine
+  deletes an existing path only when it is a socket.  `unlink-early` is gone:
+  a crafted rule could otherwise make root unlink an arbitrary file.
+* **The updater verifies `sha256sums.<ext>`** from the release before the
+  package manager runs anything, and refuses a release without it.  Update
+  state moved from `/tmp` into `/var/run/socat-reforged` (0700).
+* **TLS target verification is on for new rules**; without a CA file socat uses
+  the system trust store (`ca-bundle` is now a dependency).
+* **`update_install` is root-only** in the ACL and `test` moved to the write
+  group; `proxy_server` is validated in the backend like the generator does.
+
 ### Observability
 
 * **Who is connected.**  The per-rule connection count is now clickable and the
@@ -241,8 +259,7 @@ Also in this round:
 
 ### Feature parity with the other luci-app-socat forks (2026-10-14)
 
-Compared every live fork on GitHub (chenmozhijin, WROIATE, mylucien, 4IceG,
-hongyan3, 1522042029) and took what they had and we did not:
+Compared every live fork on GitHub and took what they had and we did not:
 
 * **TLS / OpenSSL** (from mylucien): `proto=ssl` listens with
   `OPENSSL-LISTEN` + `ssl_cert`/`ssl_key` (+ `verify=0`, so clients are not
@@ -431,8 +448,8 @@ reproduction; the same defect would have made every port-clash silent.)
 
 ### Upstream-parity round: features and the same bugs, fixed (2026-10-14)
 
-Read the other `luci-app-socat` implementations on GitHub (chenmozhijin,
-WROIATE, mylucien, 4IceG) as a bug class list — their open issues must not
+Read the other `luci-app-socat` implementations on GitHub as a bug class list
+— their open issues must not
 become ours — and took the parts worth having:
 
 * **Port ranges** (their issue "port range forwarding does not work").
@@ -582,7 +599,7 @@ Engine and packaging rewrite of V2, driven by a full code audit (2026-10-13):
   touched. Engine state moved out of `/tmp` into `/var/run/socat-reforged/`.
 * **Performance**: one `uci show` + one awk pass per cycle instead of ~200
   forks, plus a fast path that skips all work when nothing changed. Measured on
-  the author's router: **14% of one core → 0.7%** (2.1s → 0.42s CPU per minute),
+  a test router: **14% of one core → 0.7%** (2.1s → 0.42s CPU per minute),
   with 30 listeners.
 * **UI**: shows why a rule is down (listener stderr), partial state, an error
   banner, datatype validation for target/proxy addresses, and an Engine settings

@@ -12,5 +12,8 @@ staging_dir/
 tmp/
 dl/
 
-# my local packaging scratch (not for the repo)
+# local packaging scratch (not for the repo)
 /luci-app-socat-reforged-*.tar.gz
+
+# internal notes, runbooks and scripts never go into the public repo
+.internal/

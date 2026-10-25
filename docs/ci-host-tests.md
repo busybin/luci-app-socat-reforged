@@ -26,11 +26,3 @@ a desktop — green in every test, forwarding the wrong port. To reproduce local
 sh tests/run.sh                              # both awks
 AWK="busybox awk" sh tests/host/gen-cases.sh # only BusyBox awk
 ```
-
-## History
-
-The job was originally only a manual step because the release credential had no
-`workflow` scope (a token with `workflow` can execute arbitrary code in CI, so it
-was not granted casually). The scope was added later through the device-code
-flow — `gh auth refresh -h github.com -s workflow` — and the job was then
-committed.
