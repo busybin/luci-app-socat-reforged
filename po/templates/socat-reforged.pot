@@ -86,7 +86,7 @@ msgid "Ask GitHub for the latest release when this page is opened (and every six
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1033
-msgid "Automatically keep this WAN port open (recommended)."
+msgid "Open this port in the WAN firewall zone. Off by default: only enable it if the rule must be reachable from the internet. The source allowlist, when set, is applied to the firewall rule as well."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:885
@@ -106,7 +106,7 @@ msgid "Check for updates"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1170
-msgid "Check the target certificate against the CA file below."
+msgid "Check the target certificate against the system trust store, or against the CA file below when one is set. Only turn this off for a target with a self-signed certificate you cannot replace."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:805
@@ -918,7 +918,7 @@ msgid "the update process died before it finished"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:188
-msgid "unix_path must be an absolute path"
+msgid "unix_path must be under /var/run, /run or /tmp"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:264
@@ -1165,4 +1165,22 @@ msgstr ""
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js
 msgid "Pause / resume this rule"
+msgstr ""
+
+msgid "the release has no checksum file"
+msgstr ""
+
+msgid "the checksum file does not come from this project"
+msgstr ""
+
+msgid "the release asset does not come from this project"
+msgstr ""
+
+msgid "the update state directory is not writable"
+msgstr ""
+
+msgid "proxy server contains invalid characters"
+msgstr ""
+
+msgid "proxy port is out of range"
 msgstr ""

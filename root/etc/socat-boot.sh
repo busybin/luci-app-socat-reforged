@@ -42,7 +42,7 @@
 #     desired            desired listeners: sid TAB kind TAB port TAB key TAB cmd
 #     desired.cache      last applied desired set
 #     state              per-listener state for the LuCI backend / CLI
-#     fw                 firewall ports: proto TAB port
+#     fw                 firewall ports: proto TAB port TAB src4 TAB src6
 #     fw.sig             firewall sync signature (or a retry marker)
 #     pids/<kind>-<port> pid of the running listener
 #     err/<kind>-<port>.log  stderr of that listener
@@ -588,7 +588,7 @@ kill_workers() { # stop every worker of ours (TERM, then KILL)
 # ------------------------------------------------------------- reconcile ----
 
 reconcile() {
-	local lockdir="$RUNDIR/reconcile.lock" i=0 lp
+	local lockdir="$RUNDIR/reconcile.lock" i=0 lp sp
 	mkrun
 	while ! mkdir "$lockdir" 2>/dev/null; do
 		i=$((i + 1))
@@ -728,6 +728,22 @@ EOF
 		fi
 		errf="$ERRDIR/$sid-$kind-$port.log"
 		: > "$errf" 2>/dev/null
+		# A listen socket is removed and created by root.  Only ever touch a
+		# socket here: with an arbitrary path a rule could make root delete
+		# /etc/shadow (the generator also restricts the path, this is the
+		# second line of defence).
+		case "$cmd" in
+		*"UNIX-LISTEN:"*)
+			sp=${cmd#*UNIX-LISTEN:}
+			sp=${sp%%,*}
+			if [ -e "$sp" ] && [ ! -S "$sp" ]; then
+				log "WARN: $sid: refusing to replace non-socket $sp"
+				printf 'refusing to replace non-socket path\n' > "$errf"
+				continue
+			fi
+			[ -S "$sp" ] && rm -f "$sp"
+			;;
+		esac
 		# the assignment must be literal: $MARKER would expand to a command
 		SOCAT_REFORGED=1 $cmd >/dev/null 2>"$errf" &
 		echo $! > "$PIDDIR/$sid-$kind-$port"
@@ -780,53 +796,73 @@ publish_state() {
 
 # --------------------------------------------------------------- firewall ---
 
-# Consecutive ports (3+) are merged into ranges to keep the fw4 rule short.
-agg_ports() { # stdin: ports -> stdout: space separated, ranges where useful
-	local start="" prev="" p out=""
-	while read -r p; do
-		[ -n "$p" ] || continue
-		if [ -z "$start" ]; then start=$p; prev=$p; continue; fi
-		if [ $((p - prev)) -eq 1 ]; then prev=$p; continue; fi
-		out="$out $(port_range "$start" "$prev")"
-		start=$p; prev=$p
-	done
-	[ -n "$start" ] && out="$out $(port_range "$start" "$prev")"
-	echo "${out# }"
-}
-
-port_range() { # port_range <first> <last>
-	if [ "$1" = "$2" ]; then echo "$1"
-	elif [ $(( $2 - $1 )) -eq 1 ]; then echo "$1 $2"
-	else echo "$1-$2"; fi
-}
-
-fw_ports() { # $FWF -> $FW_TCP / $FW_UDP (raw, unsorted; zero forks)
-	local proto port
-	FW_TCP=""
-	FW_UDP=""
-	FW_IGMP=0
+# One ACCEPT rule per (proto, source allowlist): ports that share both are
+# merged into one rule, so a 256-port range does not become 256 rules.  A
+# dual-family listener writes the same fw line twice; the signature skips the
+# copy.  src4/src6 are the rule's src_allow CIDRs (or "-"): the allowlist must
+# be enforced by fw4, not only by socat (a socat-rejected peer still completes
+# the handshake and costs a fork).
+fw_ports() {
+	local proto port s4 s6 line
+	FW_SIG=""
+	FW_N=0
 	[ -f "$FWF" ] || return 0
-	while IFS="$TAB" read -r proto port; do
+	while IFS="$TAB" read -r proto port s4 s6; do
 		[ -n "$port" ] || continue
-		case "$proto" in
-			tcp) FW_TCP="$FW_TCP $port" ;;
-			udp) FW_UDP="$FW_UDP $port" ;;
-			igmp) FW_IGMP=1 ;;
-		esac
+		# a dual-family listener writes the same line twice
+		line="$proto|$port|$s4|$s6;"
+		case "$FW_SIG" in *"$line"*) continue ;; esac
+		FW_N=$((FW_N + 1))
+		FW_SIG="$FW_SIG$line"
 	done < "$FWF"
+}
+
+# $FWF -> "proto TAB src4 TAB src6 TAB ports".  Ports that share a proto and
+# an allowlist live in one rule: a 256-port range must not become 256 rules.
+fw_groups() {
+	$SORT_BIN -u "$FWF" 2>/dev/null | $AWK_BIN -F "$TAB" '
+		$2 == "" { next }
+		{
+			key = $1 "|" $3 "|" $4
+			ports[key] = ports[key] " " $2
+			if (!(key in seen)) { seen[key] = 1; order[++n] = key }
+		}
+		END {
+			for (i = 1; i <= n; i++) {
+				split(order[i], k, "|")
+				print k[1] "\t" k[2] "\t" k[3] "\t" ports[order[i]]
+			}
+		}'
+}
+
+# Delete every firewall section this app ever created.  Scanning instead of
+# enumerating indexes also removes sections from older versions and from a
+# half-applied sync.
+fw_clear_rules() {
+	local s
+	$UCI_BIN show firewall 2>/dev/null \
+		| $SED_BIN -n 's/^firewall\.\(socat_reforged_[A-Za-z0-9_]*\)=.*/\1/p' \
+		| while read -r s; do
+			[ -n "$s" ] && $UCI_BIN -q delete "firewall.$s"
+		done
+	$UCI_BIN commit firewall >/dev/null 2>&1
+}
+
+fw_reload() {
+	"$FW4_BIN" check >/dev/null 2>&1 || return 1
+	/etc/init.d/firewall reload >/dev/null 2>&1
+	return 0
 }
 
 sync_firewall() {
 	[ -x "$FW4_BIN" ] || return 0
-	local TCP UDP raw_sig stored now p z sfx nzones zone miss
+	local sig zones zi n cnt proto s4 s6 ports zone name c stored st ssig now
 	fw_ports
 	load_wan_zones
-	raw_sig="zones:${WAN_ZONES:-none} tcp:$FW_TCP udp:$FW_UDP igmp:$FW_IGMP"
-	stored=""
-	[ -f "$FWSIG" ] && read -r stored < "$FWSIG" 2>/dev/null
-	# stamped on every attempt, failure included: a fail marker without an
-	# epoch cannot be parsed by the backoff below, and the first retry would
-	# then run one cycle later instead of after FW_RETRY seconds.
+	zones=$(printf '%s' "$WAN_ZONES" | $TR_BIN ' ' ',')
+	sig="z:$zones|f:$FW_SIG"
+	st=""; cnt=""; ssig=""
+	[ -f "$FWSIG" ] && read -r st cnt ssig < "$FWSIG" 2>/dev/null
 	now=$(uptime_s)
 
 	# without a known WAN zone we must not guess: a rule in the wrong zone
@@ -837,96 +873,69 @@ sync_firewall() {
 		return 0
 	fi
 
-	# happy path: already applied (and our rules still exist).  Check every
-	# protocol we actually need, so a rule deleted behind our back for just
-	# one of them is re-created as well.
-	if [ "$stored" = "ok $raw_sig" ]; then
+	# Happy path: same desired set and every rule still exists.  One `uci
+	# show` counts them instead of one fork per rule.
+	if [ "$st" = "ok" ] && [ "$ssig" = "$sig" ]; then
 		if [ $((CYCLE % FW_EVERY)) -ne 0 ]; then
 			return 0
 		fi
-		miss=0
-		if [ -n "$FW_TCP" ] && ! $UCI_BIN -q get firewall.socat_reforged_tcp >/dev/null 2>&1; then miss=1; fi
-		if [ -n "$FW_UDP" ] && ! $UCI_BIN -q get firewall.socat_reforged_udp >/dev/null 2>&1; then miss=1; fi
-		if [ "$FW_IGMP" = "1" ] && ! $UCI_BIN -q get firewall.socat_reforged_igmp >/dev/null 2>&1; then miss=1; fi
-		if [ "$miss" = "0" ]; then
+		n=$($UCI_BIN show firewall 2>/dev/null | $GREP_BIN -c '^firewall\.socat_reforged_')
+		if [ "$n" = "$cnt" ]; then
 			return 0
 		fi
 		log "firewall: our accept rules are gone, re-creating them"
 	fi
 
 	# backoff after a failed reload (do not fight a broken firewall forever)
-	if [ "$stored" != "${stored#fail }" ]; then
-		p=${stored##* }
-		if is_uint "$p" && [ $((now - p)) -lt "$FW_RETRY" ]; then
-			return 0
-		fi
+	if [ "$st" = "fail" ] && is_uint "$cnt" && [ $((now - cnt)) -lt "$FW_RETRY" ]; then
+		return 0
 	fi
 
-	TCP=$(printf '%s\n' $FW_TCP | sort -n -u | agg_ports)
-	UDP=$(printf '%s\n' $FW_UDP | sort -n -u | agg_ports)
+	fw_clear_rules
 
-	# drop everything we may have created before (up to $FW_MAX_ZONES zones)
-	z=0
-	while [ $z -lt "$FW_MAX_ZONES" ]; do
-		z=$((z + 1))
-		sfx=""
-		[ "$z" -gt 1 ] && sfx="_$z"
-		$UCI_BIN -q delete "firewall.socat_reforged_tcp$sfx"
-		$UCI_BIN -q delete "firewall.socat_reforged_udp$sfx"
-		$UCI_BIN -q delete "firewall.socat_reforged_igmp$sfx"
-	done
-
-	# one rule per (zone, proto).  fw4 rules default to family "any", so both
-	# the IPv4 and the IPv6 side of a zone are covered by these.
-	nzones=0
-	for zone in $WAN_ZONES; do
-		nzones=$((nzones + 1))
-		[ "$nzones" -le "$FW_MAX_ZONES" ] || break
-		sfx=""
-		[ "$nzones" -gt 1 ] && sfx="_$nzones"
-		if [ -n "$TCP" ]; then
-			$UCI_BIN set "firewall.socat_reforged_tcp$sfx=rule"
-			$UCI_BIN set "firewall.socat_reforged_tcp$sfx.name=socat-reforged (tcp)"
-			$UCI_BIN set "firewall.socat_reforged_tcp$sfx.src=$zone"
-			$UCI_BIN set "firewall.socat_reforged_tcp$sfx.proto=tcp"
-			$UCI_BIN set "firewall.socat_reforged_tcp$sfx.target=ACCEPT"
-			for p in $TCP; do $UCI_BIN add_list "firewall.socat_reforged_tcp$sfx.dest_port=$p"; done
-		fi
-		if [ -n "$UDP" ]; then
-			$UCI_BIN set "firewall.socat_reforged_udp$sfx=rule"
-			$UCI_BIN set "firewall.socat_reforged_udp$sfx.name=socat-reforged (udp)"
-			$UCI_BIN set "firewall.socat_reforged_udp$sfx.src=$zone"
-			$UCI_BIN set "firewall.socat_reforged_udp$sfx.proto=udp"
-			$UCI_BIN set "firewall.socat_reforged_udp$sfx.target=ACCEPT"
-			for p in $UDP; do $UCI_BIN add_list "firewall.socat_reforged_udp$sfx.dest_port=$p"; done
-		fi
-		# multicast groups need IGMP accepted too, otherwise the join fails
-		if [ "$FW_IGMP" = "1" ]; then
-			$UCI_BIN set "firewall.socat_reforged_igmp$sfx=rule"
-			$UCI_BIN set "firewall.socat_reforged_igmp$sfx.name=socat-reforged (igmp)"
-			$UCI_BIN set "firewall.socat_reforged_igmp$sfx.src=$zone"
-			$UCI_BIN set "firewall.socat_reforged_igmp$sfx.proto=igmp"
-			$UCI_BIN set "firewall.socat_reforged_igmp$sfx.target=ACCEPT"
-		fi
-	done
+	if [ "$FW_N" -gt 0 ]; then
+		zi=0
+		for zone in $WAN_ZONES; do
+			zi=$((zi + 1))
+			[ "$zi" -le "$FW_MAX_ZONES" ] || break
+			n=0
+			while IFS="$TAB" read -r proto s4 s6 ports; do
+				[ -n "$proto" ] || continue
+				n=$((n + 1))
+				name="socat_reforged_${proto}_${zi}_${n}"
+				$UCI_BIN set "firewall.$name=rule"
+				$UCI_BIN set "firewall.$name.name=socat-reforged ($proto)"
+				$UCI_BIN set "firewall.$name.src=$zone"
+				$UCI_BIN set "firewall.$name.proto=$proto"
+				$UCI_BIN set "firewall.$name.target=ACCEPT"
+				for c in $ports; do
+					[ "$c" = "-" ] && continue
+					$UCI_BIN add_list "firewall.$name.dest_port=$c"
+				done
+				if [ "$s4" != "-" ]; then
+					for c in $(printf '%s' "$s4" | $TR_BIN ',' ' '); do
+						$UCI_BIN add_list "firewall.$name.src_ip=$c"
+					done
+				fi
+				if [ "$s6" != "-" ]; then
+					for c in $(printf '%s' "$s6" | $TR_BIN ',' ' '); do
+						$UCI_BIN add_list "firewall.$name.src_ip=$c"
+					done
+				fi
+			done <<EOF
+$(fw_groups)
+EOF
+		done
+	fi
 	$UCI_BIN commit firewall
 
-	if "$FW4_BIN" check >/dev/null 2>&1; then
-		/etc/init.d/firewall reload >/dev/null 2>&1
-		echo "ok $raw_sig" > "$FWSIG"
-		log "firewall synced: zones[$WAN_ZONES] tcp[$TCP] udp[$UDP] igmp[$FW_IGMP]"
+	if fw_reload; then
+		cnt=$($UCI_BIN show firewall 2>/dev/null | $GREP_BIN -c '^firewall\.socat_reforged_')
+		echo "ok $cnt $sig" > "$FWSIG"
+		log "firewall synced: zones[$WAN_ZONES] rules=$cnt"
 	else
-		z=0
-		while [ $z -lt "$FW_MAX_ZONES" ]; do
-			z=$((z + 1))
-			sfx=""
-			[ "$z" -gt 1 ] && sfx="_$z"
-			$UCI_BIN -q delete "firewall.socat_reforged_tcp$sfx"
-			$UCI_BIN -q delete "firewall.socat_reforged_udp$sfx"
-			$UCI_BIN -q delete "firewall.socat_reforged_igmp$sfx"
-		done
-		$UCI_BIN commit firewall
-		echo "fail $raw_sig $now" > "$FWSIG"
+		fw_clear_rules
+		echo "fail $now $sig" > "$FWSIG"
 		log "WARN: fw4 check failed, removed socat-reforged rules (retry in $((FW_RETRY / 60)) min)"
 	fi
 }
@@ -1147,7 +1156,11 @@ fi
 
 if [ "$1" = "restart-rule" ]; then
 	_sec="$2"
-	case "$_sec" in ''|*[!A-Za-z0-9_.-]*) log "restart-rule: bad section id '$2'"; exit 1 ;; esac
+	# a named section or the anonymous form "uci add" produces ("@config[0]");
+	# the generator accepts both, so a restart must not reject one of them.
+	printf '%s' "$_sec" \
+		| $GREP_BIN -Eq '^([A-Za-z0-9_.-]+|@[A-Za-z0-9_]+\[[0-9]+\])$' \
+		|| { log "restart-rule: bad section id '$_sec'"; exit 1; }
 	[ -f "$PAUSEDIR/$_sec" ] && { log "restart-rule $_sec: rule is paused, not restarting"; exit 0; }
 	init_once
 	gen_desired || exit 1
@@ -1198,8 +1211,14 @@ if [ "$1" = "status" ]; then
 fi
 
 if [ "$1" = "cleanup" ]; then
-	# stop path: drop our workers and all runtime state
+	# stop path: drop our workers, the WAN accept rules and all runtime state.
+	# Leaving the accept rules behind would keep the ports open after the user
+	# pressed Stop (and a later service binding that port would be exposed).
 	kill_workers
+	if [ -x "$FW4_BIN" ]; then
+		fw_clear_rules
+		fw_reload
+	fi
 	rm -rf "$RUNDIR"
 	rm -f "$HB"
 	exit 0

@@ -87,8 +87,8 @@ msgid "Ask GitHub for the latest release when this page is opened (and every six
 msgstr "打开本页时（以及页面持续打开期间每六小时）向 GitHub 查询最新 release，有新版时给出提示。在你亲自按下按钮之前，不会下载或安装任何东西。"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1033
-msgid "Automatically keep this WAN port open (recommended)."
-msgstr "自动保持此 WAN 端口开放（推荐）。"
+msgid "Open this port in the WAN firewall zone. Off by default: only enable it if the rule must be reachable from the internet. The source allowlist, when set, is applied to the firewall rule as well."
+msgstr "在 WAN 防火墙区域放行此端口。默认关闭：只有在规则需要从公网访问时才开启。设置了来源白名单时，白名单也会写入防火墙规则。"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:885
 msgid "Bind the listener to one local address instead of every address."
@@ -107,8 +107,8 @@ msgid "Check for updates"
 msgstr "检查更新"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1170
-msgid "Check the target certificate against the CA file below."
-msgstr "用下面的 CA 文件校验目标证书。"
+msgid "Check the target certificate against the system trust store, or against the CA file below when one is set. Only turn this off for a target with a self-signed certificate you cannot replace."
+msgstr "使用系统信任库校验目标证书；若填写了下面的 CA 文件，则用它校验。只有当目标使用无法替换的自签名证书时才关闭。"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:805
 msgid "Clear"
@@ -927,8 +927,8 @@ msgid "the update process died before it finished"
 msgstr "更新进程中途退出"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:188
-msgid "unix_path must be an absolute path"
-msgstr "unix_path 必须是绝对路径"
+msgid "unix_path must be under /var/run, /run or /tmp"
+msgstr "unix_path 必须位于 /var/run、/run 或 /tmp 下"
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:264
 msgid "unknown"
@@ -1175,3 +1175,27 @@ msgstr "恢复"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js
 msgid "Pause / resume this rule"
 msgstr "暂停 / 恢复这条规则"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:198
+msgid "the release has no checksum file"
+msgstr "该 release 没有校验和文件"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:199
+msgid "the checksum file does not come from this project"
+msgstr "校验和文件不是本项目发布的"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:200
+msgid "the release asset does not come from this project"
+msgstr "该 release 资产不是本项目发布的"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:201
+msgid "the update state directory is not writable"
+msgstr "更新状态目录不可写"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:204
+msgid "proxy server contains invalid characters"
+msgstr "代理服务器包含非法字符"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:205
+msgid "proxy port is out of range"
+msgstr "代理端口超出范围"

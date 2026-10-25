@@ -119,6 +119,9 @@ jobs:
           find sdk/bin/packages \( -name "luci-app-socat-reforged*.${{ matrix.ext }}" -o -name "luci-i18n-socat-reforged*.${{ matrix.ext }}" \) -exec cp -v {} out/ \;
           ls -la out/
           test -n "$(ls -A out)" || { echo "no package produced; dumping tree:"; find sdk/bin/packages -maxdepth 2 -type d; find sdk/bin/packages -type f | head; exit 1; }
+          # The updater refuses to install anything that is not listed here.
+          (cd out && sha256sum $(ls -1 | grep -v '^sha256sums') > "sha256sums.${{ matrix.ext }}")
+          cat "out/sha256sums.${{ matrix.ext }}"
 
       - uses: actions/upload-artifact@v4
         with:

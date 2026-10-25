@@ -720,23 +720,30 @@ function do_log_clear() {
  */
 const VERSION_FILE   = '/usr/libexec/socat-reforged-version';
 const UPDATE_SCRIPT  = '/usr/libexec/socat-reforged-update';
-const UPDATE_STATE   = '/tmp/socat-reforged-update.state';
-const UPDATE_LOG     = '/tmp/socat-reforged-update.log';
-const UPDATE_CACHE   = '/tmp/socat-reforged-update-cache.json';
-const UPDATE_TMP     = '/tmp/.socat-reforged-release.json';
+/* Root-owned runtime directory: /tmp is world-writable and its predictable
+ * names could be pre-created as symlinks (a root write through one would
+ * truncate an arbitrary file). */
+const UPDATE_DIR     = '/var/run/socat-reforged';
+const UPDATE_STATE   = UPDATE_DIR + '/update.state';
+const UPDATE_LOG     = UPDATE_DIR + '/update.log';
+const UPDATE_CACHE   = UPDATE_DIR + '/update-cache.json';
+const UPDATE_TMP     = UPDATE_DIR + '/release.json';
 const RELEASE_API    = 'https://api.github.com/repos/busybin/luci-app-socat-reforged/releases/latest';
 const RELEASE_PAGE   = 'https://github.com/busybin/luci-app-socat-reforged/releases';
 const UPDATE_UA      = 'luci-app-socat-reforged';
 const UPDATE_TTL     = 21600;   /* seconds between automatic checks (6h) */
 const UPDATE_LOG_MAX = 40;      /* lines of the install log the UI receives */
 
+/* create the state directory 0700 before the first write */
+function update_dir_ready() {
+	return shell_rc(`${SAFE_PATH}mkdir -p ${shellquote(UPDATE_DIR)} && chmod 700 ${shellquote(UPDATE_DIR)}`) == 0;
+}
+
 /*
- * The self-update helper only ships with the self-hosted (GitHub release)
- * builds.  This package is also distributed through the OpenWrt/LuCI feeds,
- * where a package installing root packages fetched from GitHub would bypass
- * the package manager and its signature checks: there the helper is simply
- * not installed, every update method answers "unsupported" (without touching
- * the network) and the view hides the whole feature.  One probe, no forks.
+ * The self-update helper ships with every build (the Makefile has no
+ * feed-only variant), so it is guarded by an allowlist instead: the download
+ * URL must be a release asset of this repository, and the helper verifies
+ * each file against the release's sha256sums before installing it as root.
  */
 function update_supported() {
 	return fs.access(UPDATE_SCRIPT) != null;
@@ -861,6 +868,15 @@ function fetch_to(url, out, timeout) {
 	return null;
 }
 
+/* the release page is the only URL the view puts into an href: a cached
+ * answer is writable by root only now, but a javascript: URL must never be
+ * able to reach the page even if that changes back. */
+function release_page_ok(url) {
+	if (type(url) != 'string')
+		return false;
+	return match(url, /^https:\/\/github\.com\/busybin\/luci-app-socat-reforged\/releases(\/[0-9A-Za-z._-]+)?$/) != null;
+}
+
 /* the fields of a GitHub release the UI needs, in its own shape */
 function release_info(raw, cur) {
 	const assets = [];
@@ -883,7 +899,7 @@ function release_info(raw, cur) {
 		latest_tag: tag,
 		latest: (ln != null) ? `${ln}` : '',
 		update_available: newer_than(tag, cur),
-		release_url: raw?.html_url ?? RELEASE_PAGE,
+		release_url: release_page_ok(raw?.html_url) ? raw.html_url : RELEASE_PAGE,
 		published_at: raw?.published_at ?? '',
 		notes: (length(body) > 4000) ? substr(body, 0, 4000) : body,
 		assets,
@@ -907,10 +923,15 @@ function do_update_check(args) {
 		    (time() - to_int(c.checked)) < UPDATE_TTL) {
 			c.current = cur;
 			c.update_available = newer_than(c.latest_tag, cur);
+			if (!release_page_ok(c.release_url))
+				c.release_url = RELEASE_PAGE;
 			c.cached = true;
 			return c;
 		}
 	}
+
+	if (!update_dir_ready())
+		return { ok: false, error: 'the update state directory is not writable', current: cur };
 
 	const err = fetch_to(RELEASE_API, UPDATE_TMP, 20);
 	if (err != null)
@@ -948,6 +969,14 @@ function asset_named(assets, prefix, ext) {
 		if (index(n, prefix) == 0 && index(n, ext) >= 0)
 			return assets[i];
 	}
+	return null;
+}
+
+/* exact name match: the checksum file must not be confused with a package */
+function asset_exact(assets, name) {
+	for (let i = 0; i < length(assets); i++)
+		if ((assets[i].name ?? '') == name)
+			return assets[i];
 	return null;
 }
 
@@ -1005,11 +1034,19 @@ function do_update_install() {
 	if (length(picks) == 0)
 		return { ok: false, error: 'the release has no package for this system' };
 
+	/* Every file is checked against the release's sha256sums before the
+	 * package manager runs it as root.  No checksum file = no install. */
+	const sums = asset_exact(info.assets, 'sha256sums' + pkg_ext());
+	if (sums == null)
+		return { ok: false, error: 'the release has no checksum file' };
+	if (!update_url_ok(sums.url))
+		return { ok: false, error: 'the checksum file does not come from this project' };
+
 	/* claim the run *before* spawning: a poll that lands between this call and
 	 * the helper's first write must not see the previous run's result */
 	writefile(UPDATE_STATE, 'running 0');
 
-	const urls = [];
+	const urls = [ shellquote(sums.url) ];
 	const names = [];
 	for (let i = 0; i < length(picks); i++) {
 		if (!update_url_ok(picks[i].url))
@@ -1155,8 +1192,14 @@ function do_test(args) {
 			return { ok: false, detail: 'a proxy is only supported with a TCP/IPv4 target' };
 		if (pserver == '')
 			pserver = '127.0.0.1';
+		/* the proxy server is concatenated into the socat address: the same
+		 * whitelist the generator uses must apply here too */
+		if (!host_ok(pserver))
+			return { ok: false, detail: 'proxy server contains invalid characters' };
 		if (pport <= 0)
 			pport = 1080;
+		if (pport > 65535)
+			return { ok: false, detail: 'proxy port is out of range' };
 		ro = ',connect-timeout=5';
 		if (proxy == 'socks4a' || proxy == 'socks4')
 			dial = `SOCKS4A:${pserver}:${host}:${port},socksport=${pport}`;

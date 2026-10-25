@@ -5,7 +5,7 @@
 # -v socat=<path>  socat binary to use
 # -v desf=<file>   desired records : sid \t kind \t port \t key \t command
 # -v warnf=<file>  warnings        : sid \t message
-# -v fwf=<file>    firewall ports  : proto \t port   ("igmp\t-" joins groups)
+# -v fwf=<file>    firewall ports  : proto \t port \t src4 \t src6  ("igmp\t-\t-\t-" joins groups)
 # -v pausef=<file> paused rules    : sid \t until   (temporarily stopped)
 #
 # "key" is the argv of the listener with spaces removed; it is what the shell
@@ -52,6 +52,16 @@ function ok_uint(v, lo, hi) { v = plain_num(v); return (v ~ /^[0-9]+$/ && v + 0 
 function ok_path(v) {
 	return (v ~ /^\//) && (v ~ /^[A-Za-z0-9._\/-]+$/) && (index(v, "..") == 0)
 }
+# A listen socket is created and (when stale) deleted by root.  Keep it inside
+# a runtime/tmp tree: an arbitrary path would let a rule point root's unlink at
+# /etc/shadow.  /var/run and /run are /tmp on OpenWrt.
+function ok_socket_path(v) {
+	if (!ok_path(v)) return 0
+	if (substr(v, 1, 9) == "/var/run/") return (length(v) > 9)
+	if (substr(v, 1, 5) == "/run/") return (length(v) > 5)
+	if (substr(v, 1, 5) == "/tmp/") return (length(v) > 5)
+	return 0
+}
 # IPv4 multicast group 224.0.0.0 - 239.255.255.255
 function ok_mgroup(v,  o) {
 	if (v !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) return 0
@@ -94,7 +104,7 @@ function ok_cidr(v,  n, a, b) {
 # Empty entries are ignored; the count is capped so the command line stays
 # bounded even if the field is pasted full of networks.
 function cidr_opts(v,  arr, n, i, item, at, addr) {
-	CIDR_ERR = ""; SRC4 = ""; SRC6 = ""
+	CIDR_ERR = ""; SRC4 = ""; SRC6 = ""; SRC4F = ""; SRC6F = ""
 	if (v == "") return 0
 	n = split(v, arr, ",")
 	if (n > 16) { CIDR_ERR = "too many source ranges (max 16)"; return 0 }
@@ -109,8 +119,10 @@ function cidr_opts(v,  arr, n, i, item, at, addr) {
 		if (addr ~ /:/) {
 			if (substr(addr, 1, 1) == "[") addr = substr(addr, 2, length(addr) - 2)
 			SRC6 = SRC6 ",range=[" addr "]" substr(item, at)
+			SRC6F = SRC6F "," addr substr(item, at)
 		} else {
 			SRC4 = SRC4 ",range=" item
+			SRC4F = SRC4F "," item
 		}
 	}
 	return 1
@@ -304,12 +316,12 @@ END {
 		if (proto != "tcp" && proto != "udp" && proto != "ssl" && proto != "unix") {
 			warn(sid, "bad proto, skip"); continue
 		}
-		if (proto == "unix" && (upath == "" || !ok_path(upath))) {
-			warn(sid, "bad unix_path, skip"); continue
+		if (proto == "unix" && (upath == "" || !ok_socket_path(upath))) {
+			warn(sid, "bad unix_path (must be under /var/run, /run or /tmp), skip"); continue
 		}
 		# Peer allowlist (socat range=).  A unix socket has no peer address,
 		# so the field only means something on a network listener.
-		SRC4 = ""; SRC6 = ""; V4OK = 1; V6OK = 1
+		SRC4 = ""; SRC6 = ""; SRC4F = ""; SRC6F = ""; V4OK = 1; V6OK = 1
 		if (srcallow != "") {
 			if (proto == "unix")
 				warn(sid, "source ranges need a network listener, ignored")
@@ -417,9 +429,16 @@ END {
 			if (!ipport(dp))                { warn(sid, "bad dest_port, skip"); continue }
 			dp = plain_num(dp) + 0
 			DIAL = "OPENSSL:" dial_host(dip) ":" dp
-			if (uverify == "1" && ucafile != "") {
-				if (!ok_path(ucafile)) { warn(sid, "bad ssl_cafile, skip"); continue }
-				DIAL = DIAL ",verify=1,cafile=" ucafile
+			if (uverify == "1") {
+				# verify=1 without cafile uses the system CA store.  A dial
+				# that silently skips validation is the default attack
+				# surface, so "verify" is only off when it is explicitly 0.
+				if (ucafile != "") {
+					if (!ok_path(ucafile)) { warn(sid, "bad ssl_cafile, skip"); continue }
+					DIAL = DIAL ",verify=1,cafile=" ucafile
+				}
+				else
+					DIAL = DIAL ",verify=1"
 			}
 			else
 				DIAL = DIAL ",verify=0"
@@ -553,10 +572,11 @@ END {
 		# every IPv4 address without a word
 		if (proto == "ssl" && BIND6 != "")
 			warn(sid, "listen_addr is ignored on a TLS listener (IPv4 only)")
-		# asking for certificate verification but giving no CA file would
-		# silently fall back to "no verification at all"
-		if (dproto == "ssl" && uverify == "1" && ucafile == "")
-			warn(sid, "ssl_verify is on but ssl_cafile is empty (the target certificate is not verified)")
+		# asking for certificate verification without a CA file is fine: socat
+		# then uses the system trust store.  Only an explicit ssl_verify=0
+		# turns validation off.
+		if (dproto == "ssl" && uverify != "1" && uverify != "0")
+			warn(sid, "ssl_verify must be 0 or 1, treating as 0")
 
 		if (srcallow != "" && proto != "unix") {
 			if (!V4OK && fam != "6")
@@ -570,9 +590,10 @@ END {
 		for (lp = LP_FROM; lp <= LP_TO; lp++) {
 			if (proto == "unix") {
 				# no port at all: one listener on the socket path, then done.
-				# unlink-early removes a socket file left behind by a crashed
-				# listener, which would otherwise make the rebind fail.
-				emit(sid, "unix", "-", build_cmd("UNIX-LISTEN:" upath ",fork,unlink-early" RA USR " " DIAL ND RTY KADL))
+				# The engine removes a stale socket (kill -9 leaves one) and
+				# refuses to start if the path exists and is not a socket, so
+				# socat itself does not need unlink-early here.
+				emit(sid, "unix", "-", build_cmd("UNIX-LISTEN:" upath ",fork" RA USR " " DIAL ND RTY KADL))
 				break
 			}
 			if (proto == "tcp") {
@@ -635,10 +656,12 @@ END {
 			# (a unix listener breaks out of this loop above, so it never
 			# reaches this line: it opens no port on the wire)
 			if (fa != "0")
-				print ((proto == "ssl") ? "tcp" : proto) "\t" lp > fwf
+				print ((proto == "ssl") ? "tcp" : proto) "\t" lp "\t" \
+					(SRC4F == "" ? "-" : substr(SRC4F, 2)) "\t" \
+					(SRC6F == "" ? "-" : substr(SRC6F, 2)) > fwf
 		}
 		# joining a multicast group needs IGMP accepted on the WAN zones
 		if (mcgrp != "" && fa != "0")
-			print "igmp\t-" > fwf
+			print "igmp\t-\t-\t-" > fwf
 	}
 }

@@ -16,15 +16,11 @@ for p in $(pgrep -f '^(/bin/)?sh /etc/socat-boot.sh$' 2>/dev/null); do kill -9 "
 [ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1 || true
 
 echo "removing firewall rules ..."
-z=1
-while [ $z -le 9 ]; do
-	sfx=""
-	[ "$z" -gt 1 ] && sfx="_$z"
-	uci -q delete "firewall.socat_reforged_tcp$sfx" 2>/dev/null || true
-	uci -q delete "firewall.socat_reforged_udp$sfx" 2>/dev/null || true
-	uci -q delete "firewall.socat_reforged_igmp$sfx" 2>/dev/null || true
-	z=$((z + 1))
-done
+uci show firewall 2>/dev/null \
+	| sed -n 's/^firewall\.\(socat_reforged_[A-Za-z0-9_]*\)=.*/\1/p' \
+	| while read -r s; do
+		[ -n "$s" ] && uci -q delete "firewall.$s" 2>/dev/null || true
+	done
 uci commit firewall 2>/dev/null || true
 if command -v fw4 >/dev/null 2>&1 && fw4 check >/dev/null 2>&1; then
 	/etc/init.d/firewall reload >/dev/null 2>&1 || true

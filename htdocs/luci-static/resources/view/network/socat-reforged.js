@@ -192,9 +192,15 @@ function trDetail(s) {
 	case 'GitHub could not be reached':
 	case 'GitHub returned an unexpected answer':
 	case 'the release has no package for this system':
+	case 'the release has no checksum file':
+	case 'the checksum file does not come from this project':
+	case 'the release asset does not come from this project':
+	case 'the update state directory is not writable':
 	case 'the update helper is not installed':
 	case 'the update helper could not be started':
 	case 'an update is already running':
+	case 'proxy server contains invalid characters':
+	case 'proxy port is out of range':
 		return _(s);
 	}
 	return s;
@@ -307,8 +313,9 @@ function importCheck(rule) {
 		return _('bad retry');
 	if (['tcp', 'udp', 'ssl', 'unix'].indexOf(rule.proto) < 0)
 		return _('bad proto');
-	if (rule.proto === 'unix' && !importPathOk(rule.unix_path))
-		return _('unix_path must be an absolute path');
+	if (rule.proto === 'unix' &&
+	    (!importPathOk(rule.unix_path) || !/^\/(var\/run|run|tmp)\//.test(String(rule.unix_path))))
+		return _('unix_path must be under /var/run, /run or /tmp');
 	if (rule.proto === 'ssl' && (!importPathOk(rule.ssl_cert) || !importPathOk(rule.ssl_key)))
 		return _('ssl_cert and ssl_key must be absolute paths');
 	if (rule.proto !== 'unix' && !importPortOk(rule.listen_port))
@@ -970,7 +977,7 @@ return view.extend({
 			uci.set('socat', sid, 'listen_port', String(port));
 			uci.set('socat', sid, 'dest_proto', (proto === 'udp') ? 'udp4' : 'tcp4');
 			uci.set('socat', sid, 'dest_port', String(port));
-			uci.set('socat', sid, 'firewall_accept', '1');
+			uci.set('socat', sid, 'firewall_accept', '0');
 			/* disabled until a target is set: an empty dest_ip must not spawn
 			 * a listener that dies and fills the table with "down" */
 			uci.set('socat', sid, 'enable', '0');
@@ -1684,10 +1691,10 @@ return view.extend({
 			'<br>' + _('TLS listens on IPv4 only: socat cannot bind an OpenSSL listener to an IPv6 address, so a TLS rule set to IPv6 only is skipped.');
 
 		o = s.option(form.Flag, 'firewall_accept', _('Open firewall port (WAN)'));
-		o.default = '1';
+		o.default = '0';
 		o.rmempty = false;
 		o.modalonly = true;
-		o.description = _('Automatically keep this WAN port open (recommended).');
+		o.description = _('Open this port in the WAN firewall zone. Off by default: only enable it if the rule must be reachable from the internet. The source allowlist, when set, is applied to the firewall rule as well.');
 
 		o = s.option(form.ListValue, 'proxy', _('Reach target via proxy'));
 		o.value('', _('None'));
@@ -1825,11 +1832,11 @@ return view.extend({
 		o.depends('proto', 'ssl');
 
 		o = s.option(form.Flag, 'ssl_verify', _('Verify TLS certificate'));
-		o.default = '0';
+		o.default = '1';
 		o.rmempty = false;
 		o.modalonly = true;
 		o.depends('dest_proto', 'ssl');
-		o.description = _('Check the target certificate against the CA file below.');
+		o.description = _('Check the target certificate against the system trust store, or against the CA file below when one is set. Only turn this off for a target with a self-signed certificate you cannot replace.');
 
 		o = s.option(form.Value, 'ssl_cafile', _('CA certificate'));
 		o.placeholder = '/etc/ca.pem';

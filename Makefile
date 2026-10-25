@@ -29,7 +29,7 @@ LUCI_TITLE:=LuCI support for Socat (Reforged, custom engine)
 LUCI_DESCRIPTION:=Port forwarding manager backed by a self-healing custom socat \
 	engine: TCP/UDP over IPv4 and IPv6, TLS, unix sockets and multicast, with a \
 	procd service, per-rule live status and a ucode backend.
-LUCI_DEPENDS:=+luci-base +socat +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci +uclient-fetch
+LUCI_DEPENDS:=+luci-base +socat +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci +uclient-fetch +ca-bundle
 LUCI_PKGARCH:=all
 # luci.mk reads these two (a bare PKG_MAINTAINER is silently dropped, and URL
 # then falls back to the LuCI feed).
