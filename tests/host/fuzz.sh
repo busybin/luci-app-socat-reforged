@@ -323,8 +323,7 @@ has 'a v6 proxy server is refused with a reason' 'f83:proxy_server cannot be an 
 has 'an IPv6-only multicast rule is refused with a reason' 'f85:multicast cannot listen on IPv6, rule skipped' "$(warns)"
 has 'a hostile mcast_iface on a relay rule is refused' 'f86:bad mcast_iface, skip' "$(warns)"
 # a value that cannot be honoured must not be dropped in silence, either
-has 'ssl_verify without a CA file is reported' \
-	'f127:ssl_verify is on but ssl_cafile is empty (the target certificate is not verified)' "$(warns)"
+check 'ssl_verify without a CA file still verifies' 1 "$(awk -F'\t' '$1=="f127"' "$WORK/des" | grep -c 'verify=1')"
 has 'a v6 listen_addr on a TLS rule is reported' \
 	'f132:listen_addr is ignored on a TLS listener (IPv4 only)' "$(warns)"
 

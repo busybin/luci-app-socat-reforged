@@ -66,7 +66,7 @@ case "$1" in
 show)
 	case "$2" in
 	socat)    cat "$S/etc/socat"    2>/dev/null ;;
-	firewall) cat "$S/etc/firewall" 2>/dev/null ;;
+	firewall) cat "$S/etc/firewall" 2>/dev/null; cat "$S/fw.sections" 2>/dev/null ;;
 	network)  cat "$S/etc/network"  2>/dev/null ;;
 	esac ;;
 get)
@@ -79,10 +79,16 @@ get)
 	fi
 	grep -m1 "^$sec\\.$opt=" "$S/etc/$cfg" 2>/dev/null | sed "s/^$sec\\.$opt=//" ;;
 set)
-	echo "$2=$3" >> "$S/fw.log" ;;
+	echo "$2=$3" >> "$S/fw.log"
+	case "$2" in
+	firewall.socat_reforged_*=rule) echo "$2" >> "$S/fw.sections" ;;
+	esac ;;
 delete)
 	case "$2" in
-	*.socat_reforged_*) echo "delete $2" >> "$S/fw.log" ;;
+	*.socat_reforged_*)
+		echo "delete $2" >> "$S/fw.log"
+		grep -Fv "$2=" "$S/fw.sections" > "$S/fw.sections.t" 2>/dev/null
+		mv "$S/fw.sections.t" "$S/fw.sections" 2>/dev/null ;;
 	esac ;;
 add_list)
 	echo "$2+=$3" >> "$S/fw.log" ;;
@@ -575,10 +581,10 @@ check 'scenario 9: zones' 'wan' "$Z"
 check 'scenario 9: multicast + unix listeners' 'udp unix' "$L"
 check 'scenario 9: firewall src zones' 'wan' "$S"
 check 'scenario 9: no rule errors' '' "$E"
-check 'scenario 9: the multicast rule opens a tcp/udp port' 1 "$(grep -c 'socat_reforged_udp\..*dest_port=21060' "$SIM/fw.log" 2>/dev/null)"
-check 'scenario 9: ...and an IGMP accept rule' 1 "$(grep -c 'socat_reforged_igmp=rule' "$SIM/fw.log" 2>/dev/null)"
-check 'scenario 9: the IGMP rule is proto igmp' 1 "$(grep -c 'socat_reforged_igmp.proto=igmp' "$SIM/fw.log" 2>/dev/null)"
-check 'scenario 9: the unix rule opens no port' 0 "$(grep -c 'socat_reforged_tcp\.' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 9: the multicast rule opens a tcp/udp port' 1 "$(grep -c 'socat_reforged_udp_[0-9]*_[0-9]*\..*dest_port=21060' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 9: ...and an IGMP accept rule' 1 "$(grep -c 'socat_reforged_igmp_[0-9]*_[0-9]*=rule' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 9: the IGMP rule is proto igmp' 1 "$(grep -c 'socat_reforged_igmp_[0-9]*_[0-9]*\.proto=igmp' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 9: the unix rule opens no port' 0 "$(grep -c 'socat_reforged_tcp' "$SIM/fw.log" 2>/dev/null)"
 check 'scenario 9: the unix listener socket exists' 1 "$([ -S "$SIM/run/sim.sock" ] && echo 1 || echo 0)"
 cleanup
 
@@ -603,8 +609,8 @@ EOF
 check 'scenario 11: zones' 'wan' "$Z"
 check 'scenario 11: only the unpaused rule listens' 'tcp tcp6' "$L"
 check 'scenario 11: no rule errors' '' "$E"
-check 'scenario 11: the paused port stays closed' 0 "$(grep -c '21070' "$SIM/fw.log" 2>/dev/null)"
-check 'scenario 11: the free rule opens its port' 1 "$(grep -c '21071' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 11: the paused port stays closed' 0 "$(grep -c 'dest_port=21070' "$SIM/fw.log" 2>/dev/null)"
+check 'scenario 11: the free rule opens its port' 1 "$(grep -c 'dest_port=21071' "$SIM/fw.log" 2>/dev/null)"
 check 'scenario 11: the paused rule contributes no listener' 0 \
 	"$(grep -c '21070' "$SIM/run/desired" 2>/dev/null)"
 check 'scenario 11: a v4-only allowlist drops the v6 listener' 0 \
@@ -726,12 +732,12 @@ for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do kill -9 "$p" 2>/dev/nu
 sleep 1
 check "fw fail: the marker records the attempt" 1 "$(grep -c '^fail ' "$SIM/run/fw.sig" 2>/dev/null)"
 # ... and it ends in the epoch (a trailing space means "no epoch written")
-check "fw fail: the marker ends in an epoch" 1 "$(grep -cE '[0-9]$' "$SIM/run/fw.sig" 2>/dev/null)"
+check "fw fail: the marker ends in an epoch" 1 "$(grep -cE '^fail [0-9]+ ' "$SIM/run/fw.sig" 2>/dev/null)"
 contains "fw fail: the backoff is logged" 'retry in 5 min' "$(cat "$SIM/engine-logfile.log" 2>/dev/null)"
 
 # the read path: a marker that says "failed seconds ago" must block a rebuild
 : > "$SIM/fw.log"
-printf 'fail zones:wan tcp: 1 udp: %s\n' "$(( $(awk '{printf "%d", $1}' /proc/uptime) - 5 ))" > "$SIM/run/fw.sig"
+printf 'fail %s z:wan|f:' "$(( $(awk '{printf "%d", $1}' /proc/uptime) - 5 ))" > "$SIM/run/fw.sig"
 PATH="$SIM/bin:$PATH" sh "$SIM/socat-boot.sh" >/dev/null 2>&1 &
 LOOP=$!
 sleep 4
@@ -771,7 +777,7 @@ sleep 1
 check 'fw stale: the port list is emptied' '' "$(cat "$SIM/run/fw" 2>/dev/null)"
 check 'fw stale: the old accept rule is gone' 0 "$(grep -c 'dest_port=21081' "$SIM/fw.log" 2>/dev/null)"
 check 'fw stale: the engine deletes its own rules' 1 \
-	"$([ "$(grep -c 'delete firewall.socat_reforged_tcp' "$SIM/fw.log" 2>/dev/null)" -ge 1 ] && echo 1 || echo 0)"
+	"$([ "$(grep -c 'delete firewall.socat_reforged_' "$SIM/fw.log" 2>/dev/null)" -ge 1 ] && echo 1 || echo 0)"
 cleanup
 
 rm -rf "$SIM" "$TLS_DIR"

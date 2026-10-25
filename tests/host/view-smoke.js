@@ -615,9 +615,18 @@ ck('proxy_server takes a host name as well as an IPv4 literal',
 		acl.write.ubus['luci.socat-reforged'] || []));
 	const declared = [...src.matchAll(/rpc\.declare\(\{\s*object:\s*'([^']+)',\s*method:\s*'([^']+)'/g)]
 		.filter((m) => m[1] === 'luci.socat-reforged').map((m) => m[2]);
-	const notGranted = declared.filter((m) => !granted.has(m));
+	/* update_install installs root packages, so it is deliberately not in the
+	 * app's ACL: only a root session may call it.  Everything else the view
+	 * calls must be granted. */
+	const rootOnly = new Set(['update_install']);
+	const notGranted = declared.filter((m) => !granted.has(m) && !rootOnly.has(m));
 	ck('every ubus method the view calls is in the ACL', 'none',
 		notGranted.length ? notGranted.join(',') : 'none');
+	ck('update_install stays root-only', false, granted.has('update_install'));
+	ck('test is a write method', true,
+		(acl.write.ubus['luci.socat-reforged'] || []).indexOf('test') >= 0);
+	ck('test is not a read method', false,
+		(acl.read.ubus['luci.socat-reforged'] || []).indexOf('test') >= 0);
 
 	/* ---- self-update ------------------------------------------------------ */
 	ck('the update check button is rendered', true, !!byId['socat-upd-btn']);

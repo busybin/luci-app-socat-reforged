@@ -541,7 +541,7 @@ socat.bp.dest_proto=unix
 socat.bp.dst_unix_path=/var/run/s2.sock
 FIX
 	run_gen ''
-	check "bad unix_path '$p' -> skipped" 'bp:bad unix_path, skip ' "$(warns)"
+	check "bad unix_path '$p' -> skipped" 'bp:bad unix_path (must be under /var/run, /run or /tmp), skip ' "$(warns)"
 done
 
 # tls listener + tls dial without verification
@@ -858,7 +858,8 @@ socat.ux.dest_ip=10.0.0.5
 socat.ux.dest_port=80
 FIX
 run_gen ''
-check 'unix listener unlinks a stale socket' 1 "$(cmdgrep 1 'UNIX-LISTEN:/var/run/x.sock,fork,unlink-early')"
+check 'unix listener does not unlink a path by itself' 1 "$(cmdgrep 1 'UNIX-LISTEN:/var/run/x.sock,fork,reuseaddr ')"
+check 'no unlink-early anywhere (the engine removes only sockets)' 0 "$(cut -f5 "$WORK/out.des" | grep -c 'unlink-early')"
 
 # a unix socket has no TCP keepalive (socat rejects keepidle there): neither a
 # unix listener dialling unix, nor a tcp listener dialling unix, may carry it
@@ -879,7 +880,7 @@ socat.tx.dst_unix_path=/var/run/c.sock
 FIX
 run_gen ''
 check 'unix to unix carries no keepalive at all' 0 "$(awk -F'\t' '$1=="xx"{print $5}' "$WORK/out.des" | grep -c keepalive)"
-check 'unix to unix keeps reuseaddr and unlink-early' 1 "$(cmdgrep 1 'UNIX-LISTEN:/var/run/a.sock,fork,unlink-early,reuseaddr UNIX-CONNECT:/var/run/b.sock')"
+check 'unix to unix keeps reuseaddr and no unlink-early' 1 "$(cmdgrep 1 'UNIX-LISTEN:/var/run/a.sock,fork,reuseaddr UNIX-CONNECT:/var/run/b.sock')"
 check 'tcp to unix keeps keepalive on the listener only' 1 "$(cmdgrep 1 'TCP-LISTEN:6400,pf=ip4,fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5 UNIX-CONNECT:/var/run/c.sock')"
 
 # ---- command shape: no target address may run into the option before it -----
@@ -937,8 +938,8 @@ check 'udp v4 keeps the space before the target' 1 "$(cmdgrep 1 'UDP-LISTEN:6301
 check 'the v4 udp listener pins its address family' 1 "$(cmdgrep 1 'UDP-LISTEN:6301,pf=ip4')"
 check 'udp v6 keeps the space before the target' 1 "$(cmdgrep 1 'UDP6-LISTEN:6301,fork UDP4:10.0.0.9:53')"
 check 'ssl keeps the space before the target' 1 "$(cmdgrep 1 'fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5 OPENSSL:10.0.0.9:443')"
-check 'unix keeps the space before the target' 1 "$(cmdgrep 1 'unlink-early,reuseaddr TCP4:10.0.0.9:80,keepalive,keepidle=60,keepintvl=10,keepcnt=5')"
-check 'a unix listener carries no keepalive itself' 0 "$(cmdgrep 1 'unlink-early,reuseaddr,keepalive')"
+check 'unix keeps the space before the target' 1 "$(cmdgrep 1 'fork,reuseaddr TCP4:10.0.0.9:80,keepalive,keepidle=60,keepintvl=10,keepcnt=5')"
+check 'a unix listener carries no keepalive itself' 0 "$(cut -f5 "$WORK/out.des" | grep -c 'UNIX-LISTEN:[^ ]*keepalive')"
 check 'multicast receive keeps the space before the target' 1 "$(cmdgrep 1 'bind=239.1.1.1,reuseaddr,fork UDP4-DATAGRAM:239.2.2.2:5000')"
 check 'ssl listener carries the cert and key' 1 "$(cmdgrep 1 'OPENSSL-LISTEN:6302,pf=ip4,cert=/etc/ssl/c.pem,key=/etc/ssl/k.pem,verify=0,fork')"
 check 'tcp listener carries nodelay and backlog' 1 "$(cmdgrep 1 'TCP-LISTEN:6300,pf=ip4,fork,reuseaddr,nodelay,backlog=8')"
@@ -1100,7 +1101,7 @@ FIX
 run_gen "$V6"
 check 'user= reaches the tcp listener' 1 "$(cmdgrep 1 'TCP-LISTEN:6500,pf=ip4,fork,reuseaddr,keepalive,keepidle=60,keepintvl=10,keepcnt=5,user=nobody ')"
 check 'retry= reaches the tcp dial' 2 "$(cmdgrep 1 'TCP4:10.0.0.9:80,retry=5,keepalive')"
-check 'user= reaches the unix listener' 1 "$(cmdgrep 1 'unlink-early,reuseaddr,user=nobody UNIX-CONNECT')"
+check 'user= reaches the unix listener' 1 "$(cmdgrep 1 'fork,reuseaddr,user=nobody UNIX-CONNECT')"
 check 'retry= reaches the unix dial' 1 "$(cmdgrep 1 'UNIX-CONNECT:/var/run/b.sock,retry=5')"
 check 'a udp rule keeps user= but drops retry=' 1 "$(cmdgrep 1 'UDP-LISTEN:6501,pf=ip4,fork,user=nobody UDP4:10.0.0.9:53')"
 check 'a multicast rule keeps user= but drops retry=' 1 "$(cmdgrep 1 'bind=239.1.1.1,reuseaddr,fork,user=nobody UDP4-DATAGRAM')"
@@ -1223,8 +1224,8 @@ socat.u3.dest_port=80
 socat.u3.firewall_accept=1
 FIX
 run_gen "$V6"
-has 'ssl_verify without a CA file is reported' \
-	'v1:ssl_verify is on but ssl_cafile is empty (the target certificate is not verified)' "$(warns)"
+check 'ssl_verify without a CA file verifies against the system store' 1 "$(cmdgrep 1 'OPENSSL:10.0.0.9:443,verify=1')"
+check '...and carries no cafile option' 0 "$(cut -f5 "$WORK/out.des" | grep -c 'verify=1,cafile=')"
 has 'a v6 listen_addr on a TLS rule is reported' \
 	'v2:listen_addr is ignored on a TLS listener (IPv4 only)' "$(warns)"
 check 'the TLS listener ignores the v6 bind' 0 "$(cmdgrep 0 'bind=2001:db8::9')"

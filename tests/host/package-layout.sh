@@ -203,9 +203,13 @@ check 'install.sh installs the self-update helper 755' 1 \
 sh -n "$REPO/root/usr/libexec/socat-reforged-update" 2>/dev/null && rc=0 || rc=1
 check 'the self-update helper is valid shell' 0 "$rc"
 acl=$REPO/root/usr/share/rpcd/acl.d/luci-app-socat-reforged.json
-for m in update_check update_status update_install; do
+for m in update_check update_status; do
 	check "the ACL grants $m" 1 "$(grep -c "\"$m\"" "$acl")"
 done
+# installing a package needs root: keep it out of the app's ACL entirely
+check 'the ACL does not grant update_install' 0 "$(grep -c '"update_install"' "$acl")"
+check 'the ACL grants test only as a write method' 1 \
+	"$(grep -c '"log_clear", "test"' "$acl")"
 check 'the backend implements update_install' 1 \
 	"$(grep -c 'update_install: {' "$REPO/root/usr/share/rpcd/ucode/luci.socat-reforged.uc")"
 
