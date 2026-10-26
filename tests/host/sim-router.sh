@@ -483,12 +483,22 @@ cleanup() {
 	for p in $(pgrep socat 2>/dev/null); do
 		grep -qs SOCAT_SIM_MARKER "/proc/$p/environ" 2>/dev/null && kill -9 "$p" 2>/dev/null
 	done
-	# a leftover sandbox engine (killed hard, no trap) must not survive either
-	for p in $(pgrep -f "$SIM/socat-boot.sh" 2>/dev/null); do
-		kill -9 "$p" 2>/dev/null
+	# A leftover sandbox engine must not survive.  Its own lock file names the
+	# loop; the /proc scan catches one whose lock is already gone (a hard kill
+	# leaves the directory behind but the pid may have been reused).
+	lp=$(cat "$SIM/run/engine.lock/pid" 2>/dev/null)
+	[ -n "$lp" ] && kill -9 "$lp" 2>/dev/null
+	for d in /proc/[0-9]*; do
+		case "$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)" in
+		*"$SIM/socat-boot.sh"*) kill -9 "${d#/proc/}" 2>/dev/null ;;
+		esac
 	done
 	rm -rf "$SIM"
 }
+# Any failure or early return still leaves the host clean: without this, one
+# aborted scenario kept its engine (and its four listeners) alive and the next
+# run reported every later scenario against stale state.
+trap cleanup EXIT INT TERM
 
 run_one() { # run_one <scenario> <expected zones> <expected listener kinds> <expected src zones>
 	SC="$1"
@@ -636,8 +646,16 @@ check 'scenario 11: an expired pause marker is removed' 0 \
 	"$(ls "$SIM/run/pause" 2>/dev/null | grep -c simpaused)"
 check 'scenario 11: the rule runs again after expiry' 1 \
 	"$(grep -c '^simpaused tcp 21070 ' "$SIM/run/state" 2>/dev/null)"
-check 'scenario 11: the v6 narrowing is logged once it runs' 1 \
-	"$(grep -c 'no IPv6 range' "$SIM/engine-logfile.log" 2>/dev/null)"
+# The narrowing warning only exists when the engine found a global IPv6 address;
+# on a host without one there is no v6 listener to drop, so there is nothing to
+# warn about.  The sandbox stubs `ip`, but the engine still asks the kernel for
+# an address, so the check follows what this run actually detected.
+if grep -q 'ipv6=none' "$SIM/engine-logfile.log" 2>/dev/null; then
+	printf '  %-46s %s\n' 'scenario 11: the v6 narrowing is logged once it runs' '(skipped: no IPv6 on this host)'
+else
+	check 'scenario 11: the v6 narrowing is logged once it runs' 1 \
+		"$(grep -c 'no IPv6 range' "$SIM/engine-logfile.log" 2>/dev/null)"
+fi
 check 'scenario 11: the allowlist reaches the running command' 1 \
 	"$(grep -c 'range=127.0.0.0/8' "$SIM/run/desired" 2>/dev/null)"
 cleanup

@@ -42,7 +42,9 @@ jobs:
 
   build:
     name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    # Pinned: OpenWrt 24.10's prereq check wants GNU coreutils; ubuntu-latest
+    # moved to Ubuntu 26 and its `install` no longer passes that check.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
