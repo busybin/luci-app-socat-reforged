@@ -646,16 +646,18 @@ check 'scenario 11: an expired pause marker is removed' 0 \
 	"$(ls "$SIM/run/pause" 2>/dev/null | grep -c simpaused)"
 check 'scenario 11: the rule runs again after expiry' 1 \
 	"$(grep -c '^simpaused tcp 21070 ' "$SIM/run/state" 2>/dev/null)"
-# The narrowing warning only exists when the engine found a global IPv6 address;
-# on a host without one there is no v6 listener to drop, so there is nothing to
-# warn about.  The sandbox stubs `ip`, but the engine still asks the kernel for
-# an address, so the check follows what this run actually detected.
-if grep -q 'ipv6=none' "$SIM/engine-logfile.log" 2>/dev/null; then
-	printf '  %-46s %s\n' 'scenario 11: the v6 narrowing is logged once it runs' '(skipped: no IPv6 on this host)'
-else
-	check 'scenario 11: the v6 narrowing is logged once it runs' 1 \
-		"$(grep -c 'no IPv6 range' "$SIM/engine-logfile.log" 2>/dev/null)"
-fi
+# The narrowing is a generator rule: a v4-only allowlist on a rule that would
+# get a v6 listener drops the v6 listener and says why, once.  Ask the generator
+# directly instead of the sandboxed engine: the engine only knows about IPv6 if
+# the host has a global address (a CI runner usually has none), while the
+# generator takes the address as input.
+"${AWK:-awk}" -v ipv6=2001:db8:1::55 -v socat=/usr/bin/socat \
+	-v desf=/dev/null -v warnf="$SIM/narrow.warn" -v fwf=/dev/null \
+	-v pausef=/dev/null -v schedf=/dev/null -v stopf=/dev/null \
+	-v dow=1 -v hm=12:00 \
+	-f "$REPO/root/usr/libexec/socat-reforged-gen.awk" < "$SIM/etc/socat"
+check 'scenario 11: the v6 narrowing is logged once it runs' 1 \
+	"$(grep -c 'no IPv6 range' "$SIM/narrow.warn" 2>/dev/null)"
 check 'scenario 11: the allowlist reaches the running command' 1 \
 	"$(grep -c 'range=127.0.0.0/8' "$SIM/run/desired" 2>/dev/null)"
 cleanup
