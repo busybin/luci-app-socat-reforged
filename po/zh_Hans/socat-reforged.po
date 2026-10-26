@@ -1455,3 +1455,53 @@ msgstr "生效结束"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:2117
 msgid "End of the window. An end earlier than the start crosses midnight (22:00–06:00). The rule is skipped, not left running, if the times are invalid."
 msgstr "窗口的结束时间。结束早于开始表示跨午夜（22:00–06:00）。时间无效时会跳过该规则，而不是继续运行。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:505
+msgid "stopped after failed starts"
+msgstr "多次启动失败后已停止"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:671
+#, javascript-format
+msgid "%d rule(s) stopped after failed starts"
+msgstr "%d 条规则因启动失败已停止"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1213
+#, javascript-format
+msgid "The engine stopped this rule after %d failed start(s). Fix the rule first, or resume it to try again."
+msgstr "引擎在 %d 次启动失败后停止了此规则。请先修正规则，或恢复它以重试。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1049
+#, javascript-format
+msgid "%d rule(s) were stopped after repeated start failures: %s"
+msgstr "%d 条规则因反复启动失败已停止：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1058
+msgid "Checking which programs hold the listen ports…"
+msgstr "正在检查哪些程序占用了监听端口…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1066
+msgid "no other program holds a port a rule wants"
+msgstr "没有其他程序占用规则所需的端口"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1068
+#, javascript-format
+msgid "%d port(s) are held by another program: %s"
+msgstr "%d 个端口被其他程序占用：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1071
+msgid "Could not read the socket owners."
+msgstr "无法读取套接字占用者。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1961
+msgid "Runtime"
+msgstr "运行时长"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1971
+#, javascript-format
+msgid "up %s"
+msgstr "已运行 %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1972
+#, javascript-format
+msgid "started %d times"
+msgstr "启动 %d 次"

@@ -140,6 +140,8 @@ const STATUS = {
 		dest_proto: r.dest_proto, dest_ip: r.dest_ip, dest_port: +r.dest_port,
 		family: '', proxy: '', firewall_accept: true,
 		status: (r.listen_port === '30000-30002') ? 'partial' : 'listening',
+		uptime: (r.listen_port === '30000-30002') ? null : 125,
+		starts: (r.listen_port === '30000-30002') ? null : 3,
 		conns: 0, error: (r.listen_port === '30000-30002') ? 'address already in use' : null }))
 };
 /* per-rule log + migration scan answers, mutable so a test can vary them */
@@ -272,6 +274,11 @@ global.rpc = {
 		if (o.method === 'log_clear') return Promise.resolve({ ok: true });
 		if (o.method === 'rule_log') return Promise.resolve(Object.assign({}, RULE_LOG));
 		if (o.method === 'migrate_scan') return Promise.resolve(Object.assign({}, MIGRATE));
+		/* one foreign program sits on a port a rule wants: the page must name it */
+		if (o.method === 'port_owners') return Promise.resolve({ ok: true, owners: [
+			{ port: 8080, pid: 123, comm: 'nginx' },
+			{ port: 53, pid: 4242, comm: 'socat' }
+		] });
 		if (o.method === 'update_check') return Promise.resolve({
 			ok: true, current: '4-1', latest_tag: 'V5', latest: '5', update_available: true,
 			release_url: 'https://github.com/busybin/luci-app-socat-reforged/releases/tag/V5',
@@ -676,6 +683,36 @@ ck('proxy_server takes a host name as well as an IPv4 literal',
 		RULE_LOG.lines = [ '[REDACTED] socat[4242] N opening connection to 192.168.1.10:80' ];
 	}
 
+	/* ---- auto-stopped rule: not "down", and the park is explainable ----- */
+	{
+		const saved = STATUS.rules[1];
+		STATUS.rules[1] = Object.assign({}, saved,
+			{ status: 'stopped', autostop: 6, error: 'address already in use', uptime: null, starts: null });
+		STATUS.counts.stopped = 1;
+		await v.refreshStatus();
+		const st2 = v.statFor('cfg2222');
+		ck('an auto-stopped rule says so', 'stopped after failed starts', String(st2.label));
+		ck('...and buckets with the broken rules', 'down', st2.bucket);
+		ck('...and carries the failure count', 6, st2.attempts);
+		v.recount();
+		has('the meta line counts stopped rules', '1 rule(s) stopped after failed starts',
+			byId['socat-t-engine-age'] ? byId['socat-t-engine-age'].textContent : '(none)');
+		STATUS.rules[1] = saved;
+		delete STATUS.counts.stopped;
+		await v.refreshStatus();
+	}
+
+	/* ---- runtime row: uptime and start count in the rule dialog ---------- */
+	{
+		const rt = optOf('_runtime');
+		ck('the dialog has a runtime row', true, !!rt);
+		ck('...and it is dialog-only', true, rt && rt.modalonly === true);
+		ck('...showing uptime and restarts', 'up 2m · started 3 times',
+			rt ? String(rt.textvalue('cfg1111')) : '(missing)');
+		ck('...and a dash when the rule is not running', '—',
+			rt ? String(rt.textvalue('cfg4444')) : '(missing)');
+	}
+
 	/* ---- image diagnose: local verdicts + a live target probe ----------- */
 	STATUS.counts.scheduled = 1;
 	{
@@ -688,8 +725,11 @@ ck('proxy_server takes a host name as well as an IPv4 literal',
 		has('diagnose checks the config file', '/etc/config/socat is present', txt);
 		has('diagnose reports the engine heartbeat', 'the engine is running', txt);
 		has('diagnose names the scheduled rules', '1 rule(s) are outside their schedule', txt);
+		has('diagnose names the program holding a listen port', 'nginx', txt);
 		ck('diagnose probes the targets through the backend', true,
 			CALLS.slice(before).indexOf('test') >= 0);
+		ck('diagnose asks who holds the ports', true,
+			CALLS.slice(before).indexOf('port_owners') >= 0);
 		has('diagnose summarises the checks', 'check(s) passed', txt);
 	}
 	delete STATUS.counts.scheduled;

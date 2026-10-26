@@ -1470,3 +1470,53 @@ msgstr "Activa hasta"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:2117
 msgid "End of the window. An end earlier than the start crosses midnight (22:00–06:00). The rule is skipped, not left running, if the times are invalid."
 msgstr "Fin de la ventana. Un fin anterior al inicio cruza la medianoche (22:00–06:00). Si las horas no son válidas, la regla se omite en lugar de dejarse en ejecución."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:505
+msgid "stopped after failed starts"
+msgstr "detenida tras fallos de inicio"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:671
+#, javascript-format
+msgid "%d rule(s) stopped after failed starts"
+msgstr "%d regla(s) detenida(s) tras fallos de inicio"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1213
+#, javascript-format
+msgid "The engine stopped this rule after %d failed start(s). Fix the rule first, or resume it to try again."
+msgstr "El motor detuvo esta regla tras %d intento(s) fallido(s). Corrige la regla primero o reanúdala para volver a intentarlo."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1049
+#, javascript-format
+msgid "%d rule(s) were stopped after repeated start failures: %s"
+msgstr "%d regla(s) se detuvo(s) tras repetidos fallos de inicio: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1058
+msgid "Checking which programs hold the listen ports…"
+msgstr "Comprobando qué programas ocupan los puertos de escucha…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1066
+msgid "no other program holds a port a rule wants"
+msgstr "ningún otro programa ocupa un puerto que una regla necesite"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1068
+#, javascript-format
+msgid "%d port(s) are held by another program: %s"
+msgstr "%d puerto(s) están ocupados por otro programa: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1071
+msgid "Could not read the socket owners."
+msgstr "No se pudieron leer los propietarios de los sockets."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1961
+msgid "Runtime"
+msgstr "Tiempo de ejecución"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1971
+#, javascript-format
+msgid "up %s"
+msgstr "activa %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1972
+#, javascript-format
+msgid "started %d times"
+msgstr "iniciada %d veces"

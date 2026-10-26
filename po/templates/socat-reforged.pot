@@ -1454,3 +1454,53 @@ msgstr ""
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:2117
 msgid "End of the window. An end earlier than the start crosses midnight (22:00–06:00). The rule is skipped, not left running, if the times are invalid."
 msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:505
+msgid "stopped after failed starts"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:671
+#, javascript-format
+msgid "%d rule(s) stopped after failed starts"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1213
+#, javascript-format
+msgid "The engine stopped this rule after %d failed start(s). Fix the rule first, or resume it to try again."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1049
+#, javascript-format
+msgid "%d rule(s) were stopped after repeated start failures: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1058
+msgid "Checking which programs hold the listen ports…"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1066
+msgid "no other program holds a port a rule wants"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1068
+#, javascript-format
+msgid "%d port(s) are held by another program: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1071
+msgid "Could not read the socket owners."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1961
+msgid "Runtime"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1971
+#, javascript-format
+msgid "up %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1972
+#, javascript-format
+msgid "started %d times"
+msgstr ""

@@ -64,7 +64,7 @@ ck('every rule has a status', true, (function() {
 	for (let i = 0; i < length(st.rules); i++) {
 		const s = st.rules[i].status;
 		if (s != 'listening' && s != 'down' && s != 'partial' && s != 'disabled' &&
-		    s != 'paused' && s != 'scheduled')
+		    s != 'paused' && s != 'scheduled' && s != 'stopped')
 			return false;
 	}
 	return true;
@@ -84,9 +84,24 @@ ck('every rule exposes its schedule', true, (function() {
  * is either listening, down, paused or outside its schedule.  `scheduled` is
  * counted apart from `down` on purpose (a rule that is off by schedule is not
  * broken), so it has to be part of the equation. */
-ck('counts: listening + down + paused + scheduled = enabled', st.counts.enabled,
+ck('counts: listening + down + paused + scheduled + stopped = enabled', st.counts.enabled,
    st.counts.listening + st.counts.down + (st.counts.paused ?? 0) +
-   (st.counts.scheduled ?? 0));
+   (st.counts.scheduled ?? 0) + (st.counts.stopped ?? 0));
+ck('counts: stopped is a number', 'int', type(st.counts.stopped));
+/* uptime/starts are null unless the rule is actually listening: a rule that is
+ * parked or outside its schedule must not report a growing uptime */
+ck('uptime is null or a non-negative number', true, (function() {
+	for (let i = 0; i < length(st.rules); i++) {
+		const r = st.rules[i];
+		if (r.uptime != null && !(type(r.uptime) == 'int' && r.uptime >= 0))
+			return false;
+		if (r.starts != null && !(type(r.starts) == 'int' && r.starts >= 1))
+			return false;
+		if ((r.uptime == null) != (r.starts == null))
+			return false;
+	}
+	return true;
+})());
 ck('counts: enabled <= total', true, st.counts.enabled <= st.counts.total);
 ck('counts: errors <= enabled', true, st.counts.errors <= st.counts.enabled);
 ck('engine age is sane', true, st.engine.age >= 0 && st.engine.age <= 90);
@@ -138,6 +153,20 @@ if (firstSid != null) {
 }
 
 /* ---- migration scan (read-only) --------------------------------------- */
+/* who holds the listen ports: must answer, and any owner it reports has to
+ * carry a port, a pid and a program name */
+const po = obj.port_owners.call();
+ck('port_owners answers', true, po.ok);
+ck('port_owners returns owners', 'array', type(po.owners));
+ck('port_owners entries are well formed', true, (function() {
+	for (let i = 0; i < length(po.owners); i++) {
+		const o = po.owners[i];
+		if (type(o.port) != 'int' || type(o.pid) != 'int' || type(o.comm) != 'string' ||
+		    o.port < 1 || o.port > 65535 || o.pid < 1 || o.comm == '')
+			return false;
+	}
+	return true;
+})());
 const mg = obj.migrate_scan.call();
 ck('migrate_scan answers', true, mg.ok);
 ck('migrate_scan returns candidates', 'array', type(mg.candidates));

@@ -24,12 +24,14 @@ rm -rf "$WORK"; mkdir -p "$WORK"
 
 V6="2001:db8:1::55"
 
-run_gen() { # run_gen <mode> [paused "sid<TAB>until"]
-	: > "$WORK/out.des"; : > "$WORK/out.warn"; : > "$WORK/out.fw"; : > "$WORK/out.paused"; : > "$WORK/out.sched"
+run_gen() { # run_gen <mode> [paused "sid<TAB>until"] [stopped "sid<TAB>attempts"]
+	: > "$WORK/out.des"; : > "$WORK/out.warn"; : > "$WORK/out.fw"; : > "$WORK/out.paused"; : > "$WORK/out.sched"; : > "$WORK/out.stopped"
 	[ -n "${2:-}" ] && printf '%s\n' "$2" > "$WORK/out.paused"
+	[ -n "${3:-}" ] && printf '%s\n' "$3" > "$WORK/out.stopped"
 	$AWK -v ipv6="$1" -v socat=/usr/bin/socat \
 		-v desf="$WORK/out.des" -v warnf="$WORK/out.warn" -v fwf="$WORK/out.fw" \
 		-v pausef="$WORK/out.paused" -v schedf="$WORK/out.sched" \
+		-v stopf="$WORK/out.stopped" \
 		-v dow="${SCHED_DOW-1}" -v hm="${SCHED_HM-12:00}" \
 		-f "$GEN" < "$WORK/in.show"
 }
@@ -440,6 +442,24 @@ run_gen "$V6" "$(printf 'p\t9999999999')"
 check 'a paused rule has no listener' '' "$(kinds)"
 check 'a paused rule has no WAN port' '' "$(fwls)"
 check 'a paused rule produces no warnings' '' "$(warns)"
+
+# ---- auto-stopped (repeated start failures): same verdict as a pause ------
+# A rule the engine gave up on must not be spawned again, and its WAN port must
+# leave the firewall: the point of parking it is to stop the noise.
+cat > "$WORK/in.show" <<'FIX'
+socat.s1=config
+socat.s1.enable=1
+socat.s1.proto=tcp
+socat.s1.listen_port=8083
+socat.s1.dest_proto=tcp4
+socat.s1.dest_ip=10.0.0.9
+socat.s1.dest_port=80
+socat.s1.firewall_accept=1
+FIX
+run_gen "$V6" '' "$(printf 's1\t6')"
+check 'an auto-stopped rule has no listener' '' "$(kinds)"
+check 'an auto-stopped rule has no WAN port' '' "$(fwls)"
+check 'an auto-stopped rule produces no warnings' '' "$(warns)"
 
 # ---- destination that is a hostname must not be bracketed ------------------
 # socat only accepts brackets around a literal IPv6 address; "[example.org]"

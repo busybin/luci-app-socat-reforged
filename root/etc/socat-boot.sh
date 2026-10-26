@@ -82,6 +82,7 @@ HEAD_BIN=$(find_bin head)
 SED_BIN=$(find_bin sed)
 GREP_BIN=$(find_bin grep)
 FIND_BIN=$(find_bin find)
+MD5_BIN=$(find_bin md5sum)
 
 RUNDIR=/var/run/socat-reforged
 DESF=$RUNDIR/desired
@@ -96,6 +97,9 @@ PIDDIR=$RUNDIR/pids
 ERRDIR=$RUNDIR/err
 PAUSEDIR=$RUNDIR/pause
 PAUSEF=$RUNDIR/paused
+AUTOSTOPDIR=$RUNDIR/autostop      # sid -> "signature<TAB>attempts" (gave up)
+AUTOSTOPF=$RUNDIR/autostopped     # snapshot the generator reads
+STARTSDIR=$RUNDIR/starts          # per listener: "<starts> <epoch> <fails>"
 RATELOG=$RUNDIR/ratelog
 HB=/var/run/socat-reforged.hb
 ALIVE_MARK=$RUNDIR/engine.alive    # present only while our loop is running
@@ -119,6 +123,8 @@ MEM_WARN=20          # warn below this % of MemTotal
 MEM_CRIT=10          # restart socat below this % of MemTotal
 MEM_FLOOR_KB=4096    # ... or below this absolute amount, whichever comes first
 FW_RETRY=300         # seconds to wait before retrying a failed fw4 reload
+AUTOSTOP_AFTER=${SOCAT_REFORGED_AUTOSTOP:-6}  # failed starts before a rule is parked
+case "$AUTOSTOP_AFTER" in ''|*[!0-9]*) AUTOSTOP_AFTER=6 ;; esac
 
 CYCLE=0
 MEM_FAILS=0
@@ -176,7 +182,8 @@ log_rate() {
 # --------------------------------------------------------------- run state ---
 
 mkrun() {
-	mkdir -p "$RUNDIR" "$PIDDIR" "$ERRDIR" "$RATELOG" "$PAUSEDIR" 2>/dev/null
+	mkdir -p "$RUNDIR" "$PIDDIR" "$ERRDIR" "$RATELOG" "$PAUSEDIR" \
+		"$AUTOSTOPDIR" "$STARTSDIR" 2>/dev/null
 }
 
 # engine's own settings live in the (internal) socat.reforged section
@@ -305,6 +312,60 @@ pause_snapshot() {
 	done
 }
 
+# A rule that cannot start is retried every cycle, which fills the log with the
+# same error forever and keeps a broken WAN port in the firewall.  After
+# AUTOSTOP_AFTER failed starts the rule is parked in $AUTOSTOPDIR with a
+# signature of the config that failed; any edit (or Resume) clears it.
+autostop_sig() { # autostop_sig <sid>
+	local v
+	v=$($UCI_BIN -q show "socat.$1" 2>/dev/null | $MD5_BIN 2>/dev/null)
+	echo "${v%% *}"
+}
+
+reset_starts() { # reset_starts <sid> - forget uptime + failure counters
+	local f
+	for f in "$STARTSDIR/$1"-*; do
+		[ -e "$f" ] && rm -f "$f" 2>/dev/null
+	done
+}
+
+prune_autostops() {
+	local f sid en want have
+	[ -d "$AUTOSTOPDIR" ] || return 0
+	for f in "$AUTOSTOPDIR"/*; do
+		[ -f "$f" ] || continue
+		sid=${f##*/}
+		en=$($UCI_BIN -q get "socat.$sid.enable" 2>/dev/null)
+		if [ "$en" != "1" ]; then
+			rm -f "$f" 2>/dev/null
+			continue
+		fi
+		have=""
+		read -r have _ < "$f" 2>/dev/null
+		want=$(autostop_sig "$sid")
+		if [ -n "$want" ] && [ "$have" = "$want" ]; then
+			continue
+		fi
+		# the user changed the rule (or it disappeared): try again
+		rm -f "$f" 2>/dev/null
+		reset_starts "$sid"
+		log "auto-stop cleared: $sid changed"
+	done
+}
+
+autostop_snapshot() {
+	local f sid have attempts _
+	: > "$AUTOSTOPF"
+	[ -d "$AUTOSTOPDIR" ] || return 0
+	for f in "$AUTOSTOPDIR"/*; do
+		[ -f "$f" ] || continue
+		sid=${f##*/}
+		read -r have attempts < "$f" 2>/dev/null
+		[ -n "$attempts" ] || attempts=0
+		printf '%s\t%s\n' "$sid" "$attempts" >> "$AUTOSTOPF"
+	done
+}
+
 # 2 forks (`uci show` + awk) and no more.  $RUNDIR/fw gets the WAN ports.
 gen_desired() {
 	if [ ! -f "$GPROG" ]; then
@@ -327,6 +388,8 @@ gen_desired() {
 	: > "$SCHEDF"
 	prune_pauses
 	pause_snapshot
+	prune_autostops
+	autostop_snapshot
 	# One `date` for the whole pass: the per-rule schedules are evaluated in
 	# local time here, so the generator needs no clock of its own.  Missing
 	# output leaves both empty; a scheduled rule is then skipped (fail-closed)
@@ -338,7 +401,8 @@ gen_desired() {
 	SCHED_HM="${2:-}"
 	$UCI_BIN show socat 2>/dev/null | "$AWK_BIN" -v ipv6="$IPV6" -v socat="$SOCAT_BIN" \
 		-v desf="$DESF" -v warnf="$WARNF" -v fwf="$FWF" -v pausef="$PAUSEF" \
-		-v schedf="$SCHEDF" -v dow="$SCHED_DOW" -v hm="$SCHED_HM" -f "$GPROG"
+		-v schedf="$SCHEDF" -v dow="$SCHED_DOW" -v hm="$SCHED_HM" \
+		-v stopf="$AUTOSTOPF" -f "$GPROG"
 	return 0
 }
 
@@ -646,8 +710,8 @@ all_listeners_alive() {
 }
 
 reconcile_pass() {
-	local line sid kind port key cmd pid errf e reg rc seen dups
-	local spawned=0 killed=0 remarked=0 kill_it
+	local line sid kind port key cmd pid errf e reg rc seen dups sf sc se sfail _x
+	local spawned=0 killed=0 remarked=0 kill_it NOW
 
 	[ -f "$CFG" ] || { log_rate "nocfg" 3600 "WARN: $CFG missing, nothing to reconcile"; return 0; }
 	[ -x "$SOCAT_BIN" ] || { log_rate "nosocat" 3600 "WARN: $SOCAT_BIN missing, cannot start forwards"; return 0; }
@@ -730,13 +794,23 @@ EOF
 	fi
 
 	# start what is missing (and refresh stale pid bookkeeping)
+	NOW=$($DATE_BIN +%s 2>/dev/null)
+	case "$NOW" in ''|*[!0-9]*) NOW=0 ;; esac
 	while IFS="$TAB" read -r sid kind port key cmd; do
 		[ -n "$sid" ] || continue
+		sf="$STARTSDIR/$sid-$kind-$port"
 		live_listener_pid "$sid" "$kind" "$port" "$key"
 		pid="$LL_PID"
 		if [ -n "$pid" ]; then
 			# keep the registry honest: a reused port must not keep a dead pid
 			echo "$pid" > "$PIDDIR/$sid-$kind-$port"
+			# a healthy listener resets the consecutive-failure counter
+			sc=0; se=0; sfail=0
+			[ -f "$sf" ] && read -r sc se sfail _x < "$sf" 2>/dev/null
+			case "$sc" in ''|*[!0-9]*) sc=1 ;; esac
+			case "$se" in ''|*[!0-9]*) se=$NOW ;; esac
+			case "$sfail" in ''|*[!0-9]*) sfail=0 ;; esac
+			[ "$sfail" = 0 ] || echo "$sc $se 0 $sid" > "$sf"
 			continue
 		fi
 		errf="$ERRDIR/$sid-$kind-$port.log"
@@ -761,6 +835,20 @@ EOF
 		SOCAT_REFORGED=1 $cmd >/dev/null 2>"$errf" &
 		echo $! > "$PIDDIR/$sid-$kind-$port"
 		spawned=$((spawned + 1))
+		# uptime + consecutive failures, per listener.  `read a b c` puts the
+		# rest of the line into c, so the section id needs its own field.
+		sc=0; se=0; sfail=0
+		[ -f "$sf" ] && read -r sc se sfail _x < "$sf" 2>/dev/null
+		case "$sc" in ''|*[!0-9]*) sc=0 ;; esac
+		case "$sfail" in ''|*[!0-9]*) sfail=0 ;; esac
+		sc=$((sc + 1))
+		sfail=$((sfail + 1))
+		echo "$sc $NOW $sfail $sid" > "$sf" 2>/dev/null
+		if [ "$sfail" -ge "$AUTOSTOP_AFTER" ]; then
+			printf '%s\t%s\n' "$(autostop_sig "$sid")" "$sfail" > "$AUTOSTOPDIR/$sid" 2>/dev/null
+			reset_starts "$sid"
+			log "auto-stop: $sid failed to start $sfail time(s); parked until edited or resumed"
+		fi
 	done < "$DESF"
 
 	copy_file "$DESF" "$CACHEF"
@@ -776,7 +864,7 @@ EOF
 #   line 1 : engine <loop_pid> <uptime> <listeners>
 #   rest   : <sid> <kind> <port> <pid|-> <error|->
 publish_state() {
-	local sid kind port key cmd pid e up rest lp
+	local sid kind port key cmd pid e up rest lp sc se sfail _x
 	scan_workers
 	listener_pids
 	up=""
@@ -792,6 +880,15 @@ publish_state() {
 			[ -n "$sid" ] || continue
 			live_listener_pid "$sid" "$kind" "$port" "$key"
 			pid="$LL_PID"
+			# A listener that runs is no longer failing.  The fast path skips
+			# the spawn loop, so this is where a recovered counter is cleared.
+			if [ -n "$pid" ] && [ -f "$STARTSDIR/$sid-$kind-$port" ]; then
+				sc=0; se=0; sfail=0
+				read -r sc se sfail _x < "$STARTSDIR/$sid-$kind-$port" 2>/dev/null
+				if [ "$sfail" != 0 ]; then
+					echo "$sc $se 0 $sid" > "$STARTSDIR/$sid-$kind-$port"
+				fi
+			fi
 			e="-"
 			# only report a reason when the listener really is not running:
 			# the err file is per rule+kind+port and could hold a previous

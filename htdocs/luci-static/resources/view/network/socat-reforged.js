@@ -16,6 +16,7 @@ var callRuleRestart = rpc.declare({ object: 'luci.socat-reforged', method: 'rule
 var callPeers       = rpc.declare({ object: 'luci.socat-reforged', method: 'peers', params: [ 'sid' ] });
 var callRuleLog     = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_log', params: [ 'sid', 'lines' ] });
 var callMigrate     = rpc.declare({ object: 'luci.socat-reforged', method: 'migrate_scan' });
+var callPortOwners  = rpc.declare({ object: 'luci.socat-reforged', method: 'port_owners' });
 var callRulePause   = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_pause', params: [ 'sid', 'minutes' ] });
 var callRuleResume  = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_resume', params: [ 'sid' ] });
 var callLog         = rpc.declare({ object: 'luci.socat-reforged', method: 'log', params: [ 'lines' ] });
@@ -132,6 +133,15 @@ function fieldVal(sid, opt) {
  *
  * Returns the element (a caller could update it again), or null when there is
  * no dialog to put it in — then it falls back to a notification. */
+/* compact, locale-neutral duration: "45s", "12m", "2h 13m", "3d 4h" */
+function ageText(sec) {
+	sec = Math.max(0, parseInt(sec, 10) || 0);
+	if (sec < 60) return sec + 's';
+	if (sec < 3600) return Math.floor(sec / 60) + 'm';
+	if (sec < 86400) return Math.floor(sec / 3600) + 'h ' + Math.floor((sec % 3600) / 60) + 'm';
+	return Math.floor(sec / 86400) + 'd ' + Math.floor((sec % 86400) / 3600) + 'h';
+}
+
 function modalNote(btn, text, cls) {
 	var dlg = (btn && btn.closest) ? btn.closest('.modal') : null;
 	if (!dlg) {
@@ -490,6 +500,11 @@ return view.extend({
 				label: win ? _('scheduled off (%s)').format(win) : _('scheduled off'),
 				bucket: 'disabled', conns: 0, scheduled: true };
 		}
+		if (r.status === 'stopped') {
+			return { cls: 'socat-warn', dot: '⏹',
+				label: _('stopped after failed starts'), bucket: 'down', conns: 0,
+				stopped: true, attempts: r.autostop || 0, error: r.error };
+		}
 		if (r.status === 'listening')
 			return { cls: 'socat-up', dot: '●', label: _('listening'), bucket: 'listening', conns: r.conns || 0 };
 		if (r.status === 'partial')
@@ -652,6 +667,8 @@ return view.extend({
 				txt = (txt ? txt + ' · ' : '') + _('%d rule(s) paused').format(c.paused);
 			if (c.scheduled)
 				txt = (txt ? txt + ' · ' : '') + _('%d rule(s) scheduled off').format(c.scheduled);
+			if (c.stopped)
+				txt = (txt ? txt + ' · ' : '') + _('%d rule(s) stopped after failed starts').format(c.stopped);
 			age.textContent = txt;
 		}
 
@@ -1027,10 +1044,35 @@ return view.extend({
 			? _('%d firewall redirect(s) send a listen port elsewhere').format(fwBad.length)
 			: _('no firewall redirect steals a listen port'));
 
-		var errs = ((st.rules || [])).filter(function(r) { return r.enable && r.error; });
+		var auto = ((st.rules || [])).filter(function(r) { return r.status === 'stopped'; });
+		if (auto.length)
+			add(false, _('%d rule(s) were stopped after repeated start failures: %s').format(auto.length,
+				auto.map(function(r) { return (r.name || r.sid) + ' (' + (r.autostop || 0) + ')'; }).join(', ')));
+
+		var errs = ((st.rules || [])).filter(function(r) { return r.enable && r.error && r.status !== 'stopped'; });
 		if (errs.length)
 			add(false, _('%d rule(s) report a start error: %s').format(errs.length,
 				errs.map(function(r) { return (r.name || r.sid) + ' — ' + r.error; }).join('; ')));
+
+		kids.push(E('div', { 'class': 'socat-hint' },
+			_('Checking which programs hold the listen ports…')));
+		var own = {};
+		((st.rules || [])).forEach(function(r) { if (r.enable && r.listen) own[r.listen] = true; });
+		callPortOwners().then(function(res) {
+			var seenP = {};
+			var clash = ((res && res.owners) || []).filter(function(o) {
+				if (seenP[o.port]) return false;
+				seenP[o.port] = true;
+				return own[o.port] && o.comm !== 'socat';
+			});
+			if (!clash.length)
+				add(true, _('no other program holds a port a rule wants'));
+			else
+				add(false, _('%d port(s) are held by another program: %s').format(clash.length,
+					clash.map(function(o) { return o.port + ' → ' + o.comm; }).join(', ')));
+		}).catch(function() {
+			kids.push(E('div', { 'class': 'socat-note busy' }, _('Could not read the socket owners.')));
+		});
 
 		kids.push(E('div', { 'class': 'socat-hint' },
 			_('Testing the target of every enabled rule…')));
@@ -1168,9 +1210,11 @@ return view.extend({
 			return self.refreshStatus().then(function() { self.recount(); });
 		};
 
-		if (r && r.status === 'paused') {
+		if (r && (r.status === 'paused' || r.status === 'stopped')) {
 			ui.showModal(_('Resume this rule?'), [
-				E('p', {}, _('The listener and its WAN port come back immediately.')),
+				E('p', {}, r.status === 'stopped'
+					? _('The engine stopped this rule after %d failed start(s). Fix the rule first, or resume it to try again.').format(r.autostop || 0)
+					: _('The listener and its WAN port come back immediately.')),
 				E('div', { 'class': 'right' }, [
 					E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Cancel') ]),
 					' ',
@@ -1364,7 +1408,13 @@ return view.extend({
 			});
 			return o;
 		});
-		var data = JSON.stringify({ type: 'luci-app-socat-reforged', version: 1, rules: arr }, null, 2);
+		var settings = {};
+		SETTING_FIELDS.forEach(function(f) {
+			var v = uci.get('socat', ENGINE_SECTION, f);
+			if (v != null)
+				settings[f] = v;
+		});
+		var data = JSON.stringify({ type: 'luci-app-socat-reforged', version: 2, settings: settings, rules: arr }, null, 2);
 		var url = URL.createObjectURL(new Blob([ data ], { type: 'application/json' }));
 		var a = document.createElement('a');
 		a.href = url;
@@ -1396,6 +1446,13 @@ return view.extend({
 				if (!rules) {
 					ui.addNotification(null, E('p', {}, _('Import failed: no rules found in the file.')));
 					return;
+				}
+				if (obj && obj.settings && typeof obj.settings === 'object') {
+					SETTING_FIELDS.forEach(function(f) {
+						var v = obj.settings[f];
+						if (v === '0' || v === '1')
+							uci.set('socat', ENGINE_SECTION, f, v);
+					});
 				}
 				var added = 0, skipped = [];
 				rules.forEach(function(rule) {
@@ -1902,6 +1959,21 @@ return view.extend({
 				modalNote(btn, _('Action failed: %s').format(e), 'fail');
 			});
 		}, this);
+
+		/* modal-only: how long this rule has been up / how often it was started */
+		o = s.option(form.DummyValue, '_runtime', _('Runtime'));
+		o.modalonly = true;
+		o.cfgvalue = function(section_id) {
+			var r = self.rulesById ? self.rulesById[section_id] : null;
+			return (r && r.uptime != null) ? String(r.uptime) : '';
+		};
+		o.textvalue = function(section_id) {
+			var r = self.rulesById ? self.rulesById[section_id] : null;
+			if (!r || r.uptime == null)
+				return '—';
+			return _('up %s').format(ageText(r.uptime)) +
+				((r.starts || 0) > 1 ? ' · ' + _('started %d times').format(r.starts) : '');
+		};
 
 		/* modal-only: who is connected, and a timed stop */
 		o = s.option(form.Button, '_peers', _('Connections'));

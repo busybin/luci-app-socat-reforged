@@ -1470,3 +1470,53 @@ msgstr "نشط حتى"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:2117
 msgid "End of the window. An end earlier than the start crosses midnight (22:00–06:00). The rule is skipped, not left running, if the times are invalid."
 msgstr "نهاية النافذة. إذا كانت النهاية قبل البداية فهي تعبر منتصف الليل (22:00–06:00). تُتخطى القاعدة ولا تُترك تعمل إذا كانت الأوقات غير صالحة."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:505
+msgid "stopped after failed starts"
+msgstr "أُوقفت بعد فشل بدء التشغيل"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:671
+#, javascript-format
+msgid "%d rule(s) stopped after failed starts"
+msgstr "%d قاعدة أُوقفت بعد فشل بدء التشغيل"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1213
+#, javascript-format
+msgid "The engine stopped this rule after %d failed start(s). Fix the rule first, or resume it to try again."
+msgstr "أوقف المحرك هذه القاعدة بعد %d محاولة فاشلة. أصلح القاعدة أولاً أو استأنفها لإعادة المحاولة."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1049
+#, javascript-format
+msgid "%d rule(s) were stopped after repeated start failures: %s"
+msgstr "%d قاعدة أُوقفت بعد تكرار فشل بدء التشغيل: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1058
+msgid "Checking which programs hold the listen ports…"
+msgstr "يجري التحقق من البرامج التي تحتجز منافذ الاستماع…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1066
+msgid "no other program holds a port a rule wants"
+msgstr "لا يوجد برنامج آخر يحتجز منفذًا تحتاجه إحدى القواعد"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1068
+#, javascript-format
+msgid "%d port(s) are held by another program: %s"
+msgstr "%d منفذ محتجز بواسطة برنامج آخر: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1071
+msgid "Could not read the socket owners."
+msgstr "تعذّرت قراءة الجهات التي تحتجز المقابس."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1961
+msgid "Runtime"
+msgstr "مدة التشغيل"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1971
+#, javascript-format
+msgid "up %s"
+msgstr "تعمل منذ %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1972
+#, javascript-format
+msgid "started %d times"
+msgstr "بدأت %d مرة"

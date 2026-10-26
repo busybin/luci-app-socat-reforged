@@ -26,7 +26,7 @@ sid() { echo "${SID_BASE}$1"; }
 # a broken test run can never leave junk in the live /etc/config/socat.
 cleanup_test_sections() {
 	for S in "$(sid conflict)" "$(sid badport)" "$(sid inject)" "$(sid udpv6)" "$(sid disable)" "$(sid orphan)" \
-	         "$(sid unix)" "$(sid mcast)" "$(sid sched)" "$(sid tls)"; do
+	         "$(sid unix)" "$(sid mcast)" "$(sid sched)" "$(sid tls)" "$(sid auto)"; do
 		uci -q delete "socat.$S" 2>/dev/null
 	done
 	uci commit socat 2>/dev/null
@@ -120,7 +120,11 @@ wait_alive "$S" 0
 reconcile_now
 wait_alive "$S" 0
 ck "conflicting rule: nothing alive" 0 "$(alive "$S")"
-has "conflicting rule: bind error reported" "Address in use" "$(err "$S")"
+# the reason has to survive the rule being parked (after enough failed starts
+# it has no state line at all), so ask the backend, not the state file
+has "conflicting rule: bind error reported" "Address in use" \
+	"$(ubus call luci.socat-reforged status 2>/dev/null \
+		| jsonfilter -e "@.rules[@.sid='$S'].error" 2>/dev/null)"
 
 # ------------------------------------------------------- bad values refused ---
 B=$(sid badport)
@@ -370,6 +374,92 @@ uci commit socat
 reconcile_now
 ck "the schedule verdict goes with the rule" 0 \
 	"$(awk -F"\t" -v s="$SC" '$1==s{n++} END{print n+0}' "$R/scheduled" 2>/dev/null)"
+
+# A rule that can never bind is retried every cycle, which fills the log and
+# keeps a dead WAN port.  After N failed starts the engine parks it; the
+# generator then drops it, status says "stopped", and Resume (or any edit)
+# gives it a fresh counter.
+AS=$(sid auto)
+ASP=$(awk 'NR==2 && $3!=""{print $3; exit}' "$R/state")   # held by another rule
+uci set "socat.$AS=config" >/dev/null
+uci set "socat.$AS.enable=1" >/dev/null
+uci set "socat.$AS.proto=tcp" >/dev/null
+uci set "socat.$AS.listen_port=$ASP" >/dev/null
+uci set "socat.$AS.dest_proto=tcp4" >/dev/null
+uci set "socat.$AS.dest_ip=192.0.2.1" >/dev/null
+uci set "socat.$AS.dest_port=80" >/dev/null
+uci set "socat.$AS.firewall_accept=0" >/dev/null
+uci commit socat
+i=0
+while [ "$i" -lt 12 ] && [ ! -f "$R/autostop/$AS" ]; do
+	SOCAT_REFORGED_AUTOSTOP=2 sh "$E" reconcile >/dev/null 2>&1
+	sleep 1; i=$((i + 1))
+done
+ck "a rule that keeps failing is parked" 1 "$([ -f "$R/autostop/$AS" ] && echo 1 || echo 0)"
+# the marker is written during a spawn; the generator only drops the rule on the
+# next pass, so wait for that instead of sampling the file it happened to replace
+i=0
+while [ "$i" -lt 20 ] && [ "$(awk -F"\t" -v s="$AS" '$1==s{n++} END{print n+0}' "$R/desired" 2>/dev/null)" != 0 ]; do
+	sh "$E" reconcile >/dev/null 2>&1
+	sleep 1; i=$((i + 1))
+done
+ck "the parked rule has no listener" 0 "$(alive "$AS")"
+ck "the parked rule is not in the desired set" 0 \
+	"$(awk -F"\t" -v s="$AS" '$1==s{n++} END{print n+0}' "$R/desired" 2>/dev/null)"
+ck "status reports the rule as stopped" stopped \
+	"$(ubus call luci.socat-reforged status 2>/dev/null \
+		| jsonfilter -e "@.rules[@.sid='$AS'].status" 2>/dev/null)"
+ck "status exposes the failure count" 1 \
+	"$(ubus call luci.socat-reforged status 2>/dev/null \
+		| jsonfilter -e "@.rules[@.sid='$AS'].autostop" 2>/dev/null | grep -c .)"
+# other deliberately broken rules of this run may be parked as well, so the
+# counter has to match the markers rather than a fixed number
+ck "the stopped counter matches the markers" "$(ls "$R/autostop" 2>/dev/null | wc -l)" \
+	"$(ubus call luci.socat-reforged status 2>/dev/null | jsonfilter -e '@.counts.stopped' 2>/dev/null)"
+
+# fixing the rule is enough to bring it back: no manual resume needed
+uci set "socat.$AS.listen_port=21063" >/dev/null
+uci commit socat
+SOCAT_REFORGED_AUTOSTOP=2 sh "$E" reconcile >/dev/null 2>&1
+sleep 1
+ck "editing a parked rule clears the park" 0 "$([ -f "$R/autostop/$AS" ] && echo 1 || echo 0)"
+ck "the fixed rule starts again" 1 "$(wait_up "$AS" 20 && echo 1 || echo 0)"
+
+# uptime + start count, and who holds the listen ports
+ck "the engine records per-listener starts" 1 \
+	"$(ls "$R/starts/$AS"-* >/dev/null 2>&1 && echo 1 || echo 0)"
+UP=$(ubus call luci.socat-reforged status 2>/dev/null \
+	| jsonfilter -e "@.rules[@.sid='$AS'].uptime" 2>/dev/null)
+ck "status exposes the listener uptime" 1 "$([ -n "$UP" ] && echo 1 || echo 0)"
+ST=$(ubus call luci.socat-reforged status 2>/dev/null \
+	| jsonfilter -e "@.rules[@.sid='$AS'].starts" 2>/dev/null)
+ck "status exposes the start count" 1 "$([ -n "$ST" ] && [ "$ST" -ge 1 ] && echo 1 || echo 0)"
+ck "port_owners finds the program on our port" socat \
+	"$(ubus call luci.socat-reforged port_owners 2>/dev/null \
+		| jsonfilter -e "@.owners[@.port=21063].comm" 2>/dev/null | head -1)"
+
+# resume on a parked rule must also reset the counter, or it parks again at once
+uci set "socat.$AS.listen_port=$ASP" >/dev/null
+uci commit socat
+i=0
+while [ "$i" -lt 12 ] && [ ! -f "$R/autostop/$AS" ]; do
+	SOCAT_REFORGED_AUTOSTOP=2 sh "$E" reconcile >/dev/null 2>&1
+	sleep 1; i=$((i + 1))
+done
+ubus call luci.socat-reforged rule_resume "{\"sid\":\"$AS\"}" >/dev/null 2>&1
+i=0
+while [ "$i" -lt 20 ] && [ "$(ls "$R/starts/$AS"-* 2>/dev/null | wc -l)" = 0 ]; do
+	sh "$E" reconcile >/dev/null 2>&1
+	sleep 1; i=$((i + 1))
+done
+ck "resume clears the park" 0 "$([ -f "$R/autostop/$AS" ] && echo 1 || echo 0)"
+# the rule is broken again on purpose: what matters is that the counter started
+# from scratch instead of continuing at the value that parked it
+ck "resume resets the failure counter" 1 \
+	"$(cat "$R/starts/$AS"-* 2>/dev/null | awk '$3<=2{n++} END{print (n>0)?1:0}')"
+uci -q delete "socat.$AS" >/dev/null
+uci commit socat
+reconcile_now
 
 # TLS: OpenWrt's socat package is built --disable-openssl, so on this router a
 # TLS rule cannot start.  It must then be reported DOWN, with socat's own

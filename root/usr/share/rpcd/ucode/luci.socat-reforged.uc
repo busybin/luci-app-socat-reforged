@@ -39,6 +39,8 @@ const STATE_FILE = '/var/run/socat-reforged/state';
 const PAUSEDIR   = '/var/run/socat-reforged/pause';
 const SCHED_FILE = '/var/run/socat-reforged/scheduled';
 const ERRDIR     = '/var/run/socat-reforged/err';
+const AUTOSTOPDIR = '/var/run/socat-reforged/autostop';
+const STARTSDIR  = '/var/run/socat-reforged/starts';
 const LOG_FILE  = '/var/log/socat-reforged.log';   /* engine's own log */
 const LOG_LINES = 300;                             /* lines one call returns */
 const RULE_LOG_LINES = 120;                        /* per-rule stderr tail */
@@ -148,6 +150,82 @@ function fmt_v6(h) {
 		out += (grp == '') ? '0' : grp;
 	}
 	return (out == '') ? '::' : out;
+}
+
+/* ------------------------------------------------------- port owners --- */
+
+/* Which program holds a listening/bound port?  /proc/net/<proto> gives the
+ * socket inode; /proc/<pid>/fd/* are symlinks to "socket:[inode]".  This
+ * answers "port 8080 is already taken by dnsmasq" without forking ss/lsof
+ * (neither is installed on a stock OpenWrt image). */
+function socket_inodes(path, state) {
+	const out = {};
+	const data = readfile(path);
+	if (data == null)
+		return out;
+	const lines = split(data, '\n');
+	for (let i = 1; i < length(lines); i++) {
+		const l = trim(lines[i]);
+		if (l == '')
+			continue;
+		const f = split(l, /\s+/);
+		if (length(f) < 10 || f[3] != state)
+			continue;
+		const inode = f[9];
+		if (inode == null || inode == '0')
+			continue;
+		const p = hex(split(f[1], ':')[1]);
+		if (p != null)
+			out[inode] = p;
+	}
+	return out;
+}
+
+function do_port_owners() {
+	const tables = [
+		[ '/proc/net/tcp',  '0A' ],
+		[ '/proc/net/tcp6', '0A' ],
+		[ '/proc/net/udp',  '07' ],
+		[ '/proc/net/udp6', '07' ]
+	];
+	const inodes = {};
+	for (let i = 0; i < length(tables); i++) {
+		const t = socket_inodes(tables[i][0], tables[i][1]);
+		for (let k in t)
+			inodes[k] = t[k];
+	}
+	if (length(inodes) == 0)
+		return { ok: true, owners: [] };
+
+	/* One fork: ls prints every fd as a symlink, so the socket inode to pid
+	 * mapping comes for free.  (ucode's fs module has no readlink here.) */
+	const out = shell(SAFE_PATH + 'ls -l /proc/[0-9]*/fd 2>/dev/null');
+	const lines = split(out ?? '', '\n');
+	const owners = [];
+	const seen = {};
+	/* busybox ls prints one "<pid>/fd:" header per process and bare names
+	 * below it, so the pid comes from the header */
+	let pid = '';
+	for (let i = 0; i < length(lines); i++) {
+		const head = match(lines[i], /^\/proc\/([0-9]+)\/fd:$/);
+		if (head != null) {
+			pid = head[1];
+			continue;
+		}
+		if (pid == '')
+			continue;
+		const m = match(lines[i], / [0-9]+ -> socket:\[([0-9]+)\]$/);
+		if (m == null || inodes[m[1]] == null)
+			continue;
+		const port = inodes[m[1]];
+		const key = pid + ':' + port;
+		if (seen[key] == true)
+			continue;
+		seen[key] = true;
+		const comm = trim(readfile(`/proc/${pid}/comm`) ?? '');
+		push(owners, { port, pid: to_int(pid), comm: (comm != '') ? comm : '?' });
+	}
+	return { ok: true, owners };
 }
 
 /* Established TCP connections from one /proc table, with real addresses. */
@@ -521,6 +599,76 @@ function read_sched() {
 		const f = split(l, '\t');
 		if (length(f) >= 2 && f[0] != '')
 			out[f[0]] = (f[1] == 'on');
+	}
+	return out;
+}
+
+/* -------------------------------------------------- auto-stop / uptime --- */
+
+/* The engine parks a rule that kept failing to start: $AUTOSTOPDIR/<sid> holds
+ * "<config signature>TAB<attempts>".  Any edit or Resume clears it (the engine
+ * does the config-change half on its own). */
+function read_autostops() {
+	const out = {};
+	let names = null;
+	try { names = fs.lsdir(AUTOSTOPDIR); } catch (e) { return out; }
+	if (names == null)
+		return out;
+	for (let i = 0; i < length(names); i++) {
+		const sid = names[i];
+		const f = split(trim(readfile(`${AUTOSTOPDIR}/${sid}`) ?? ''), /[ \t]/);
+		out[sid] = to_int(f[1] ?? 0);
+	}
+	return out;
+}
+
+/* A parked rule has no listener and no state lines, so its reason would be
+ * gone.  The per-listener stderr log keeps it: report the last one so the page
+ * can still say why the engine gave up. */
+function rule_error_from_logs(sid) {
+	let names = null;
+	try { names = fs.lsdir(ERRDIR); } catch (e) { return ''; }
+	if (names == null)
+		return '';
+	for (let i = 0; i < length(names); i++) {
+		const n = names[i];
+		if (substr(n, 0, length(sid) + 1) != sid + '-')
+			continue;
+		const t = trim(readfile(`${ERRDIR}/${n}`) ?? '');
+		if (t != '')
+			return t;
+	}
+	return '';
+}
+
+/* Per-listener "<starts> <epoch> <fails>" written by the engine.  Exposed as
+ * the rule's uptime (oldest listener) and how often it was (re)started. */
+function read_uptime() {
+	const out = {};
+	let names = null;
+	try { names = fs.lsdir(STARTSDIR); } catch (e) { return out; }
+	if (names == null)
+		return out;
+	const now = time();
+	for (let i = 0; i < length(names); i++) {
+		/* the section id is the last field: a sid may contain a dash, the
+		 * file name would then be ambiguous */
+		const f = split(trim(readfile(`${STARTSDIR}/${names[i]}`) ?? ''), / /);
+		const starts = to_int(f[0] ?? 0);
+		const epoch = to_int(f[1] ?? 0);
+		const sid = f[3] ?? '';
+		if (sid == '' || starts < 1 || epoch < 1)
+			continue;
+		let r = out[sid];
+		if (r == null) {
+			r = { uptime: 0, starts: 0 };
+			out[sid] = r;
+		}
+		const age = (now > epoch) ? (now - epoch) : 0;
+		if (age > r.uptime)
+			r.uptime = age;
+		if (starts > r.starts)
+			r.starts = starts;
 	}
 	return out;
 }
@@ -1107,10 +1255,12 @@ function do_status() {
 	const er = engine_rules();
 	const pauses = read_pauses();
 	const sched = read_sched();
+	const autostops = read_autostops();
+	const uptimes = read_uptime();
 	const config_missing = !fs.access('/etc/config/' + UCI_CFG);
 
 	const out = [];
-	let enabled = 0, listening = 0, down = 0, paused = 0, scheduled = 0, connections = 0, errors = 0;
+	let enabled = 0, listening = 0, down = 0, paused = 0, scheduled = 0, stopped = 0, connections = 0, errors = 0;
 
 	for (let i = 0; i < length(rules); i++) {
 		const r = rules[i];
@@ -1131,6 +1281,11 @@ function do_status() {
 		}
 		else if (sched_on === false) {
 			status = 'scheduled';
+		}
+		else if (autostops[r.sid] != null) {
+			/* the engine gave up after repeated start failures */
+			status = 'stopped';
+			error = rule_error_from_logs(r.sid) || null;
 		}
 		else if (st != null) {
 			/* the engine knows better than a port lookup */
@@ -1154,6 +1309,8 @@ function do_status() {
 				paused++;
 			else if (status == 'scheduled')
 				scheduled++;
+			else if (status == 'stopped')
+				stopped++;
 			else if (status != 'disabled')
 				down++;
 			if (error != null)
@@ -1167,6 +1324,11 @@ function do_status() {
 			dest_port: r.dest_port, family: r.family, proxy: r.proxy,
 			firewall_accept: r.firewall_accept, status, conns, error,
 			paused_until,
+			autostop: autostops[r.sid] ?? null,
+			uptime: (status == 'listening' || status == 'partial') && uptimes[r.sid] != null
+				? uptimes[r.sid].uptime : null,
+			starts: (status == 'listening' || status == 'partial') && uptimes[r.sid] != null
+				? uptimes[r.sid].starts : null,
 			sched_days: r.sched_days, sched_start: r.sched_start,
 			sched_end: r.sched_end, conn_log: r.conn_log
 		});
@@ -1174,7 +1336,7 @@ function do_status() {
 
 	return {
 		engine: es,
-		counts: { total: length(out), enabled, listening, down, paused, scheduled, errors },
+		counts: { total: length(out), enabled, listening, down, paused, scheduled, stopped, errors },
 		connections,
 		fw_conflicts: find_fw_conflicts(rules),
 		config_missing,
@@ -1678,6 +1840,16 @@ function do_resume(args) {
 	if (!sid_ok(sid))
 		return { ok: false, detail: 'bad section id' };
 	try { fs.unlink(`${PAUSEDIR}/${sid}`); } catch (e) { /* not paused */ }
+	/* an auto-stopped rule also gets a clean failure counter, or it would be
+	 * parked again on the very next pass */
+	let names = null;
+	try { names = fs.lsdir(STARTSDIR); } catch (e) { names = null; }
+	if (names != null)
+		for (let i = 0; i < length(names); i++)
+			if (substr(names[i], 0, length(sid) + 1) == sid + '-') {
+				try { fs.unlink(`${STARTSDIR}/${names[i]}`); } catch (e) { }
+			}
+	try { fs.unlink(`${AUTOSTOPDIR}/${sid}`); } catch (e) { /* not stopped */ }
 	shell_rc(SAFE_PATH + shellquote(ENGINE) + ' reconcile >/dev/null 2>&1');
 	return { ok: true, sid };
 }
@@ -1756,6 +1928,11 @@ return {
 		migrate_scan: {
 			call: function() {
 				return do_migrate_scan();
+			}
+		},
+		port_owners: {
+			call: function() {
+				return do_port_owners();
 			}
 		},
 		rule_pause: {

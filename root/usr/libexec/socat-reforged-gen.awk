@@ -7,6 +7,7 @@
 # -v warnf=<file>  warnings        : sid \t message
 # -v fwf=<file>    firewall ports  : proto \t port \t src4 \t src6  ("igmp\t-\t-\t-" joins groups)
 # -v pausef=<file> paused rules    : sid \t until   (temporarily stopped)
+# -v stopf=<file>  auto-stopped     : sid \t attempts (gave up after N failed starts)
 # -v schedf=<file> schedule state  : sid \t on|off  (rules with a schedule)
 # -v dow=<1-7>     local day of week (ISO: Monday=1) for the schedules
 # -v hm=<HH:MM>    local time of day for the schedules
@@ -264,6 +265,16 @@ BEGIN {
 		}
 		close(pausef)
 	}
+	# Rules the engine gave up on (repeated start failures) are skipped like a
+	# pause, so they keep no listener and no WAN port.  The marker is removed
+	# by the engine when the rule is edited, disabled or resumed.
+	if (stopf != "") {
+		while ((getline sl < stopf) > 0) {
+			split(sl, sf, "\t")
+			if (sf[1] != "") STOPPED[sf[1]] = 1
+		}
+		close(stopf)
+	}
 }
 
 function parse_line(line,   rest,eq,val,lhs,dot,sec,optname,i) {
@@ -371,6 +382,8 @@ END {
 			continue
 		}
 		if (sid in PAUSED)                 # temporarily stopped from the UI
+			continue
+		if (sid in STOPPED)                # gave up after repeated start failures
 			continue
 		if (!ok_secid(sid))                { warn(sid, "bad section id, skip"); continue }
 
