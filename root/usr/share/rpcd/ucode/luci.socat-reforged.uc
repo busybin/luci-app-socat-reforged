@@ -548,6 +548,8 @@ function read_rules() {
 			dest_port: to_int(uci.get(UCI_CFG, sid, 'dest_port')),
 			family: uci.get(UCI_CFG, sid, 'family') ?? '',
 			proxy: uci.get(UCI_CFG, sid, 'proxy') ?? '',
+			proxy_server: uci.get(UCI_CFG, sid, 'proxy_server') ?? '',
+			proxy_port: to_int(uci.get(UCI_CFG, sid, 'proxy_port')),
 			firewall_accept: (uci.get(UCI_CFG, sid, 'firewall_accept') ?? '1') == '1',
 			sched_days: uci.get(UCI_CFG, sid, 'sched_days') ?? '',
 			sched_start: uci.get(UCI_CFG, sid, 'sched_start') ?? '',
@@ -1161,6 +1163,25 @@ function asset_exact(assets, name) {
 	return null;
 }
 
+/* Languages this package is installed in: socat-reforged.<lang>.lmo, in
+ * either LuCI tree (Lua on 24.10, ucode on 25.x). */
+function installed_langs() {
+	const out = [];
+	const dirs = [ '/usr/lib/lua/luci/i18n', '/usr/share/ucode/luci/i18n' ];
+	for (let d = 0; d < length(dirs); d++) {
+		let names = null;
+		try { names = fs.lsdir(dirs[d]); } catch (e) { continue; }
+		if (names == null)
+			continue;
+		for (let i = 0; i < length(names); i++) {
+			const m = match(names[i], /^socat-reforged\.([A-Za-z0-9_-]+)\.lmo$/);
+			if (m != null && index(out, m[1]) < 0)
+				push(out, m[1]);
+		}
+	}
+	return out;
+}
+
 function pick_assets(assets) {
 	const ext = pkg_ext();
 	const out = [];
@@ -1171,10 +1192,12 @@ function pick_assets(assets) {
 	if (app != null)
 		push(out, app);
 
-	/* the language pack is a separate package and depends on the app one, so
-	 * it comes second and only where it is actually installed */
-	if (fs.access('/usr/lib/lua/luci/i18n/socat-reforged.zh-cn.lmo')) {
-		const i18n = asset_named(assets, 'luci-i18n-socat-reforged', ext);
+	/* Every language pack that is installed here has to be updated as well,
+	 * otherwise the page falls back to English on the next string change.
+	 * The lmo files are the reliable inventory: one per installed language. */
+	const langs = installed_langs();
+	for (let i = 0; i < length(langs); i++) {
+		const i18n = asset_named(assets, 'luci-i18n-socat-reforged-' + langs[i], ext);
 		if (i18n != null)
 			push(out, i18n);
 	}
@@ -1322,6 +1345,7 @@ function do_status() {
 			sid: r.sid, name: r.name, enable: r.enable, proto: r.proto,
 			listen: r.listen, dest_proto: r.dest_proto, dest_ip: r.dest_ip,
 			dest_port: r.dest_port, family: r.family, proxy: r.proxy,
+			proxy_server: r.proxy_server, proxy_port: r.proxy_port,
 			firewall_accept: r.firewall_accept, status, conns, error,
 			paused_until,
 			autostop: autostops[r.sid] ?? null,

@@ -336,6 +336,9 @@ prune_autostops() {
 		[ -f "$f" ] || continue
 		sid=${f##*/}
 		en=$($UCI_BIN -q get "socat.$sid.enable" 2>/dev/null)
+		# missing enable means enabled: the generator defaults the same way,
+		# so treating it as "off" here would unpark a broken rule every pass
+		[ -z "$en" ] && en=1
 		if [ "$en" != "1" ]; then
 			rm -f "$f" 2>/dev/null
 			continue

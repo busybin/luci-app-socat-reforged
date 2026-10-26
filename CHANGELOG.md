@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## V7 (2026-10-26)
 
 ### Security
 
@@ -17,6 +17,10 @@
   port was open to every source and only socat filtered afterwards.
 * **Stopping the service removes its firewall rules.**  They used to stay
   behind, so a port could remain open for whatever bound it next.
+* **Removing the package stops the engine and drops its accept rules.**  The
+  removal hook runs the same cleanup, so nothing keeps forwarding and no
+  `socat_reforged_*` rule is left in `/etc/config/firewall` after `opkg remove`
+  or `apk del` (the legacy-init backup is removed too).
 * **`unix_path` must be under `/var/run`, `/run` or `/tmp`**, and the engine
   deletes an existing path only when it is a socket.  `unlink-early` is gone:
   a crafted rule could otherwise make root unlink an arbitrary file.
@@ -27,9 +31,19 @@
   the system trust store (`ca-bundle` is now a dependency).
 * **`update_install` is root-only** in the ACL and `test` moved to the write
   group; `proxy_server` is validated in the backend like the generator does.
+* **Removing the package stops the engine and drops its accept rules.**  The
+  files used to disappear while the workers kept forwarding and the
+  `socat_reforged_*` rules stayed in `/etc/config/firewall`, keeping WAN ports
+  open for a package that was no longer installed.  An upgrade is untouched:
+  the removal hooks do nothing when the package manager passes `upgrade`.
 
 ### Observability
 
+* **Uptime and start count per rule.**  The rule dialog shows how long its
+  listener has been up and how often the engine had to (re)start it; a rule
+  that is paused, off-schedule or parked reports neither.
+* **Export/import includes the engine settings**, so a second router can be
+  set up from one JSON file.
 * **Who is connected.**  The per-rule connection count is now clickable and the
   rule dialog has *Show connections*: established TCP peers with address, port,
   listen port and family, read from `/proc/net/tcp{,6}`.  UDP says so instead of
@@ -42,6 +56,21 @@
 
 ### Operations
 
+* **Per-rule schedule.**  `sched_days` (ISO weekdays, `1-5` / `6,7`, empty =
+  every day) plus `sched_start`/`sched_end` keep a rule closed outside a daily
+  window.  Outside it the listener and the WAN port do not exist and the table
+  says `scheduled off` (not "down").  A window may cross midnight; an invalid
+  or half-filled window skips the rule with a visible warning instead of
+  running it at the wrong time.
+* **Repeated start failures park a rule.**  Six consecutive failed starts
+  (about 90 s) stop the listener and close the WAN port, so a typo cannot fill
+  the log or leave a dead port open forever.  The rule keeps its last error
+  (`address already in use`, …) and comes back after an edit or *Resume*.
+* **Diagnose** now also names the program holding a port a rule wants
+  (`8080 → nginx`), read from `/proc/net` + `/proc/<pid>/fd` — no `ss`/`lsof`.
+* **Import old forwards.**  Scans `fw4` redirects and legacy socat instances
+  and offers to re-create them as ordinary rules, disabled, with duplicates
+  marked; anything that cannot be represented exactly is left alone.
 * **Temporary stop.**  Pause a rule for 1–10080 minutes; the engine stops its
   listener and closes its WAN port, and the rule returns when the deadline
   passes.  Markers live in `/var/run/socat-reforged/pause/` (never in the
@@ -54,8 +83,12 @@
 
 ### Translations
 
-* Simplified Chinese covers the new strings (allowlist, connections, pause,
-  templates, DNAT conflicts).
+* **The interface ships in eight languages**: English plus Simplified Chinese,
+  Spanish, French, Arabic (with RTL), Brazilian Portuguese, Russian and
+  Japanese, each as its own `luci-i18n-socat-reforged-<locale>` package.
+  `tests/host/po-checks.js` keeps every catalogue complete (no missing, fuzzy or
+  obsolete entries, placeholders intact), and the updater now refreshes **every
+  installed language package**, not only Chinese.
 
 
 ## V6 (2026-10-19)
@@ -220,7 +253,7 @@ socat and a *reused* runtime directory, so the suites grew accordingly:
   dial side keeps it), and the command matrix turns it on for the UDP rule so
   the same class cannot come back unnoticed.
 * **An IPv4 literal on a `tcp6`/`udp6` dial looks healthy and forwards
-  nothing.**  getaddrinfo with `AF_INET6` rejects `192.168.1.9` on every
+  nothing.**  getaddrinfo with `AF_INET6` rejects `192.0.2.9` on every
   connection, while the listener binds fine.  This is the mirror image of the
   "IPv6 target needs tcp6" guard from the previous round; it is now refused
   with a reason (a hostname is still accepted — it resolves to either family).
@@ -301,7 +334,7 @@ them and were caught by the layout simulator, which starts the real engine and
 the real `socat`:
 
 * A missing space before the target address on an IPv4 `UDP-LISTEN` rule
-  (`UDP-LISTEN:53,forkUDP4:192.168.1.11:53`): socat refused to start it, so
+  (`UDP-LISTEN:53,forkUDP4:192.0.2.11:53`): socat refused to start it, so
   the rule was silently down.  The generator now has an invariant test that
   fails if any address runs into the option before it.
 * `keepalive` was added to a **unix** socket: `socat` rejects it outright

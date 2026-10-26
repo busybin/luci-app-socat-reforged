@@ -64,13 +64,22 @@ jobs:
             ver: "24.10.4"
             target: ath79/generic
             ext: ipk
-          # OpenWrt snapshot (apk, .apk) — ucode-only LuCI (25.x line)
+          # OpenWrt 25.12 (apk, .apk) — ucode-only LuCI (25.x line).
+          # Built against the stable release, not snapshot: the dependency
+          # versions then match what people actually run.
+          - name: 25.12.2-x86_64
+            base: releases
+            ver: "25.12.2"
+            target: x86/64
+            ext: apk
+            publish: true
+          # Snapshot is still built (catches next-release breakage early) but
+          # not published: it would produce the same file names as the line above.
           - name: snapshot-x86_64
             base: snapshots
             ver: SNAPSHOT
             target: x86/64
             ext: apk
-            publish: true
 
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +110,12 @@ jobs:
           mkdir -p sdk
           tar --zstd -xf sdk.tar.zst -C sdk --strip-components=1
 
+      - name: Pin build timestamps
+        run: |
+          # Reproducible package metadata: without this the SDK stamps the ipk/apk
+          # with whatever the build machine clock says.
+          echo "SOURCE_DATE_EPOCH=$(git -C pkg log -1 --format=%ct)" >> "$GITHUB_ENV"
+
       - name: Build
         run: |
           set -e
@@ -115,10 +130,41 @@ jobs:
 
       - name: Collect packages
         run: |
+          set -e
           mkdir -p out
           find sdk/bin/packages \( -name "luci-app-socat-reforged*.${{ matrix.ext }}" -o -name "luci-i18n-socat-reforged*.${{ matrix.ext }}" \) -exec cp -v {} out/ \;
-          ls -la out/
           test -n "$(ls -A out)" || { echo "no package produced; dumping tree:"; find sdk/bin/packages -maxdepth 2 -type d; find sdk/bin/packages -type f | head; exit 1; }
+          # luci.mk stamps translation packages with the feed's build time, so a
+          # re-run of this workflow produced a second, differently named copy of
+          # the same .ipk in the release.  Pin every language pack to the app
+          # version, which also makes --clobber replace the previous upload.
+          VER="$(sed -n 's/^PKG_VERSION:=//p' pkg/Makefile)-r$(sed -n 's/^PKG_RELEASE:=//p' pkg/Makefile)"
+          # The locale name itself may contain a dash (zh-cn), and the version
+          # separator differs per format (_ for ipk, - for apk), so match the
+          # language against the catalogues in po/ instead of stripping a suffix.
+          LANGS=""
+          for d in pkg/po/*/; do
+            [ -d "$d" ] || continue
+            l=${d%/}; l=${l##*/}
+            [ "$l" = templates ] && continue
+            [ "$l" = zh_Hans ] && l=zh-cn
+            LANGS="$LANGS $l"
+          done
+          for f in out/luci-i18n-socat-reforged-*; do
+            [ -e "$f" ] || continue
+            base=$(basename "$f")
+            rest=${base#luci-i18n-socat-reforged-}
+            lang=""
+            for l in $LANGS; do
+              case "$rest" in "$l"_*|"$l"-*) lang=$l; break ;; esac
+            done
+            [ -n "$lang" ] || { echo "cannot map language pack $base to a catalogue"; exit 1; }
+            case "$base" in
+              *.ipk) mv "$f" "out/luci-i18n-socat-reforged-${lang}_${VER}_all.ipk" ;;
+              *.apk) mv "$f" "out/luci-i18n-socat-reforged-${lang}-${VER}.apk" ;;
+            esac
+          done
+          ls -la out/
           # The updater refuses to install anything that is not listed here.
           (cd out && sha256sum $(ls -1 | grep -v '^sha256sums') > "sha256sums.${{ matrix.ext }}")
           cat "out/sha256sums.${{ matrix.ext }}"

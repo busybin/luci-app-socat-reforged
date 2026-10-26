@@ -1,8 +1,8 @@
-# luci-app-socat-reforged — release V6 (self-upstream)
-# V6 keeps the vendor-agnostic behaviour of V5: the engine settings cover only
+# luci-app-socat-reforged — release V7 (self-upstream)
+# V7 keeps the vendor-agnostic behaviour of V6: the engine settings cover only
 # what a stock OpenWrt router needs, and no ISP- or service-specific workaround
 # ships with the package.
-# Versioning: tag / Release = "V6", PKG_VERSION = "6" (see below).
+# Versioning: tag / Release = "V7", PKG_VERSION = "7" (see below).
 # OpenWrt 25.x ucode-native LuCI for the custom socat forwarding engine.
 # A ground-up rewrite ("reforged") of the classic Lua/CBI socat page, which
 # cannot run on 25.x (no /usr/lib/lua tree). Distinct name to avoid clashing
@@ -19,7 +19,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-socat-reforged
-PKG_VERSION:=6
+PKG_VERSION:=7
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
@@ -95,6 +95,32 @@ define Package/luci-app-socat-reforged/postinst
 	exit 0
 }
 endef
+# Removal: the files disappear, but a running engine does not.  Without this
+# the socat workers keep forwarding (procd only loses its init script) and the
+# socat_reforged_* accept rules stay in /etc/config/firewall forever, keeping
+# WAN ports open for a package that is no longer installed.
+#
+# Both hooks are for removal only: opkg runs them with "upgrade" as $1 during
+# an upgrade, where the postinst already stops the old engine and starts the
+# new one, and apk maps them to pre-/post-deinstall.  Running on upgrade would
+# drop the run state (update progress, parked rules, error logs) for nothing.
+define Package/luci-app-socat-reforged/prerm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+[ "$${1:-remove}" = upgrade ] && exit 0
+[ -x /etc/socat-boot.sh ] && /etc/socat-boot.sh cleanup >/dev/null 2>&1
+ubus call service delete '{"name":"socat-reforged"}' >/dev/null 2>&1
+exit 0
+endef
+
+define Package/luci-app-socat-reforged/postrm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+[ "$${1:-remove}" = upgrade ] && exit 0
+rm -rf /etc/socat-reforged-backup /var/run/socat-reforged
+exit 0
+endef
+
 include $(TOPDIR)/feeds/luci/luci.mk
 
 # call BuildPackage - OpenWrt buildroot signature

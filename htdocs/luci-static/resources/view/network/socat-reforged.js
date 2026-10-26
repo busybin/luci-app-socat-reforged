@@ -1093,7 +1093,7 @@ return view.extend({
 		targets.forEach(function(r) {
 			chain = chain.then(function() {
 				return callTest(r.dest_ip, r.dest_port, r.dest_proto, r.proxy || '',
-					'', 0, '', '', 0).then(function(res) {
+					r.proxy_server || '', r.proxy_port || 0, '', '', 0).then(function(res) {
 					var ok = !!(res && res.ok);
 					if (!ok) badN++;
 					tests.appendChild(E('div', { 'class': 'socat-note ' + (ok ? 'ok' : 'fail') },

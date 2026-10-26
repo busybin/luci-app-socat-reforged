@@ -38,7 +38,7 @@ root/usr/libexec/socat-reforged-update
 root/usr/libexec/socat-reforged-apply-deferred
 root/usr/libexec/socat-reforged-reload"
 # ...and the scripts a user runs from a checkout
-for f in install.sh deploy.sh uninstall.sh; do execs="$execs
+for f in install.sh uninstall.sh; do execs="$execs
 $f"; done
 
 for f in $execs; do
@@ -132,6 +132,46 @@ if command -v make >/dev/null 2>&1; then
 	fi
 else
 	printf '  %-46s %s\n' 'the expanded postinst is valid shell' '(skipped: no make)'
+fi
+
+# -------------------------------------------- prerm / postrm under make -----
+# Without a prerm the package manager removes the files while the engine keeps
+# forwarding, and its socat_reforged_* accept rules stay in /etc/config/firewall
+# forever (WAN ports open for a package that is gone).
+if command -v make >/dev/null 2>&1; then
+	for hook in prerm postrm; do
+		awk -v h="define Package/luci-app-socat-reforged/$hook" '$0 == h {f=1;next} /^endef$/{f=0} f' "$MK" > "$WORK/$hook.mk"
+		{
+			echo 'define X'
+			cat "$WORK/$hook.mk"
+			echo 'endef'
+			echo '$(info $(X))'
+			echo 'all:'
+			printf '\t@true\n'
+		} > "$WORK/expand-$hook.mk"
+		make -f "$WORK/expand-$hook.mk" > "$WORK/$hook.sh" 2>/dev/null
+		grep -v '^make' "$WORK/$hook.sh" > "$WORK/$hook.clean" && mv "$WORK/$hook.clean" "$WORK/$hook.sh"
+		if sh -n "$WORK/$hook.sh" 2>/dev/null; then rc=0; else rc=1; fi
+		check "the expanded $hook is valid shell" 0 "$rc"
+		# apk execve()s these directly, so a missing shebang is ENOEXEC 127
+		has "the $hook carries a shebang" '#!/bin/sh' "$(head -1 "$WORK/$hook.sh")"
+	done
+	has 'the prerm stops the engine and drops its firewall rules' \
+		'/etc/socat-boot.sh cleanup' "$(cat "$WORK/prerm.sh")"
+	has 'the prerm does nothing inside an image build' \
+		'${IPKG_INSTROOT}' "$(cat "$WORK/prerm.sh")"
+	has 'the postrm removes the legacy-init backup' \
+		'/etc/socat-reforged-backup' "$(cat "$WORK/postrm.sh")"
+	# an upgrade already goes through postinst (stop old engine, start new one);
+	# letting the removal hooks run would wipe the run state for nothing
+	for hook in prerm postrm; do
+		IPKG_INSTROOT=/nonexistent sh "$WORK/$hook.sh" >/dev/null 2>&1 && rc=0 || rc=1
+		check "the $hook is a no-op inside an image build" 0 "$rc"
+		sh "$WORK/$hook.sh" upgrade >/dev/null 2>&1 && rc=0 || rc=1
+		check "the $hook is a no-op on upgrade" 0 "$rc"
+	done
+else
+	printf '  %-46s %s\n' 'prerm/postrm hooks' '(skipped: no make)'
 fi
 
 # a package manager parks a protected file it will not overwrite as

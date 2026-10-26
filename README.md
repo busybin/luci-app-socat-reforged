@@ -48,15 +48,17 @@ drop-in replacement with a modern, ucode-native view.
   button does the same for a single rule on demand.
 * **Live status per rule** (`● listening` / `○ down` / `○ disabled`) plus the
   active connection count, refreshed automatically; **inline enable checkbox**
-  that applies on `Save & Apply`.
+  that applies on `Save & Apply`.  The rule dialog also shows how long its
+  listener has been up and how often the engine had to (re)start it.
 * **Reachability test** per rule (dials the configured target — optionally via
   the configured proxy; bounded by `connect-timeout=5` so a black-holed target
   cannot hang the request) and **Clone** to duplicate a rule.
-* **Import / export** all rules as JSON.
+* **Import / export** all rules as JSON (including the engine settings, so a
+  second router can be set up from the same file).
 * **Check for updates / update now**: the page asks the GitHub release API *from
   the router* (so it works even when the browser cannot reach GitHub), shows the
-  release notes and installs the matching `.apk`/`.ipk` — plus the Chinese
-  language package when it is installed — with the system package manager.  The
+  release notes and installs the matching `.apk`/`.ipk` — plus every language
+  package that is installed here — with the system package manager.  The
   answer is cached for six hours; `Engine settings → Look for new versions` (off
   by default) makes the page check on its own when you open it and put a notice at
   the top.  Nothing is downloaded or installed until you press the button.
@@ -82,9 +84,10 @@ drop-in replacement with a modern, ucode-native view.
   dialog shows the last lines (and explains how to turn transfer logging on when
   it is off).  Start-up errors are shown there even without the toggle.
 * **Diagnose**: one button checks the config file, the engine heartbeat, the
-  listener count, port conflicts and firewall redirects, and dials the target of
-  every enabled rule through the same bounded test — so "why does this forward
-  not work" has one answer page.
+  listener count, port conflicts, firewall redirects, **which program holds a
+  port a rule wants** (e.g. `8080 → nginx`, read from `/proc`, no `ss`/`lsof`
+  needed), and dials the target of every enabled rule through the same bounded
+  test — so "why does this forward not work" has one answer page.
 * **Import old forwards**: scans `fw4` redirects and legacy socat instances
   (`/etc/config/socat` `SocatOptions` or the old app's sections) and offers to
   re-create them as ordinary rules, **disabled** so you can review them first.
@@ -98,6 +101,11 @@ drop-in replacement with a modern, ucode-native view.
   redirect's name, instead of looking healthy and forwarding nothing.
 * **Port-conflict detection**: two enabled rules sharing a `proto:port` are
   flagged in the table and in a warning banner.
+* **A rule that cannot start is parked**, not retried forever: after six
+  consecutive failed starts the engine stops it, closes its WAN port and shows
+  `⊘ stopped after failed starts` with the listener's own reason.  Editing the
+  rule or pressing *Resume* gives it a fresh counter, so a fix is never blocked
+  by the safety net.
 * **Down-reason reporting**: a rule that cannot start shows the listener's own
   error (e.g. `address already in use`) in the table and in a warning banner, and
   half-bound rules (e.g. IPv4 up, IPv6 refused) show as `partial`.
@@ -272,10 +280,11 @@ The engine is managed as the procd service **`socat-reforged`**:
 
 ### 2. Prebuilt packages
 
-CI can produce `luci-app-socat-reforged_*` packages (see `.github/workflows/build.yml`
-and the Releases page). Because the package is `Architecture: all`, **a single
-build works on every OpenWrt architecture** — only the `socat` dependency is
-per-architecture and is resolved from your own feeds.
+Every Release carries a package built for OpenWrt **24.10** (`.ipk`, `opkg`) and
+**25.12** (`.apk`, `apk`), plus the language packages.  Because the package is
+`Architecture: all`, **a single build works on every OpenWrt architecture** —
+only the `socat` dependency is per-architecture and is resolved from your own
+feeds.
 
 **After upgrading, hard-refresh the browser** (Ctrl+Shift+R). LuCI serves the
 view's JavaScript under a version key that only changes with `luci-base`, so a
