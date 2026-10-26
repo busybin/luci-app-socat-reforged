@@ -25,6 +25,7 @@ case "${1:-}" in
 --keys)  exec sh "$HERE/host/engine-keys.sh" ;;
 --signal) exec sh "$HERE/host/engine-signal.sh" ;;
 --pkg)   exec sh "$HERE/host/package-layout.sh" ;;
+--po)    exec node "$HERE/host/po-checks.js" ;;
 --gen)   exec sh "$HERE/host/gen-cases.sh" ;;
 --zones) exec sh "$HERE/host/zones-cases.sh" ;;
 --router)
@@ -37,19 +38,25 @@ esac
 
 fail=0
 if command -v node >/dev/null 2>&1; then
-	run "0/9  LuCI view smoke test" node "$HERE/host/view-smoke.js"
+	run "0/10  LuCI view smoke test" node "$HERE/host/view-smoke.js"
 else
-	echo "=== 0/9  LuCI view smoke test (skipped: no node) ==="
+	echo "=== 0/10  LuCI view smoke test (skipped: no node) ==="
 	echo
 fi
-run "1/9  generator unit tests" sh "$HERE/host/gen-cases.sh"
-run "2/9  zone detection tests"  sh "$HERE/host/zones-cases.sh"
-run "3/9  OpenWrt layout simulator" sh "$HERE/host/sim-router.sh"
-run "4/9  generator command matrix" sh "$HERE/host/matrix.sh"
-run "5/9  generator fuzz"              sh "$HERE/host/fuzz.sh"
-run "6/9  engine listener-kind classifier" sh "$HERE/host/engine-keys.sh"
-run "7/9  package layout & executable bits" sh "$HERE/host/package-layout.sh"
-run "8/9  engine SIGTERM handling" sh "$HERE/host/engine-signal.sh"
+run "1/10  generator unit tests" sh "$HERE/host/gen-cases.sh"
+run "2/10  zone detection tests"  sh "$HERE/host/zones-cases.sh"
+run "3/10  OpenWrt layout simulator" sh "$HERE/host/sim-router.sh"
+run "4/10  generator command matrix" sh "$HERE/host/matrix.sh"
+run "5/10  generator fuzz"              sh "$HERE/host/fuzz.sh"
+run "6/10  engine listener-kind classifier" sh "$HERE/host/engine-keys.sh"
+run "7/10  package layout & executable bits" sh "$HERE/host/package-layout.sh"
+run "8/10  engine SIGTERM handling" sh "$HERE/host/engine-signal.sh"
+if command -v node >/dev/null 2>&1; then
+	run "9/10  translation catalogues" node "$HERE/host/po-checks.js"
+else
+	echo "=== 9/10  translation catalogues (skipped: no node) ==="
+	echo
+fi
 if [ "$fail" = 0 ]; then
 	echo "HOST SUITE: all green  (add --router <host> to also test a router)"
 else

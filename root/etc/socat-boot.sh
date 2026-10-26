@@ -44,6 +44,7 @@
 #     state              per-listener state for the LuCI backend / CLI
 #     fw                 firewall ports: proto TAB port TAB src4 TAB src6
 #     fw.sig             firewall sync signature (or a retry marker)
+#     scheduled          per-rule schedule state: sid TAB on|off
 #     pids/<kind>-<port> pid of the running listener
 #     err/<kind>-<port>.log  stderr of that listener
 #     gen.warn           validation warnings of the last generation
@@ -89,6 +90,7 @@ STATEF=$RUNDIR/state
 STATEC=$RUNDIR/state.cache
 FWF=$RUNDIR/fw
 FWSIG=$RUNDIR/fw.sig
+SCHEDF=$RUNDIR/scheduled
 WARNF=$RUNDIR/gen.warn
 PIDDIR=$RUNDIR/pids
 ERRDIR=$RUNDIR/err
@@ -322,10 +324,21 @@ gen_desired() {
 	# last forward (or turning firewall_accept off everywhere) would keep its
 	# WAN port open forever.
 	: > "$FWF"
+	: > "$SCHEDF"
 	prune_pauses
 	pause_snapshot
+	# One `date` for the whole pass: the per-rule schedules are evaluated in
+	# local time here, so the generator needs no clock of its own.  Missing
+	# output leaves both empty; a scheduled rule is then skipped (fail-closed)
+	# instead of running outside its window.
+	SCHED_DOW=""
+	SCHED_HM=""
+	set -- $($DATE_BIN '+%u %H:%M' 2>/dev/null)
+	SCHED_DOW="${1:-}"
+	SCHED_HM="${2:-}"
 	$UCI_BIN show socat 2>/dev/null | "$AWK_BIN" -v ipv6="$IPV6" -v socat="$SOCAT_BIN" \
-		-v desf="$DESF" -v warnf="$WARNF" -v fwf="$FWF" -v pausef="$PAUSEF" -f "$GPROG"
+		-v desf="$DESF" -v warnf="$WARNF" -v fwf="$FWF" -v pausef="$PAUSEF" \
+		-v schedf="$SCHEDF" -v dow="$SCHED_DOW" -v hm="$SCHED_HM" -f "$GPROG"
 	return 0
 }
 

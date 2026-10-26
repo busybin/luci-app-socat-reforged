@@ -3,7 +3,7 @@
 		"description": "Grant access to Socat Reforged (custom UCI socat forwarding page)",
 		"read": {
 			"ubus": {
-				"luci.socat-reforged": [ "status", "peers", "log", "update_check", "update_status" ]
+				"luci.socat-reforged": [ "status", "peers", "rule_log", "migrate_scan", "log", "update_check", "update_status" ]
 			},
 			"uci": [ "socat" ]
 		},

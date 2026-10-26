@@ -14,6 +14,8 @@ var callStop        = rpc.declare({ object: 'luci.socat-reforged', method: 'stop
 var callRestart     = rpc.declare({ object: 'luci.socat-reforged', method: 'restart' });
 var callRuleRestart = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_restart', params: [ 'sid' ] });
 var callPeers       = rpc.declare({ object: 'luci.socat-reforged', method: 'peers', params: [ 'sid' ] });
+var callRuleLog     = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_log', params: [ 'sid', 'lines' ] });
+var callMigrate     = rpc.declare({ object: 'luci.socat-reforged', method: 'migrate_scan' });
 var callRulePause   = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_pause', params: [ 'sid', 'minutes' ] });
 var callRuleResume  = rpc.declare({ object: 'luci.socat-reforged', method: 'rule_resume', params: [ 'sid' ] });
 var callLog         = rpc.declare({ object: 'luci.socat-reforged', method: 'log', params: [ 'lines' ] });
@@ -32,7 +34,8 @@ var EXPORT_FIELDS = [ 'enable', 'remarks', 'proto', 'listen_port', 'dest_proto',
 	'ssl_cert', 'ssl_key', 'ssl_cafile', 'ssl_verify',
 	'mcast_group', 'mcast_iface', 'mcast_localip', 'mcast_dst_group', 'mcast_dst_port', 'mcast_ttl', 'mcast_loop',
 	'nodelay', 'backlog', 'max_children', 'timeout', 'system_log', 'keepalive', 'listen_addr', 'src_allow',
-	'user', 'retry' ];
+	'user', 'retry',
+	'sched_days', 'sched_start', 'sched_end', 'conn_log' ];
 
 /* engine settings section (internal) + the options of one forward */
 var SETTING_FIELDS = [ 'debug', 'update_check' ];
@@ -276,6 +279,41 @@ function formSrcAllowOk(sid, b) {
 	return srcAllowOk(v) ? true
 		: _('comma-separated CIDRs, e.g. 192.168.1.0/24 or 2001:db8::/32');
 }
+
+/* schedule: ISO weekdays 1-7 (Monday=1), "1-5" or "6,7"; times "HH:MM" */
+function schedDaysOk(v) {
+	var s = String(v ?? '').trim();
+	if (s === '')
+		return true;
+	var parts = s.split(',');
+	if (parts.length > 7)
+		return false;
+	for (var i = 0; i < parts.length; i++) {
+		var p = parts[i].trim();
+		if (/^[1-7]$/.test(p))
+			continue;
+		var m = /^([1-7])-([1-7])$/.exec(p);
+		if (!m || parseInt(m[1], 10) > parseInt(m[2], 10))
+			return false;
+	}
+	return true;
+}
+function schedTimeOk(v) {
+	var m = /^([0-9]{2}):([0-9]{2})$/.exec(String(v ?? '').trim());
+	if (!m)
+		return false;
+	return parseInt(m[1], 10) <= 23 && parseInt(m[2], 10) <= 59;
+}
+function formSchedDaysOk(sid, b) {
+	var v = (arguments.length > 1) ? b : sid;
+	return schedDaysOk(v) ? true : _('days 1-7, e.g. 1-5 or 6,7');
+}
+function formSchedTimeOk(sid, b) {
+	var v = (arguments.length > 1) ? b : sid;
+	if (v == null || v === '')
+		return true;
+	return schedTimeOk(v) ? true : _('time as HH:MM');
+}
 function formPortOk(sid, b) {
 	var v = (arguments.length > 1) ? b : sid;
 	if (v == null || v === '')
@@ -302,7 +340,8 @@ function importCheck(rule) {
 		return _('bad enable');
 	if (!importFlagOk(rule.nodelay) || !importFlagOk(rule.system_log) ||
 	    !importFlagOk(rule.ssl_verify) || !importFlagOk(rule.mcast_loop) ||
-	    !importFlagOk(rule.keepalive) || !importFlagOk(rule.reuseaddr))
+	    !importFlagOk(rule.keepalive) || !importFlagOk(rule.reuseaddr) ||
+	    !importFlagOk(rule.conn_log))
 		return _('a boolean option must be 0 or 1');
 	if (rule.listen_addr != null && rule.listen_addr !== '' && !HOST_RE.test(String(rule.listen_addr)))
 		return _('bad listen_addr');
@@ -370,6 +409,16 @@ function importCheck(rule) {
 	if (rule.proxy_port != null && rule.proxy_port !== '' &&
 	    !importRangeOk(rule.proxy_port, 1, 65535))
 		return _('proxy_port must be 1-65535');
+	/* a schedule is all-or-nothing: days alone never open a window */
+	var anySched = (rule.sched_days != null && rule.sched_days !== '') ||
+		(rule.sched_start != null && rule.sched_start !== '') ||
+		(rule.sched_end != null && rule.sched_end !== '');
+	if (anySched) {
+		if (!schedDaysOk(rule.sched_days))
+			return _('bad sched_days');
+		if (!schedTimeOk(rule.sched_start) || !schedTimeOk(rule.sched_end))
+			return _('schedule needs sched_start and sched_end as HH:MM');
+	}
 	return null;
 }
 
@@ -433,6 +482,13 @@ return view.extend({
 			}
 			return { cls: 'socat-off', dot: '⏸', label: t ? _('paused until %s').format(t) : _('paused'),
 				bucket: 'disabled', conns: 0, paused: true };
+		}
+		if (r.status === 'scheduled') {
+			var win = (r.sched_start && r.sched_end)
+				? (r.sched_start + '–' + r.sched_end) : '';
+			return { cls: 'socat-off', dot: '◷',
+				label: win ? _('scheduled off (%s)').format(win) : _('scheduled off'),
+				bucket: 'disabled', conns: 0, scheduled: true };
 		}
 		if (r.status === 'listening')
 			return { cls: 'socat-up', dot: '●', label: _('listening'), bucket: 'listening', conns: r.conns || 0 };
@@ -594,6 +650,8 @@ return view.extend({
 				txt = (txt ? txt + ' · ' : '') + _('%d rule(s) failing').format(c.errors);
 			if (c.paused)
 				txt = (txt ? txt + ' · ' : '') + _('%d rule(s) paused').format(c.paused);
+			if (c.scheduled)
+				txt = (txt ? txt + ' · ' : '') + _('%d rule(s) scheduled off').format(c.scheduled);
 			age.textContent = txt;
 		}
 
@@ -882,6 +940,223 @@ return view.extend({
 			ui.showModal(_('Connections: %s').format(name), kids);
 		}).catch(function(e) {
 			ui.addNotification(null, E('p', {}, _('Could not read the connections: %s').format(e)));
+		});
+	},
+
+	/* ---- one rule's captured socat stderr -------------------------------- */
+	handleRuleLog: function(sid) {
+		var name = uci.get('socat', sid, 'remarks') || sid;
+		var pre = E('pre', { 'class': 'socat-log' }, _('(loading…)'));
+		var hint = E('div', { 'class': 'socat-hint' }, '');
+		var load = function() {
+			pre.textContent = _('(loading…)');
+			return callRuleLog(sid, 120).then(function(res) {
+				if (!res || res.ok !== true) {
+					pre.textContent = trDetail(res && res.detail) || _('could not read the log');
+					return;
+				}
+				if (!res.lines || !res.lines.length) {
+					pre.textContent = _('(no output yet)');
+					hint.textContent = res.conn_log ? '' :
+						_('Turn on “Log connections” for this rule to record every transfer here.');
+					return;
+				}
+				pre.textContent = res.lines.join('\n');
+				pre.scrollTop = pre.scrollHeight;
+				hint.textContent = res.conn_log ? '' :
+					_('Only start-up errors are recorded. Turn on “Log connections” to log every transfer.');
+			}).catch(function(e) {
+				pre.textContent = _('could not read the log: %s').format(e);
+			});
+		};
+		ui.showModal(_('Connection log: %s').format(name), [
+			hint,
+			pre,
+			E('div', { 'class': 'cbi-section-actions' }, [
+				E('button', { 'class': 'btn cbi-button', 'click': function() { load(); } }, [ _('Refresh') ])
+			]),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Close') ])
+			])
+		]);
+		return load();
+	},
+
+	/* ---- one-click diagnose ---------------------------------------------
+	 * Every input already exists in status(): engine heartbeat, per-rule
+	 * verdicts, port conflicts and firewall DNAT overlaps.  This view-side
+	 * aggregation keeps all text translatable (the backend only returns data)
+	 * and its target probe reuses the same callTest() as the per-rule button. */
+	handleDiagnose: function() {
+		var self = this;
+		var st = self.status || {};
+		var es = st.engine || {};
+		var c = st.counts || {};
+		var kids = [];
+		var okN = 0, badN = 0;
+		var add = function(ok, text) {
+			if (ok) okN++; else badN++;
+			kids.push(E('div', { 'class': 'socat-note ' + (ok ? 'ok' : 'fail') },
+				(ok ? '✓ ' : '✗ ') + text));
+		};
+
+		add(!!st.config_missing === false, _('/etc/config/socat is present'));
+		add(!!es.running, es.running
+			? _('the engine is running (last reconcile %s s ago)').format(es.age)
+			: _('the engine is not running: press Start'));
+		add((c.listening || 0) === (c.enabled || 0),
+			_('%d of %d enabled rule(s) are listening').format(c.listening || 0, c.enabled || 0));
+		if (c.down)
+			add(false, _('%d rule(s) are down').format(c.down));
+		if (c.paused)
+			kids.push(E('div', { 'class': 'socat-note busy' },
+				_('%d rule(s) are paused').format(c.paused)));
+		if (c.scheduled)
+			kids.push(E('div', { 'class': 'socat-note busy' },
+				_('%d rule(s) are outside their schedule').format(c.scheduled)));
+
+		var conflicts = self.conflicts();
+		add(conflicts.length === 0, conflicts.length
+			? _('%d listen port conflict(s): %s').format(conflicts.length,
+				conflicts.map(function(x) { return x.key; }).join(', '))
+			: _('no two rules fight over the same listen port'));
+
+		var fw = st.fw_conflicts || [];
+		var fwBad = fw.filter(function(x) { return x.conflict; });
+		add(fwBad.length === 0, fwBad.length
+			? _('%d firewall redirect(s) send a listen port elsewhere').format(fwBad.length)
+			: _('no firewall redirect steals a listen port'));
+
+		var errs = ((st.rules || [])).filter(function(r) { return r.enable && r.error; });
+		if (errs.length)
+			add(false, _('%d rule(s) report a start error: %s').format(errs.length,
+				errs.map(function(r) { return (r.name || r.sid) + ' — ' + r.error; }).join('; ')));
+
+		kids.push(E('div', { 'class': 'socat-hint' },
+			_('Testing the target of every enabled rule…')));
+		var tests = E('div', {});
+		kids.push(tests);
+		kids.push(E('div', { 'class': 'right' }, [
+			E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Close') ])
+		]));
+
+		ui.showModal(_('Diagnose'), kids);
+
+		var targets = (st.rules || []).filter(function(r) {
+			return r.enable && r.status !== 'paused' && r.status !== 'scheduled' &&
+				r.dest_proto !== 'unix' && r.dest_proto !== 'mcast' && r.dest_ip;
+		}).slice(0, 20);
+
+		var chain = Promise.resolve();
+		targets.forEach(function(r) {
+			chain = chain.then(function() {
+				return callTest(r.dest_ip, r.dest_port, r.dest_proto, r.proxy || '',
+					'', 0, '', '', 0).then(function(res) {
+					var ok = !!(res && res.ok);
+					if (!ok) badN++;
+					tests.appendChild(E('div', { 'class': 'socat-note ' + (ok ? 'ok' : 'fail') },
+						(ok ? '✓ ' : '✗ ') + (r.name || r.sid) + ' → ' +
+						r.dest_ip + ':' + r.dest_port + ' — ' +
+						(ok ? _('reachable') : (trDetail(res && res.detail) || _('not reachable')))));
+				}).catch(function(e) {
+					badN++;
+					tests.appendChild(E('div', { 'class': 'socat-note fail' },
+						'✗ ' + (r.name || r.sid) + ' — ' + String(e)));
+				});
+			});
+		});
+		return chain.then(function() {
+			if (!targets.length)
+				tests.appendChild(E('div', { 'class': 'socat-hint' }, _('No enabled rule has a testable target.')));
+			tests.appendChild(E('div', { 'class': 'socat-hint' },
+				_('%d check(s) passed, %d failed').format(okN, badN)));
+		});
+	},
+
+	/* ---- migrate fw4 redirects / legacy socat instances ------------------ */
+	handleMigrate: function() {
+		var self = this;
+		ui.showModal(_('Looking for old forwards…'), [ E('p', { 'class': 'spinning' }, _('Reading the firewall and the legacy socat config…')) ]);
+		return callMigrate().then(function(res) {
+			if (!res || res.ok !== true)
+				throw new Error(trDetail(res && res.detail) || '?');
+			var cands = res.candidates || [];
+			var skipped = res.skipped || [];
+
+			if (!cands.length) {
+				ui.showModal(_('Nothing to migrate'), [
+					E('p', {}, _('No fw4 redirect or legacy socat instance can be converted to a forward.')),
+					skipped.length ? E('p', { 'class': 'socat-hint' },
+						_('%d section(s) could not be converted automatically.').format(skipped.length)) : '',
+					E('div', { 'class': 'right' }, [
+						E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Close') ])
+					])
+				]);
+				return;
+			}
+
+			var boxes = [];
+			var rows = cands.map(function(c) {
+				var cb = E('input', { 'type': 'checkbox' });
+				cb.checked = !c.duplicate;
+				boxes.push({ cb: cb, c: c });
+				var what = c.proto.toUpperCase() + ' :' + c.listen_port + ' → ' +
+					((c.dest_proto === 'unix') ? c.dst_unix_path : (c.dest_ip + ':' + c.dest_port)) +
+					' (' + String(c.dest_proto).toUpperCase() + ')';
+				var src = (c.source === 'fw4')
+					? _('firewall redirect “%s”').format(c.source_name || c.source_sid)
+					: _('legacy socat “%s”').format(c.source_name || c.source_sid);
+				return E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, [ cb, ' ', what ]),
+					E('div', { 'class': 'cbi-value-field' }, [
+						src,
+						c.duplicate ? E('span', { 'class': 'socat-hint' }, ' — ' + _('already exists')) : ''
+					])
+				]);
+			});
+
+			ui.showModal(_('Import old forwards'), [
+				E('p', {}, _('The selected forwards are added disabled, so you can review them. Remove the old redirect or disable the legacy instance afterwards.')),
+				E('div', {}, rows),
+				skipped.length ? E('p', { 'class': 'socat-hint' },
+					_('%d section(s) could not be converted automatically.').format(skipped.length)) : '',
+				E('div', { 'class': 'right' }, [
+					E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Cancel') ]),
+					' ',
+					E('button', { 'class': 'btn cbi-button-positive', 'click': function() {
+						var added = 0, invalid = 0;
+						boxes.forEach(function(b) {
+							if (!b.cb.checked)
+								return;
+							if (importCheck(b.c) != null) { invalid++; return; }
+							var sid = 'cfg' + Date.now().toString(16) + Math.random().toString(16).slice(2, 8);
+							uci.add('socat', 'config', sid);
+							EXPORT_FIELDS.forEach(function(f) {
+								if (b.c[f] != null && b.c[f] !== '')
+									uci.set('socat', sid, f, String(b.c[f]));
+							});
+							added++;
+						});
+						if (!added) {
+							ui.hideModal();
+							ui.addNotification(null, E('p', {}, _('Nothing was imported.')));
+							return;
+						}
+						if (invalid)
+							ui.addNotification(null, E('p', {}, _('Skipped %d candidate(s) that failed validation.').format(invalid)));
+						ui.showModal(_('Importing'), [ E('p', { 'class': 'spinning' }, _('Applying %s rule(s)…').format(added)) ]);
+						uci.save().then(function() { return uci.apply(10); }).then(function() {
+							window.location.reload();
+						}).catch(function(e) {
+							ui.hideModal();
+							ui.addNotification(null, E('p', {}, _('Import failed: %s').format(e)));
+						});
+					} }, [ _('Import selected') ])
+				])
+			]);
+		}).catch(function(e) {
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, _('Could not scan the old forwards: %s').format(e)));
 		});
 	},
 
@@ -1410,7 +1685,9 @@ return view.extend({
 				' ',
 				E('button', { 'class': 'btn cbi-button cbi-button-negative', 'click': ui.createHandlerFn(this, 'handleStop') }, [ _('Stop') ]),
 				' ',
-				E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(this, 'handleRestart') }, [ _('Restart') ])
+				E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(this, 'handleRestart') }, [ _('Restart') ]),
+				' ',
+				E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(this, 'handleDiagnose') }, [ _('Diagnose') ])
 			]),
 			E('div', { 'class': 'socat-hint' }, _('Config changes are applied on Save & Apply (the engine is restarted automatically).'))
 		]);
@@ -1455,6 +1732,7 @@ return view.extend({
 			 * controls above (green Start / red Stop / grey Restart) */
 			E('button', { 'class': 'btn cbi-button socat-io', 'click': ui.createHandlerFn(this, 'handlePreset') }, [ _('Add from template') ]),
 			E('button', { 'class': 'btn cbi-button socat-io', 'click': ui.createHandlerFn(this, 'handleImport') }, [ _('Import') ]),
+			E('button', { 'class': 'btn cbi-button socat-io', 'click': ui.createHandlerFn(this, 'handleMigrate') }, [ _('Migrate old forwards') ]),
 			E('button', { 'class': 'btn cbi-button socat-io', 'click': ui.createHandlerFn(this, 'handleExport') }, [ _('Export') ])
 		]);
 
@@ -1646,6 +1924,16 @@ return view.extend({
 			this.handlePause(section_id, ev && ev.currentTarget);
 		}, this);
 
+		o = s.option(form.Button, '_log', _('Log'));
+		o.inputtitle = _('Show connection log');
+		o.inputstyle = 'apply';
+		o.modalonly = true;
+		o.write = function() {};
+		o.remove = function() {};
+		o.onclick = L.bind(function(ev, section_id) {
+			this.handleRuleLog(section_id);
+		}, this);
+
 		/* modal-only: destination details */
 		o = s.option(form.ListValue, 'dest_proto', _('Destination protocol'));
 		o.value('tcp4', 'TCP / IPv4');
@@ -1802,6 +2090,31 @@ return view.extend({
 		o.rmempty = false;
 		o.modalonly = true;
 		o.description = _('Route this rule socat log to syslog (logread) instead of discarding it.');
+
+		o = s.option(form.Flag, 'conn_log', _('Log connections'));
+		o.default = '0';
+		o.rmempty = false;
+		o.modalonly = true;
+		o.description = _('Record every transfer of this rule (socat -d -d) and show it in the connection log. The output is kept in RAM and capped automatically.');
+
+		/* ---- per-rule schedule ---- */
+		o = s.option(form.Value, 'sched_days', _('Active days'));
+		o.placeholder = _('every day');
+		o.modalonly = true;
+		o.validate = formSchedDaysOk;
+		o.description = _('ISO weekdays with Monday=1: “1-5” for workdays, “6,7” for the weekend. Empty means every day.');
+
+		o = s.option(form.Value, 'sched_start', _('Active from'));
+		o.placeholder = '08:00';
+		o.modalonly = true;
+		o.validate = formSchedTimeOk;
+		o.description = _('Start of the daily window (HH:MM, local time). Set both times to enable the schedule; the listener and its WAN port are closed outside it.');
+
+		o = s.option(form.Value, 'sched_end', _('Active until'));
+		o.placeholder = '18:00';
+		o.modalonly = true;
+		o.validate = formSchedTimeOk;
+		o.description = _('End of the window. An end earlier than the start crosses midnight (22:00–06:00). The rule is skipped, not left running, if the times are invalid.');
 
 		o = s.option(form.Flag, 'keepalive', _('TCP keepalive'));
 		o.default = '1';

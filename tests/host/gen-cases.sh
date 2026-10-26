@@ -25,16 +25,18 @@ rm -rf "$WORK"; mkdir -p "$WORK"
 V6="2001:db8:1::55"
 
 run_gen() { # run_gen <mode> [paused "sid<TAB>until"]
-	: > "$WORK/out.des"; : > "$WORK/out.warn"; : > "$WORK/out.fw"; : > "$WORK/out.paused"
+	: > "$WORK/out.des"; : > "$WORK/out.warn"; : > "$WORK/out.fw"; : > "$WORK/out.paused"; : > "$WORK/out.sched"
 	[ -n "${2:-}" ] && printf '%s\n' "$2" > "$WORK/out.paused"
 	$AWK -v ipv6="$1" -v socat=/usr/bin/socat \
 		-v desf="$WORK/out.des" -v warnf="$WORK/out.warn" -v fwf="$WORK/out.fw" \
-		-v pausef="$WORK/out.paused" \
+		-v pausef="$WORK/out.paused" -v schedf="$WORK/out.sched" \
+		-v dow="${SCHED_DOW-1}" -v hm="${SCHED_HM-12:00}" \
 		-f "$GEN" < "$WORK/in.show"
 }
 
 kinds() { awk -F'\t' '{printf "%s/%s ", $1, $2}' "$WORK/out.des" 2>/dev/null; }
 warns() { awk -F'\t' '{printf "%s:%s ", $1, $2}' "$WORK/out.warn" 2>/dev/null; }
+sched() { awk -F'\t' '{printf "%s:%s ", $1, $2}' "$WORK/out.sched" 2>/dev/null; }
 fwls()  { awk -F'\t' '{printf "%s:%s ", $1, $2}' "$WORK/out.fw" 2>/dev/null | sort; }
 
 echo "generator: $GEN"
@@ -1231,7 +1233,185 @@ has 'a v6 listen_addr on a TLS rule is reported' \
 check 'the TLS listener ignores the v6 bind' 0 "$(cmdgrep 0 'bind=2001:db8::9')"
 check 'a unix listener opens no firewall port' 0 "$(grep -c '^unix' "$WORK/out.fw")"
 
-# ---- second awk implementation: the whole suite must hold there too ---------
+# ---- per-rule schedule ------------------------------------------------------
+# A scheduled rule exists only inside its window; outside it there is no
+# listener and no WAN port, and $RUNDIR/scheduled says "off" so the UI can
+# explain the state instead of calling it down.
+SCHED_DOW=1; SCHED_HM=12:00
+gen_case 'schedule: inside the window runs' "$V6" 'a/tcp a/tcp6 ' '' '
+socat.a=config
+socat.a.enable=1
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+socat.a.firewall_accept=1
+socat.a.sched_days=1-5
+socat.a.sched_start=08:00
+socat.a.sched_end=18:00
+'
+check 'schedule: state is on' 'a:on ' "$(sched)"
+
+SCHED_DOW=1; SCHED_HM=20:00
+gen_case 'schedule: outside the window stops' "$V6" '' '' '
+socat.a=config
+socat.a.enable=1
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+socat.a.firewall_accept=1
+socat.a.sched_days=1-5
+socat.a.sched_start=08:00
+socat.a.sched_end=18:00
+'
+check 'schedule: state is off' 'a:off ' "$(sched)"
+check 'schedule: off closes the WAN port' '' "$(fwls)"
+
+# 22:00-06:00 crosses midnight; the early part belongs to the previous day
+SCHED_DOW=1; SCHED_HM=23:30
+gen_case 'schedule: late evening inside a crossing window' "$V6" 'a/tcp a/tcp6 ' '' '
+socat.a=config
+socat.a.enable=1
+socat.a.sched_days=1-5
+socat.a.sched_start=22:00
+socat.a.sched_end=06:00
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+SCHED_DOW=2; SCHED_HM=05:00
+gen_case 'schedule: after midnight belongs to Monday' "$V6" 'a/tcp a/tcp6 ' '' '
+socat.a=config
+socat.a.enable=1
+socat.a.sched_days=1
+socat.a.sched_start=22:00
+socat.a.sched_end=06:00
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+SCHED_DOW=3; SCHED_HM=05:00
+gen_case 'schedule: ...but not to Tuesday' "$V6" '' '' '
+socat.a=config
+socat.a.enable=1
+socat.a.sched_days=1
+socat.a.sched_start=22:00
+socat.a.sched_end=06:00
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+
+# start == end means all day (not an empty window)
+SCHED_DOW=6; SCHED_HM=00:00
+gen_case 'schedule: equal times mean all day' "$V6" 'a/tcp a/tcp6 ' '' '
+socat.a=config
+socat.a.enable=1
+socat.a.sched_days=6
+socat.a.sched_start=00:00
+socat.a.sched_end=00:00
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+
+# an invalid schedule is fail-closed: skipping is visible, running outside the
+# window is not
+SCHED_DOW=1; SCHED_HM=12:00
+gen_case 'schedule: bad time is skipped' "$V6" '' 'a:bad sched_start (HH:MM), skip ' '
+socat.a=config
+socat.a.enable=1
+socat.a.sched_start=25:00
+socat.a.sched_end=18:00
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+gen_case 'schedule: bad days are skipped' "$V6" '' 'a:bad sched_days (1-7, e.g. 1-5), skip ' '
+socat.a=config
+socat.a.enable=1
+socat.a.sched_days=1-9
+socat.a.sched_start=08:00
+socat.a.sched_end=18:00
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+gen_case 'schedule: one missing time is skipped' "$V6" '' 'a:schedule needs both sched_start and sched_end, skip ' '
+socat.a=config
+socat.a.enable=1
+socat.a.sched_start=08:00
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+# without a clock (a hand run of the generator) the rule must not run either
+SCHED_DOW=""; SCHED_HM=""
+gen_case 'schedule: no clock means no listener' "$V6" '' 'a:no local clock for the schedule, skip ' '
+socat.a=config
+socat.a.enable=1
+socat.a.sched_start=08:00
+socat.a.sched_end=18:00
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+SCHED_DOW=1; SCHED_HM=12:00
+
+# ---- verbose per-rule transfer log -----------------------------------------
+gen_case 'conn_log adds -d -d to every listener' "$V6" 'a/tcp a/tcp6 ' '' '
+socat.a=config
+socat.a.enable=1
+socat.a.conn_log=1
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+check 'conn_log: v4 command is verbose' '2' "$(grep -c -- '-d -d' "$WORK/out.des")"
+gen_case 'conn_log=0 adds nothing' "$V6" 'a/tcp a/tcp6 ' '' '
+socat.a=config
+socat.a.enable=1
+socat.a.conn_log=0
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+check 'conn_log=0: no verbose flag' '0' "$(grep -c -- '-d -d' "$WORK/out.des")"
+gen_case 'conn_log rejects a non-flag' "$V6" '' 'a:bad conn_log, skip ' '
+socat.a=config
+socat.a.enable=1
+socat.a.conn_log=yes
+socat.a.proto=tcp
+socat.a.listen_port=8080
+socat.a.dest_proto=tcp4
+socat.a.dest_ip=10.0.0.9
+socat.a.dest_port=80
+'
+
+
 # The engine on the router runs this generator with BusyBox awk, which is not
 # byte-identical to gawk/mawk in its regex handling.  So the entire suite runs
 # again from the top under BusyBox: run it with "AWK=busybox sh gen-cases.sh"

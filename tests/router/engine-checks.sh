@@ -26,7 +26,7 @@ sid() { echo "${SID_BASE}$1"; }
 # a broken test run can never leave junk in the live /etc/config/socat.
 cleanup_test_sections() {
 	for S in "$(sid conflict)" "$(sid badport)" "$(sid inject)" "$(sid udpv6)" "$(sid disable)" "$(sid orphan)" \
-	         "$(sid unix)" "$(sid mcast)" "$(sid tls)"; do
+	         "$(sid unix)" "$(sid mcast)" "$(sid sched)" "$(sid tls)"; do
 		uci -q delete "socat.$S" 2>/dev/null
 	done
 	uci commit socat 2>/dev/null
@@ -48,10 +48,27 @@ wait_alive() { # wait_alive <sid> <want> [seconds]
 	done
 	return 1
 }
+wait_up() { # wait_up <sid> [seconds]  (at least one live listener, v4 or v6)
+	local i=0 n="${2:-20}"
+	while [ "$i" -lt "$n" ]; do
+		[ "$(alive "$1")" -gt 0 ] && return 0
+		sleep 1; i=$((i + 1))
+	done
+	return 1
+}
 wait_gone() { # wait_gone <sid> [seconds]  (no live listener, no state rows)
 	local i=0 n="${2:-20}"
 	while [ "$i" -lt "$n" ]; do
 		[ "$(alive "$1")" = "0" ] && [ "$(total "$1")" = "0" ] && return 0
+		sleep 1; i=$((i + 1))
+	done
+	return 1
+}
+wait_uci() { # wait_uci <grep-pattern> <want> [seconds]
+	local i=0 n="${3:-20}" got=0
+	while [ "$i" -lt "$n" ]; do
+		got=$(uci -q show firewall | grep -c "$1")
+		[ "$got" = "$2" ] && return 0
 		sleep 1; i=$((i + 1))
 	done
 	return 1
@@ -300,15 +317,59 @@ reconcile_now
 wait_alive "$MC" 1 20
 ck "multicast listener comes up" 1 "$(alive "$MC")"
 # one igmp rule per WAN zone, and each rule is described by several uci lines,
-# so count rules (=rule) and not lines that mention the name
+# so count rules (=rule) and not lines that mention the name.  The engine
+# writes those lines one `uci set` at a time *after* the listener is already
+# up, so a one-shot grep races the sync: poll instead.
 ck "multicast opened an igmp accept rule" 1 "$(uci -q show firewall | grep -c "socat_reforged_igmp.*=rule")"
-ck "that rule is proto igmp" 1 "$(uci -q show firewall | grep -c "socat_reforged_igmp.proto='igmp'")"
+ck "that rule is proto igmp" 1 "$(wait_uci "socat_reforged_igmp.*\.proto='igmp'" 1 && echo 1 || echo 0)"
 # (uci show prints values quoted, hence the .* around the pattern)
-ck "a udp accept rule is opened for its port" 1 "$(uci -q show firewall | grep -c "dest_port.*'$MCPORT'")"
+ck "a udp accept rule is opened for its port" 1 \
+	"$(wait_uci "dest_port.*'$MCPORT'" 1 && echo 1 || echo 0)"
 uci -q delete "socat.$MC" >/dev/null
 uci commit socat
 reconcile_now
 ck "the igmp rule goes with the rule" 0 "$(uci -q show firewall | grep -c 'socat_reforged_igmp')"
+
+# Per-rule schedule: outside the window the engine must not start anything and
+# must record the verdict for the UI; inside it the same rule has to come up.
+# "tomorrow only" avoids any dependence on the current clock, and 00:00-00:00
+# means "all day" when it is that day.
+SC=$(sid sched)
+SCPORT=21062
+DOW=$(date +%u)
+TOM=$(( DOW % 7 + 1 ))
+uci set "socat.$SC=config" >/dev/null
+uci set "socat.$SC.enable=1" >/dev/null
+uci set "socat.$SC.proto=tcp" >/dev/null
+uci set "socat.$SC.listen_port=$SCPORT" >/dev/null
+uci set "socat.$SC.dest_proto=tcp4" >/dev/null
+uci set "socat.$SC.dest_ip=192.0.2.1" >/dev/null
+uci set "socat.$SC.dest_port=80" >/dev/null
+uci set "socat.$SC.firewall_accept=1" >/dev/null
+uci set "socat.$SC.sched_days=$TOM" >/dev/null
+uci set "socat.$SC.sched_start=00:00" >/dev/null
+uci set "socat.$SC.sched_end=00:00" >/dev/null
+uci commit socat
+reconcile_now
+ck "a rule outside its schedule opens no listener" 0 "$(alive "$SC")"
+ck "the engine records the schedule verdict" off \
+	"$(awk -F"\t" -v s="$SC" '$1==s{print $2}' "$R/scheduled" 2>/dev/null)"
+ck "a scheduled rule opens no WAN port" 0 \
+	"$(uci -q show firewall | grep -c "dest_port.*'$SCPORT'")"
+ck "status reports the rule as scheduled" scheduled \
+	"$(ubus call luci.socat-reforged status 2>/dev/null \
+		| jsonfilter -e "@.rules[@.sid='$SC'].status" 2>/dev/null)"
+uci set "socat.$SC.sched_days=$DOW" >/dev/null
+uci commit socat
+reconcile_now
+# A tcp rule with IPv6 enabled is two listeners (v4 + v6); "at least one"
+# keeps the check independent of whether this router has a usable v6 address.
+ck "the same rule runs inside its window" 1 "$(wait_up "$SC" 20 && echo 1 || echo 0)"
+uci -q delete "socat.$SC" >/dev/null
+uci commit socat
+reconcile_now
+ck "the schedule verdict goes with the rule" 0 \
+	"$(awk -F"\t" -v s="$SC" '$1==s{n++} END{print n+0}' "$R/scheduled" 2>/dev/null)"
 
 # TLS: OpenWrt's socat package is built --disable-openssl, so on this router a
 # TLS rule cannot start.  It must then be reported DOWN, with socat's own

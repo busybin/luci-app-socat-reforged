@@ -1,0 +1,1472 @@
+# es translations for luci-app-socat-reforged.
+# Copyright (C) 2026 busybin
+# This file is distributed under the same license as the
+# luci-app-socat-reforged package (GPL-3.0-or-later).
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-socat-reforged 3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-26 12:00+0800\n"
+"PO-Revision-Date: 2026-10-26 12:00+0800\n"
+"Last-Translator: busybin <65460344+busybin@users.noreply.github.com>\n"
+"Language-Team: \n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:715
+#, javascript-format
+msgid " (%d invalid entry/entries: %s)"
+msgstr " (%d entrada(s) no válida(s): %s)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:404
+#, javascript-format
+msgid "%d rule(s) failing"
+msgstr "%d regla(s) con error"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:798
+msgid "(loading…)"
+msgstr "(cargando…)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:618
+msgid "(log is empty)"
+msgstr "(el registro está vacío)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1228
+msgid "(unnamed)"
+msgstr "(sin nombre)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1005
+msgid "192.168.1.x or an IPv6 address with tcp6/udp6"
+msgstr "192.168.1.x o una dirección IPv6 con tcp6/udp6"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:875
+msgid "443 or 30000-30010"
+msgstr "443 o 30000-30010"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:827
+#, javascript-format
+msgid "A new version is available: %s"
+msgstr "Hay una nueva versión disponible: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:598
+#, javascript-format
+msgid "Action failed: %s"
+msgstr "La acción falló: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:774
+msgid "Active TCP connections across all forwards"
+msgstr "Conexiones TCP activas en todas las redirecciones"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:848
+msgid "Add forward"
+msgstr "Añadir redirección"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1199
+msgid "Address used in the IGMP join; empty = 0.0.0.0 (kernel picks)."
+msgstr "Dirección usada en la unión IGMP; vacío = 0.0.0.0 (la elige el kernel)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:820
+msgid "All"
+msgstr "Todas"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:721
+#, javascript-format
+msgid "Applying %s rule(s)…"
+msgstr "Aplicando %s regla(s)…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:573
+msgid "Applying changes…"
+msgstr "Aplicando cambios…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1527
+msgid "Ask GitHub for the latest release when this page is opened (and every six hours while it stays open) and show a notice when there is one. Nothing is downloaded or installed until you press the button yourself."
+msgstr "Consultar en GitHub la última versión al abrir esta página (y cada seis horas mientras siga abierta) y mostrar un aviso cuando haya una. No se descarga ni se instala nada hasta que pulses el botón tú mismo."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1033
+msgid "Open this port in the WAN firewall zone. Off by default: only enable it if the rule must be reachable from the internet. The source allowlist, when set, is applied to the firewall rule as well."
+msgstr "Abrir este puerto en la zona de firewall WAN. Desactivado por defecto: actívalo solo si la regla debe ser accesible desde internet. La lista de orígenes permitidos, si se define, también se aplica a la regla de firewall."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:885
+msgid "Bind the listener to one local address instead of every address."
+msgstr "Vincular el listener a una sola dirección local en lugar de a todas."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1172
+msgid "CA certificate"
+msgstr "Certificado CA"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:646
+msgid "Cancel"
+msgstr "Cancelar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:987
+msgid "Check for updates"
+msgstr "Buscar actualizaciones"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1170
+msgid "Check the target certificate against the system trust store, or against the CA file below when one is set. Only turn this off for a target with a self-signed certificate you cannot replace."
+msgstr "Verificar el certificado del destino con el almacén de confianza del sistema, o con el archivo CA de abajo cuando se haya definido. Desactívalo solo para un destino con un certificado autofirmado que no puedas sustituir."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:805
+msgid "Clear"
+msgstr "Borrar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:755
+msgid "Click \"Save & Apply\" to apply them (leaving the page will prompt you)."
+msgstr "Pulsa «Guardar y aplicar» para aplicarlos (al salir de la página se te pedirá confirmación)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:924
+msgid "Close"
+msgstr "Cerrar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:794
+msgid "Config changes are applied on Save & Apply (the engine is restarted automatically)."
+msgstr "Los cambios de configuración se aplican con Guardar y aplicar (el motor se reinicia automáticamente)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:776
+msgid "Connections"
+msgstr "Conexiones"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:637
+msgid "Could not clear the engine log"
+msgstr "No se pudo borrar el registro del motor"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:635
+#, javascript-format
+msgid "Could not clear the engine log: %s"
+msgstr "No se pudo borrar el registro del motor: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1245
+msgid "Delete"
+msgstr "Eliminar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1231
+msgid "Delete forward?"
+msgstr "¿Eliminar la redirección?"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:999
+msgid "Destination IP"
+msgstr "IP de destino"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1010
+msgid "Destination port"
+msgstr "Puerto de destino"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:987
+msgid "Destination protocol"
+msgstr "Protocolo de destino"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1141
+msgid "Detect and drop connections to a target that disappeared."
+msgstr "Detectar y cerrar las conexiones a un destino que ha desaparecido."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1041
+msgid "Dial the target through a proxy. Only TCP/IPv4 destinations are supported."
+msgstr "Conectar con el destino a través de un proxy. Solo se admiten destinos TCP/IPv4."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1082
+msgid "Disable Nagle algorithm (lower latency, more packets). Ignored on a UDP listener: socat does not support the option there."
+msgstr "Desactivar el algoritmo de Nagle (menos latencia, más paquetes). Se ignora en un listener UDP: socat no admite la opción ahí."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:820
+msgid "Disabled"
+msgstr "Desactivada"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:568
+msgid "Discard & leave"
+msgstr "Descartar y salir"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:820
+msgid "Down"
+msgstr "Caída"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:878
+#, javascript-format
+msgid "Download %s from GitHub and install it with the system package manager."
+msgstr "Descargar %s desde GitHub e instalarlo con el gestor de paquetes del sistema."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:891
+msgid "Downloading and installing the new version…"
+msgstr "Descargando e instalando la nueva versión…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1210
+msgid "Enabled"
+msgstr "Activada"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:767
+msgid "Engine"
+msgstr "Motor"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:800
+msgid "Engine log"
+msgstr "Registro del motor"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1261
+msgid "Engine settings"
+msgstr "Ajustes del motor"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:785
+msgid "Engine status"
+msgstr "Estado del motor"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:801
+#, javascript-format
+msgid "Every line also goes to syslog; this copy survives reboots (last %d lines)."
+msgstr "Cada línea también va a syslog; esta copia sobrevive a los reinicios (últimas %d líneas)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:836
+msgid "Export"
+msgstr "Exportar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:182
+msgid "GitHub could not be reached"
+msgstr "No se pudo contactar con GitHub"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:183
+msgid "GitHub returned an unexpected answer"
+msgstr "GitHub devolvió una respuesta inesperada"
+
+
+msgid "Grant access to Socat Reforged (custom UCI socat forwarding page)"
+msgstr "Conceder acceso a Socat Reforged (página de redirecciones socat basada en UCI)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1021
+msgid "IPv4 and IPv6"
+msgstr "IPv4 e IPv6"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1022
+msgid "IPv4 only"
+msgstr "Solo IPv4"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1023
+msgid "IPv6 only"
+msgstr "Solo IPv6"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:835
+msgid "Import"
+msgstr "Importar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:727
+#, javascript-format
+msgid "Import failed: %s"
+msgstr "Error al importar: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:692
+#, javascript-format
+msgid "Import failed: invalid JSON (%s)"
+msgstr "Error al importar: JSON no válido (%s)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:697
+msgid "Import failed: no rules found in the file."
+msgstr "Error al importar: no se encontraron reglas en el archivo."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:713
+#, javascript-format
+msgid "Import: nothing to add%s."
+msgstr "Importación: nada que añadir%s."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:720
+#, javascript-format
+msgid "Import: skipped %d invalid entry/entries."
+msgstr "Importación: se omitieron %d entrada(s) no válida(s)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:721
+msgid "Importing"
+msgstr "Importando"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:877
+msgid "Install the update?"
+msgstr "¿Instalar la actualización?"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1192
+msgid "Interface used both for joining the group and for sending (empty = kernel picks)."
+msgstr "Interfaz usada tanto para unirse al grupo como para enviar (vacío = la elige el kernel)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1185
+msgid "Join a multicast group on the listen port (IPTV). 224.0.0.0 - 239.255.255.255."
+msgstr "Unirse a un grupo multicast en el puerto de escucha (IPTV). 224.0.0.0 - 239.255.255.255."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1179
+msgid "Join multicast group"
+msgstr "Unirse a grupo multicast"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:915
+msgid "Later"
+msgstr "Más tarde"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1104
+msgid "Let the listener rebind a port that is still in TIME_WAIT. Turning it off makes a second listener on the same port fail loudly."
+msgstr "Permitir que el listener vuelva a usar un puerto que sigue en TIME_WAIT. Si lo desactivas, un segundo listener en el mismo puerto fallará de forma visible."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:872
+msgid "Listen"
+msgstr "Escucha"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:878
+msgid "Listen address"
+msgstr "Dirección de escucha"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1020
+msgid "Listen address family"
+msgstr "Familia de la dirección de escucha"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1084
+msgid "Listen backlog"
+msgstr "Backlog de escucha"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:820
+msgid "Listening"
+msgstr "Escuchando"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:772
+msgid "Listening now / total"
+msgstr "Escuchando ahora / total"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1194
+msgid "Local address for joining"
+msgstr "Dirección local para unirse"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1277
+msgid "Log a HEALTH line every minute (memory, worker count, IPv6, uptime)."
+msgstr "Registrar una línea HEALTH cada minuto (memoria, número de workers, IPv6, tiempo activo)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1131
+msgid "Log to syslog"
+msgstr "Registrar en syslog"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1524
+msgid "Look for new versions"
+msgstr "Buscar nuevas versiones"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1091
+msgid "Max concurrent children"
+msgstr "Máximo de procesos hijos simultáneos"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:993
+msgid "Multicast (UDP)"
+msgstr "Multicast (UDP)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1064
+msgid "Multicast TTL"
+msgstr "TTL de multicast"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1187
+msgid "Multicast interface"
+msgstr "Interfaz multicast"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1071
+msgid "Multicast loopback"
+msgstr "Loopback multicast"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:951
+#, javascript-format
+msgid "NOT reachable (%s): %s"
+msgstr "NO accesible (%s): %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:855
+msgid "Name"
+msgstr "Nombre"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1334
+msgid "No port forwards yet. Use \"Add forward\" below to create one."
+msgstr "Aún no hay redirecciones de puerto. Usa «Añadir redirección» abajo para crear una."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1036
+msgid "None"
+msgstr "Ninguno"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1029
+msgid "Open firewall port (WAN)"
+msgstr "Abrir puerto en el firewall (WAN)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1156
+msgid "PEM certificate presented to incoming TLS clients. Requires a socat built with OpenSSL (the stock OpenWrt package is not) - check with socat -V."
+msgstr "Certificado PEM presentado a los clientes TLS entrantes. Requiere un socat compilado con OpenSSL (el paquete estándar de OpenWrt no lo está); compruébalo con socat -V."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:843
+msgid "Port forwards"
+msgstr "Redirecciones de puerto"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:751
+msgid "Port forwards handled by the custom socat engine (source of truth: /etc/config/socat)."
+msgstr "Redirecciones de puerto gestionadas por el motor socat propio (fuente de verdad: /etc/config/socat)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:858
+msgid "Proto"
+msgstr "Proto"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:997
+msgid "Protocol used to reach the target. Independent of the listen protocol above."
+msgstr "Protocolo usado para llegar al destino. Independiente del protocolo de escucha de arriba."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1201
+msgid "Proxy port"
+msgstr "Puerto del proxy"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1043
+msgid "Proxy server"
+msgstr "Servidor proxy"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1035
+msgid "Reach target via proxy"
+msgstr "Llegar al destino mediante proxy"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:950
+#, javascript-format
+msgid "Reachable (%s): %s"
+msgstr "Accesible (%s): %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:803
+msgid "Refresh"
+msgstr "Actualizar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1051
+msgid "Relay to multicast group"
+msgstr "Retransmitir a grupo multicast"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1058
+msgid "Relay to multicast port"
+msgstr "Retransmitir a puerto multicast"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:832
+msgid "Release notes"
+msgstr "Notas de la versión"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:832
+msgid "Release notes ↗"
+msgstr "Notas de la versión ↗"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:913
+msgid "Reload now"
+msgstr "Recargar ahora"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1232
+#, javascript-format
+msgid "Remove “%s” (%s :%s)?"
+msgstr "¿Eliminar «%s» (%s :%s)?"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:792
+msgid "Restart"
+msgstr "Reiniciar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:975
+#, javascript-format
+msgid "Restart failed: %s"
+msgstr "Error al reiniciar: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:960
+msgid "Restart this rule"
+msgstr "Reiniciar esta regla"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:603
+msgid "Restarting socat engine…"
+msgstr "Reiniciando el motor socat…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1212
+msgid "Restarting this rule…"
+msgstr "Reiniciando esta regla…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1118
+msgid "Retry the target"
+msgstr "Reintentar con el destino"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1099
+msgid "Reuse address"
+msgstr "Reutilizar dirección"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1135
+msgid "Route this rule socat log to syslog (logread) instead of discarding it."
+msgstr "Enviar el registro socat de esta regla a syslog (logread) en lugar de descartarlo."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:974
+msgid "Rule restarted."
+msgstr "Regla reiniciada."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1111
+msgid "Run listener as"
+msgstr "Ejecutar el listener como"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:578
+msgid "Save & Apply & leave"
+msgstr "Guardar y aplicar y salir"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1233
+msgid "Save & Apply is still required to stop the listener."
+msgstr "Todavía hay que pulsar Guardar y aplicar para detener el listener."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:573
+msgid "Saving"
+msgstr "Guardando"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:817
+msgid "Search name / port / target…"
+msgstr "Buscar nombre / puerto / destino…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1129
+msgid "Seconds to keep trying a target that is not up yet instead of dropping the connection. TCP, TLS and unix targets only — socat rejects it on a UDP address."
+msgstr "Segundos durante los que se sigue intentando conectar con un destino que aún no está activo en lugar de descartar la conexión. Solo destinos TCP, TLS y unix: socat lo rechaza en una dirección UDP."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:876
+msgid "Single port or a range (one listener is started per port, max 256)."
+msgstr "Un solo puerto o un rango (se inicia un listener por puerto, máx. 256)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:742
+msgid "Socat Reforged"
+msgstr "Socat Reforged"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:586
+msgid "Socat engine"
+msgstr "Motor socat"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:788
+msgid "Start"
+msgstr "Iniciar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:602
+msgid "Starting socat engine…"
+msgstr "Iniciando el motor socat…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:904
+msgid "Status"
+msgstr "Estado"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:562
+msgid "Stay"
+msgstr "Quedarse"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:651
+msgid "Stop"
+msgstr "Detener"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:643
+msgid "Stop socat engine?"
+msgstr "¿Detener el motor socat?"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:650
+msgid "Stopping socat engine…"
+msgstr "Deteniendo el motor socat…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1137
+msgid "TCP keepalive"
+msgstr "Keepalive TCP"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1078
+msgid "TCP_NODELAY"
+msgstr "TCP_NODELAY"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:861
+msgid "TLS (OpenSSL)"
+msgstr "TLS (OpenSSL)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:991
+msgid "TLS / OpenSSL"
+msgstr "TLS / OpenSSL"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1150
+msgid "TLS certificate"
+msgstr "Certificado TLS"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1027
+msgid "TLS listens on IPv4 only: socat cannot bind an OpenSSL listener to an IPv6 address, so a TLS rule set to IPv6 only is skipped."
+msgstr "TLS solo escucha en IPv4: socat no puede vincular un listener OpenSSL a una dirección IPv6, así que una regla TLS configurada solo para IPv6 se omite."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1158
+msgid "TLS private key"
+msgstr "Clave privada TLS"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:888
+msgid "Target"
+msgstr "Destino"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:898
+msgid "Target port"
+msgstr "Puerto de destino"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:921
+msgid "Test"
+msgstr "Probar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:955
+#, javascript-format
+msgid "Test failed: %s"
+msgstr "La prueba falló: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:922
+msgid "Test target"
+msgstr "Probar destino"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1187
+#, javascript-format
+msgid "Testing %s…"
+msgstr "Probando %s…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:879
+msgid "The socat engine is restarted by the package while it installs, so active forwards drop for a few seconds."
+msgstr "El paquete reinicia el motor socat durante la instalación, así que las redirecciones activas se cortan unos segundos."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1116
+msgid "The user the accepted connections run as, e.g. nobody. Privileges are dropped after the socket is open, so a low listen port still works. Only on the listen side."
+msgstr "El usuario con el que se ejecutan las conexiones aceptadas, p. ej. nobody. Los privilegios se ceden después de abrir el socket, así que un puerto de escucha bajo sigue funcionando. Solo en el lado de escucha."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:644
+msgid "This removes the procd service and stops all socat port forwards until you start it again."
+msgstr "Esto elimina el servicio procd y detiene todas las redirecciones de puerto socat hasta que lo inicies de nuevo."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1106
+msgid "Transfer timeout"
+msgstr "Tiempo de espera de transferencia"
+
+
+msgid "UDP probe sent (no handshake to verify)"
+msgstr "Sonda UDP enviada (no hay handshake que verificar)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:862
+msgid "Unix socket"
+msgstr "Socket Unix"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:865
+msgid "Unix socket path"
+msgstr "Ruta del socket Unix"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1143
+msgid "Unix socket target"
+msgstr "Destino de socket Unix"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:559
+msgid "Unsaved changes"
+msgstr "Cambios sin guardar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:920
+msgid "Update failed"
+msgstr "Error en la actualización"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:910
+msgid "Update installed"
+msgstr "Actualización instalada"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:830
+msgid "Update now"
+msgstr "Actualizar ahora"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:911
+#, javascript-format
+msgid "Updated to %s. Reload the page to load the new interface — use Ctrl+Shift+R, the browser caches the JavaScript."
+msgstr "Actualizado a %s. Recarga la página para cargar la nueva interfaz: usa Ctrl+Shift+R, el navegador guarda el JavaScript en caché."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:890
+msgid "Updating"
+msgstr "Actualizando"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1274
+msgid "Verbose engine logging"
+msgstr "Registro detallado del motor"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1165
+msgid "Verify TLS certificate"
+msgstr "Verificar certificado TLS"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1026
+msgid "Which listen sockets to create. The default binds both IPv4 and IPv6."
+msgstr "Qué sockets de escucha crear. Por defecto se vinculan IPv4 e IPv6."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:560
+msgid "You have unsaved changes on this page. Save them before leaving?"
+msgstr "Tienes cambios sin guardar en esta página. ¿Quieres guardarlos antes de salir?"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:177
+msgid "a boolean option must be 0 or 1"
+msgstr "una opción booleana debe ser 0 o 1"
+
+
+msgid "a proxy is only supported with a TCP/IPv4 target"
+msgstr "el proxy solo se admite con un destino TCP/IPv4"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:880
+msgid "all addresses"
+msgstr "todas las direcciones"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:187
+msgid "an update is already running"
+msgstr "ya hay una actualización en curso"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:217
+msgid "bad backlog"
+msgstr "backlog no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:201
+msgid "bad dest_ip"
+msgstr "dest_ip no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:194
+msgid "bad dest_proto"
+msgstr "dest_proto no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:173
+msgid "bad enable"
+msgstr "enable no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:225
+msgid "bad family"
+msgstr "family no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:179
+msgid "bad listen_addr"
+msgstr "listen_addr no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:219
+msgid "bad max_children"
+msgstr "max_children no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:206
+msgid "bad mcast_dst_group"
+msgstr "mcast_dst_group no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:208
+msgid "bad mcast_group"
+msgstr "mcast_group no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:212
+msgid "bad mcast_iface"
+msgstr "mcast_iface no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:215
+msgid "bad mcast_localip"
+msgstr "mcast_localip no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:223
+msgid "bad mcast_ttl"
+msgstr "mcast_ttl no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:186
+msgid "bad proto"
+msgstr "proto no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:229
+msgid "bad proxy"
+msgstr "proxy no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:184
+msgid "bad retry"
+msgstr "retry no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:221
+msgid "bad timeout"
+msgstr "timeout no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:182
+msgid "bad user"
+msgstr "user no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:855
+msgid "checking for updates…"
+msgstr "buscando actualizaciones…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:115
+#, javascript-format
+msgid "connection failed (socat exit %s)"
+msgstr "conexión fallida (socat salió con %s)"
+
+
+msgid "connection succeeded"
+msgstr "conexión correcta"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:624
+msgid "could not read the engine log"
+msgstr "no se pudo leer el registro del motor"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:199
+msgid "dest_port must be 1-65535"
+msgstr "dest_port debe estar entre 1 y 65535"
+
+
+msgid "destination IP and port are required"
+msgstr "la IP y el puerto de destino son obligatorios"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:261
+msgid "disabled"
+msgstr "desactivada"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1119
+msgid "do not retry"
+msgstr "no reintentar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:269
+msgid "down"
+msgstr "caída"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:196
+msgid "dst_unix_path must be an absolute path"
+msgstr "dst_unix_path debe ser una ruta absoluta"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:856
+msgid "e.g. RTMP"
+msgstr "p. ej. RTMP"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:121
+#, javascript-format
+msgid "exit status %s"
+msgstr "estado de salida %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:589
+msgid "failed"
+msgstr "fallida"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:828
+#, javascript-format
+msgid "installed: %s"
+msgstr "instalada: %s"
+
+
+msgid "listen_port must be 1-65535"
+msgstr "listen_port debe estar entre 1 y 65535"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:192
+msgid "listen_port must be 1-65535 or a range"
+msgstr "listen_port debe estar entre 1 y 65535 o ser un rango"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:266
+msgid "listening"
+msgstr "escuchando"
+
+
+msgid "log file not created yet"
+msgstr "el archivo de registro aún no se ha creado"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:204
+msgid "mcast_dst_port must be 1-65535"
+msgstr "mcast_dst_port debe estar entre 1 y 65535"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:171
+msgid "not an object"
+msgstr "no es un objeto"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:268
+msgid "partial"
+msgstr "parcial"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:402
+#, javascript-format
+msgid "reconciled %s s ago"
+msgstr "reconciliado hace %s s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1112
+msgid "root (unchanged)"
+msgstr "root (sin cambios)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:389
+msgid "running"
+msgstr "en ejecución"
+
+
+msgid "section id is required"
+msgstr "se requiere el id de sección"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:117
+#, javascript-format
+msgid "send failed (socat exit %s)"
+msgstr "envío fallido (socat salió con %s)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1108
+msgid "socat default (0.5s)"
+msgstr "valor por defecto de socat (0,5 s)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1086
+msgid "socat default (5)"
+msgstr "valor por defecto de socat (5)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:119
+#, javascript-format
+msgid "socat exited with status %s"
+msgstr "socat salió con estado %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1097
+msgid "socat max-children; a cap protects a busy target from being flooded."
+msgstr "max-children de socat; un límite protege a un destino ocupado de saturarse."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:780
+msgid "socat processes"
+msgstr "procesos socat"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:778
+msgid "socat processes: one listener per rule plus a forked child per active connection"
+msgstr "procesos socat: un listener por regla más un hijo bifurcado por cada conexión activa"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:190
+msgid "ssl_cert and ssl_key must be absolute paths"
+msgstr "ssl_cert y ssl_key deben ser rutas absolutas"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:389
+msgid "stopped"
+msgstr "detenido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:184
+msgid "the release has no package for this system"
+msgstr "la versión no tiene paquete para este sistema"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:952
+msgid "the update failed"
+msgstr "la actualización falló"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:186
+msgid "the update helper could not be started"
+msgstr "no se pudo iniciar el asistente de actualización"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:185
+msgid "the update helper is not installed"
+msgstr "el asistente de actualización no está instalado"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:957
+msgid "the update is taking too long"
+msgstr "la actualización tarda demasiado"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:955
+msgid "the update process died before it finished"
+msgstr "el proceso de actualización murió antes de terminar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:188
+msgid "unix_path must be under /var/run, /run or /tmp"
+msgstr "unix_path debe estar en /var/run, /run o /tmp"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:264
+msgid "unknown"
+msgstr "desconocido"
+
+
+msgid "unknown action"
+msgstr "acción desconocida"
+
+#, javascript-format
+msgid "unknown destination protocol '%s'"
+msgstr "protocolo de destino desconocido '%s'"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:811
+msgid "unknown error"
+msgstr "error desconocido"
+
+#, javascript-format
+msgid "unknown proxy type '%s'"
+msgstr "tipo de proxy desconocido '%s'"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1093
+msgid "unlimited"
+msgstr "ilimitado"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:819
+#, javascript-format
+msgid "up to date (%s)"
+msgstr "actualizado (%s)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:823
+#, javascript-format
+msgid "update available: %s"
+msgstr "actualización disponible: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:811
+#, javascript-format
+msgid "update check failed: %s"
+msgstr "error al buscar actualizaciones: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:815
+#, javascript-format
+msgid "v%s"
+msgstr "v%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:461
+#, javascript-format
+msgid "⚠ %d rule(s) not running: "
+msgstr "⚠ %d regla(s) sin ejecutar: "
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:437
+msgid "⚠ Conflicting listen ports: "
+msgstr "⚠ Puertos de escucha en conflicto: "
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:754
+msgid "⚠ Unsaved changes"
+msgstr "⚠ Cambios sin guardar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Only accept from"
+msgstr "Aceptar solo desde"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "comma-separated CIDRs, e.g. 192.168.1.0/24 or 2001:db8::/32"
+msgstr "CIDR separados por comas, p. ej. 192.168.1.0/24 o 2001:db8::/32"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Peer allowlist: comma-separated CIDRs. Empty means everyone. Other peers are refused while the listener stays up (socat range=)."
+msgstr "Lista de pares permitidos: CIDR separados por comas. Vacío significa todos. Los demás pares se rechazan mientras el listener sigue activo (socat range=)."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "bad src_allow"
+msgstr "src_allow no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "paused"
+msgstr "en pausa"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "paused until %s"
+msgstr "en pausa hasta %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Show connections"
+msgstr "Mostrar conexiones"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "Connections: %s"
+msgstr "Conexiones: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "Could not read the connections: %s"
+msgstr "No se pudieron leer las conexiones: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "UDP has no connection table, so there is nothing to list."
+msgstr "UDP no tiene tabla de conexiones, así que no hay nada que listar."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "No established connections right now."
+msgstr "No hay conexiones establecidas ahora mismo."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Peer"
+msgstr "Par"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Peer port"
+msgstr "Puerto del par"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Stack"
+msgstr "Pila"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Showing the first 200 connections."
+msgstr "Mostrando las primeras 200 conexiones."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Resume this rule?"
+msgstr "¿Reanudar esta regla?"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "The listener and its WAN port come back immediately."
+msgstr "El listener y su puerto WAN vuelven de inmediato."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Resuming…"
+msgstr "Reanudando…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Rule resumed."
+msgstr "Regla reanudada."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pause this rule"
+msgstr "Pausar esta regla"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pause"
+msgstr "Pausar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Stop this rule for a while: its listener and WAN port are closed, and it comes back on its own."
+msgstr "Detener esta regla durante un tiempo: su listener y su puerto WAN se cierran, y vuelve por sí sola."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Minutes"
+msgstr "Minutos"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pausing…"
+msgstr "Pausando…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Rule paused."
+msgstr "Regla en pausa."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Add from template"
+msgstr "Añadir desde plantilla"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "A disabled rule is created; open it, set the target and enable it."
+msgstr "Se crea una regla desactivada; ábrela, define el destino y actívala."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Template"
+msgstr "Plantilla"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "TCP and UDP"
+msgstr "TCP y UDP"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Create both rules on the same port"
+msgstr "Crear ambas reglas en el mismo puerto"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pending changes on this page are saved as well."
+msgstr "Los cambios pendientes de esta página también se guardan."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Adding"
+msgstr "Añadiendo"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Saving…"
+msgstr "Guardando…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Add"
+msgstr "Añadir"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "Could not add the rule: %s"
+msgstr "No se pudo añadir la regla: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "⚠ Firewall DNAT sends these ports elsewhere: "
+msgstr "⚠ El DNAT del firewall envía estos puertos a otro sitio: "
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "A firewall redirect is applied in the kernel before the listener sees the packet, so those rules stay idle."
+msgstr "El kernel aplica una redirección del firewall antes de que el listener vea el paquete, así que esas reglas quedan inactivas."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Already DNATed by the firewall: "
+msgstr "Ya redirigidos por DNAT del firewall: "
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Traffic from those zones is forwarded by the firewall and never reaches these socat rules; they still serve every other zone."
+msgstr "El firewall reenvía el tráfico de esas zonas y nunca llega a estas reglas socat; las reglas siguen sirviendo al resto de zonas."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "could not write the pause marker: %s"
+msgstr "no se pudo escribir el marcador de pausa: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "bad section id"
+msgstr "id de sección no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "no such rule"
+msgstr "esa regla no existe"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "minutes must be 1-10080"
+msgstr "los minutos deben estar entre 1 y 10080"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+#, javascript-format
+msgid "%d rule(s) paused"
+msgstr "%d regla(s) en pausa"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Resume"
+msgstr "Reanudar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js
+msgid "Pause / resume this rule"
+msgstr "Pausar / reanudar esta regla"
+
+
+msgid "the release has no checksum file"
+msgstr "la versión no tiene archivo de suma de comprobación"
+
+
+msgid "the checksum file does not come from this project"
+msgstr "el archivo de suma de comprobación no procede de este proyecto"
+
+
+msgid "the release asset does not come from this project"
+msgstr "el archivo de la versión no procede de este proyecto"
+
+
+msgid "the update state directory is not writable"
+msgstr "no se puede escribir en el directorio de estado de la actualización"
+
+
+msgid "proxy server contains invalid characters"
+msgstr "el servidor proxy contiene caracteres no válidos"
+
+
+msgid "proxy port is out of range"
+msgstr "el puerto del proxy está fuera de rango"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:309
+msgid "days 1-7, e.g. 1-5 or 6,7"
+msgstr "días 1-7, p. ej. 1-5 o 6,7"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:315
+msgid "time as HH:MM"
+msgstr "hora en formato HH:MM"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:321
+msgid "valid port value (1-65535)"
+msgstr "valor de puerto válido (1-65535)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:327
+msgid "valid port or port range (1-65535)"
+msgstr "puerto o rango de puertos válido (1-65535)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:334
+msgid "valid user name (letters, digits, \"_\", \"-\")"
+msgstr "nombre de usuario válido (letras, dígitos, \"_\", \"-\")"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:408
+msgid "bad proxy_server"
+msgstr "proxy_server no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:411
+msgid "proxy_port must be 1-65535"
+msgstr "proxy_port debe estar entre 1 y 65535"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:418
+msgid "bad sched_days"
+msgstr "sched_days no válido"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:420
+msgid "schedule needs sched_start and sched_end as HH:MM"
+msgstr "la programación necesita sched_start y sched_end en formato HH:MM"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:447
+msgid "The configuration file /etc/config/socat is missing. Reinstall luci-app-socat-reforged or create the file before saving rules."
+msgstr "Falta el archivo de configuración /etc/config/socat. Reinstala luci-app-socat-reforged o crea el archivo antes de guardar reglas."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:490
+#, javascript-format
+msgid "scheduled off (%s)"
+msgstr "fuera de horario (%s)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:490
+msgid "scheduled off"
+msgstr "fuera de horario"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:654
+#, javascript-format
+msgid "%d rule(s) scheduled off"
+msgstr "%d regla(s) fuera de horario"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:955
+msgid "could not read the log"
+msgstr "no se pudo leer el registro"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:959
+msgid "(no output yet)"
+msgstr "(aún no hay salida)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:961
+msgid "Turn on “Log connections” for this rule to record every transfer here."
+msgstr "Activa «Registrar conexiones» en esta regla para registrar aquí cada transferencia."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:967
+msgid "Only start-up errors are recorded. Turn on “Log connections” to log every transfer."
+msgstr "Solo se registran los errores de arranque. Activa «Registrar conexiones» para registrar cada transferencia."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:969
+#, javascript-format
+msgid "could not read the log: %s"
+msgstr "no se pudo leer el registro: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:972
+#, javascript-format
+msgid "Connection log: %s"
+msgstr "Registro de conexiones: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1003
+msgid "/etc/config/socat is present"
+msgstr "/etc/config/socat está presente"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1005
+#, javascript-format
+msgid "the engine is running (last reconcile %s s ago)"
+msgstr "el motor está en ejecución (última reconciliación hace %s s)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1006
+msgid "the engine is not running: press Start"
+msgstr "el motor no está en ejecución: pulsa Iniciar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1008
+#, javascript-format
+msgid "%d of %d enabled rule(s) are listening"
+msgstr "%d de %d regla(s) activa(s) están escuchando"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1010
+#, javascript-format
+msgid "%d rule(s) are down"
+msgstr "%d regla(s) están caídas"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1013
+#, javascript-format
+msgid "%d rule(s) are paused"
+msgstr "%d regla(s) están en pausa"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1016
+#, javascript-format
+msgid "%d rule(s) are outside their schedule"
+msgstr "%d regla(s) están fuera de su horario"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1020
+#, javascript-format
+msgid "%d listen port conflict(s): %s"
+msgstr "%d conflicto(s) de puerto de escucha: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1022
+msgid "no two rules fight over the same listen port"
+msgstr "ninguna regla compite por el mismo puerto de escucha"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1027
+#, javascript-format
+msgid "%d firewall redirect(s) send a listen port elsewhere"
+msgstr "%d redirección(es) del firewall envían un puerto de escucha a otro sitio"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1028
+msgid "no firewall redirect steals a listen port"
+msgstr "ninguna redirección del firewall se apodera de un puerto de escucha"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1032
+#, javascript-format
+msgid "%d rule(s) report a start error: %s"
+msgstr "%d regla(s) informan de un error de arranque: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1036
+msgid "Testing the target of every enabled rule…"
+msgstr "Probando el destino de cada regla activa…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1043
+msgid "Diagnose"
+msgstr "Diagnosticar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1060
+msgid "reachable"
+msgstr "accesible"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1060
+msgid "not reachable"
+msgstr "no accesible"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1070
+msgid "No enabled rule has a testable target."
+msgstr "Ninguna regla activa tiene un destino que se pueda probar."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1072
+#, javascript-format
+msgid "%d check(s) passed, %d failed"
+msgstr "%d comprobación(es) correcta(s), %d fallida(s)"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1079
+msgid "Looking for old forwards…"
+msgstr "Buscando redirecciones antiguas…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1079
+msgid "Reading the firewall and the legacy socat config…"
+msgstr "Leyendo el firewall y la configuración socat heredada…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1087
+msgid "Nothing to migrate"
+msgstr "Nada que migrar"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1088
+msgid "No fw4 redirect or legacy socat instance can be converted to a forward."
+msgstr "Ninguna redirección de fw4 ni instancia socat heredada se puede convertir en una redirección."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1090
+#, javascript-format
+msgid "%d section(s) could not be converted automatically."
+msgstr "%d sección(es) no se pudieron convertir automáticamente."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1107
+#, javascript-format
+msgid "firewall redirect “%s”"
+msgstr "redirección del firewall «%s»"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1108
+#, javascript-format
+msgid "legacy socat “%s”"
+msgstr "socat heredado «%s»"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1113
+msgid "already exists"
+msgstr "ya existe"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1118
+msgid "Import old forwards"
+msgstr "Importar redirecciones antiguas"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1119
+msgid "The selected forwards are added disabled, so you can review them. Remove the old redirect or disable the legacy instance afterwards."
+msgstr "Las redirecciones seleccionadas se añaden desactivadas para que puedas revisarlas. Después, elimina la redirección antigua o desactiva la instancia heredada."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1142
+msgid "Nothing was imported."
+msgstr "No se importó nada."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1146
+#, javascript-format
+msgid "Skipped %d candidate(s) that failed validation."
+msgstr "Se omitieron %d candidato(s) que no superaron la validación."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1154
+msgid "Import selected"
+msgstr "Importar seleccionadas"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1159
+#, javascript-format
+msgid "Could not scan the old forwards: %s"
+msgstr "No se pudieron analizar las redirecciones antiguas: %s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1735
+msgid "Migrate old forwards"
+msgstr "Migrar redirecciones antiguas"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1927
+msgid "Log"
+msgstr "Registro"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1928
+msgid "Show connection log"
+msgstr "Mostrar registro de conexiones"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2094
+msgid "Log connections"
+msgstr "Registrar conexiones"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2098
+msgid "Record every transfer of this rule (socat -d -d) and show it in the connection log. The output is kept in RAM and capped automatically."
+msgstr "Registrar cada transferencia de esta regla (socat -d -d) y mostrarla en el registro de conexiones. La salida se guarda en RAM y se limita automáticamente."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2101
+msgid "Active days"
+msgstr "Días activos"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2102
+msgid "every day"
+msgstr "todos los días"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2105
+msgid "ISO weekdays with Monday=1: “1-5” for workdays, “6,7” for the weekend. Empty means every day."
+msgstr "Días de la semana ISO con lunes=1: «1-5» para días laborables, «6,7» para el fin de semana. Vacío significa todos los días."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2107
+msgid "Active from"
+msgstr "Activa desde"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2111
+msgid "Start of the daily window (HH:MM, local time). Set both times to enable the schedule; the listener and its WAN port are closed outside it."
+msgstr "Inicio de la ventana diaria (HH:MM, hora local). Define ambas horas para activar la programación; fuera de ella se cierran el listener y su puerto WAN."
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2113
+msgid "Active until"
+msgstr "Activa hasta"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2117
+msgid "End of the window. An end earlier than the start crosses midnight (22:00–06:00). The rule is skipped, not left running, if the times are invalid."
+msgstr "Fin de la ventana. Un fin anterior al inicio cruza la medianoche (22:00–06:00). Si las horas no son válidas, la regla se omite en lugar de dejarse en ejecución."

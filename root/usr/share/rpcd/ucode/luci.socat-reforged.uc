@@ -22,6 +22,8 @@ import { cursor } from 'uci';
  *   rule_restart{sid}     restart exactly one rule
  *   rule_pause{sid,minutes} / rule_resume{sid}   temporary stop
  *   peers{sid}            established TCP peers of one rule
+ *   rule_log{sid,lines}   tail of one rule's captured socat stderr
+ *   migrate_scan          candidate rules from fw4 redirects + legacy socat
  *   log{lines}            tail of the engine's persistent log file
  *   log_clear             truncate that file
  *   update_check{force}   latest GitHub release vs the installed version
@@ -35,8 +37,12 @@ import { cursor } from 'uci';
 const HB_FILE   = '/var/run/socat-reforged.hb';
 const STATE_FILE = '/var/run/socat-reforged/state';
 const PAUSEDIR   = '/var/run/socat-reforged/pause';
+const SCHED_FILE = '/var/run/socat-reforged/scheduled';
+const ERRDIR     = '/var/run/socat-reforged/err';
 const LOG_FILE  = '/var/log/socat-reforged.log';   /* engine's own log */
 const LOG_LINES = 300;                             /* lines one call returns */
+const RULE_LOG_LINES = 120;                        /* per-rule stderr tail */
+const RULE_LOG_MAX = 400;                          /* hard cap for a caller */
 const ENGINE   = '/etc/socat-boot.sh';
 const CTL      = '/usr/libexec/socat-reforged-ctl';
 const UCI_CFG  = 'socat';
@@ -464,7 +470,11 @@ function read_rules() {
 			dest_port: to_int(uci.get(UCI_CFG, sid, 'dest_port')),
 			family: uci.get(UCI_CFG, sid, 'family') ?? '',
 			proxy: uci.get(UCI_CFG, sid, 'proxy') ?? '',
-			firewall_accept: (uci.get(UCI_CFG, sid, 'firewall_accept') ?? '1') == '1'
+			firewall_accept: (uci.get(UCI_CFG, sid, 'firewall_accept') ?? '1') == '1',
+			sched_days: uci.get(UCI_CFG, sid, 'sched_days') ?? '',
+			sched_start: uci.get(UCI_CFG, sid, 'sched_start') ?? '',
+			sched_end: uci.get(UCI_CFG, sid, 'sched_end') ?? '',
+			conn_log: (uci.get(UCI_CFG, sid, 'conn_log') ?? '0') == '1'
 		});
 	});
 	uci.unload(UCI_CFG);
@@ -488,6 +498,29 @@ function read_pauses() {
 		const until = to_int(trim(readfile(`${PAUSEDIR}/${sid}`) ?? ''));
 		if (until > now)
 			out[sid] = until;
+	}
+	return out;
+}
+
+/* --------------------------------------------------------- rule schedule */
+
+/* The generator evaluates each rule's schedule against the local clock every
+ * cycle and writes "sid<TAB>on|off" here, so the page shows the same verdict
+ * the engine acted on instead of recomputing it (and disagreeing around
+ * midnight).  Missing file = no rule is scheduled. */
+function read_sched() {
+	const out = {};
+	const data = readfile(SCHED_FILE);
+	if (data == null)
+		return out;
+	const lines = split(data, '\n');
+	for (let i = 0; i < length(lines); i++) {
+		const l = trim(lines[i]);
+		if (l == '')
+			continue;
+		const f = split(l, '\t');
+		if (length(f) >= 2 && f[0] != '')
+			out[f[0]] = (f[1] == 'on');
 	}
 	return out;
 }
@@ -1073,10 +1106,11 @@ function do_status() {
 	const es = engine_state();
 	const er = engine_rules();
 	const pauses = read_pauses();
+	const sched = read_sched();
 	const config_missing = !fs.access('/etc/config/' + UCI_CFG);
 
 	const out = [];
-	let enabled = 0, listening = 0, down = 0, paused = 0, connections = 0, errors = 0;
+	let enabled = 0, listening = 0, down = 0, paused = 0, scheduled = 0, connections = 0, errors = 0;
 
 	for (let i = 0; i < length(rules); i++) {
 		const r = rules[i];
@@ -1084,6 +1118,8 @@ function do_status() {
 		const conns = (r.proto == 'tcp') ? (lv.conns[r.listen] ?? 0) : 0;
 		const st = er ? er[r.sid] : null;
 		const puntil = pauses[r.sid];
+		const sched_on = (r.sched_start == '' && r.sched_end == '' && r.sched_days == '')
+			? null : (sched[r.sid] !== false);
 
 		let status, error = null, paused_until = null;
 		if (!r.enable) {
@@ -1092,6 +1128,9 @@ function do_status() {
 		else if (puntil != null) {
 			status = 'paused';
 			paused_until = puntil;
+		}
+		else if (sched_on === false) {
+			status = 'scheduled';
 		}
 		else if (st != null) {
 			/* the engine knows better than a port lookup */
@@ -1113,6 +1152,8 @@ function do_status() {
 				listening++;
 			else if (status == 'paused')
 				paused++;
+			else if (status == 'scheduled')
+				scheduled++;
 			else if (status != 'disabled')
 				down++;
 			if (error != null)
@@ -1125,13 +1166,15 @@ function do_status() {
 			listen: r.listen, dest_proto: r.dest_proto, dest_ip: r.dest_ip,
 			dest_port: r.dest_port, family: r.family, proxy: r.proxy,
 			firewall_accept: r.firewall_accept, status, conns, error,
-			paused_until
+			paused_until,
+			sched_days: r.sched_days, sched_start: r.sched_start,
+			sched_end: r.sched_end, conn_log: r.conn_log
 		});
 	}
 
 	return {
 		engine: es,
-		counts: { total: length(out), enabled, listening, down, paused, errors },
+		counts: { total: length(out), enabled, listening, down, paused, scheduled, errors },
 		connections,
 		fw_conflicts: find_fw_conflicts(rules),
 		config_missing,
@@ -1270,8 +1313,341 @@ function do_peers(args) {
 	return { ok: true, sid, proto: rule.proto, peers };
 }
 
-function do_pause(args) {
+/* ------------------------------------------------------- per-rule stderr */
+
+/*
+ * Every listener's stderr already goes to $RUNDIR/err/<sid>-<kind>-<port>.log
+ * (that is how the page explains a rule that will not start).  A rule with
+ * "conn_log" also passes `-d -d` to socat, so the same file then records each
+ * transfer.  Reading it costs no fork and no new plumbing; the engine trims
+ * oversized files every minute, and this call caps both the files it opens and
+ * the lines it returns.
+ */
+function do_rule_log(args) {
 	const sid = args?.sid ?? '';
+	if (!sid_ok(sid))
+		return { ok: false, detail: 'bad section id' };
+
+	let rule = null;
+	const rules = read_rules();
+	for (let i = 0; i < length(rules); i++)
+		if (rules[i].sid == sid) { rule = rules[i]; break; }
+	if (rule == null)
+		return { ok: false, detail: 'no such rule' };
+
+	const want = to_int(args?.lines ?? 0);
+	const n = (want > 0 && want <= RULE_LOG_MAX) ? want : RULE_LOG_LINES;
+
+	let names = null;
+	try { names = fs.lsdir(ERRDIR); } catch (e) { names = null; }
+	if (names == null)
+		return { ok: true, sid, proto: rule.proto, conn_log: rule.conn_log,
+		         files: 0, lines: [], dir: ERRDIR };
+
+	const lines = [];
+	let files = 0;
+	const prefix = sid + '-';
+	for (let i = 0; i < length(names) && files < 32; i++) {
+		const name = names[i];
+		if (substr(name, 0, length(prefix)) != prefix || match(name, /\.log$/) == null)
+			continue;
+		const path = `${ERRDIR}/${name}`;
+		const st = fs.stat(path);
+		if (st == null || (st.size ?? 0) > 262144)
+			continue;
+		const data = readfile(path);
+		if (data == null || data == '')
+			continue;
+		files++;
+		const all = split(data, '\n');
+		for (let j = 0; j < length(all); j++) {
+			const l = trim(all[j]);
+			if (l != '')
+				push(lines, l);
+		}
+	}
+
+	const from = (length(lines) > n) ? length(lines) - n : 0;
+	const out = [];
+	for (let i = from; i < length(lines); i++)
+		push(out, lines[i]);
+
+	return { ok: true, sid, proto: rule.proto, conn_log: rule.conn_log,
+	         files, lines: out, dir: ERRDIR };
+}
+
+/* ------------------------------------------------------------ migration --- */
+
+/* Fields a migration candidate may carry.  The view validates them with the
+ * same importCheck() the JSON import uses before anything reaches UCI, and the
+ * generator validates them again on its next pass. */
+function span_text(a, b) {
+	return (a == b) ? `${a}` : `${a}-${b}`;
+}
+
+function first_list(v) {
+	if (type(v) == 'array')
+		return (length(v) > 0) ? `${v[0]}` : '';
+	return `${v ?? ''}`;
+}
+
+/* A rule already listening on this port and forwarding to this target is the
+ * same job: do not offer to add it twice. */
+function same_rule(rules, c) {
+	for (let i = 0; i < length(rules); i++) {
+		const r = rules[i];
+		if (r.proto != c.proto || r.listen_raw != c.listen_port)
+			continue;
+		if (r.dest_ip == c.dest_ip && `${r.dest_port}` == `${c.dest_port}`)
+			return true;
+	}
+	return false;
+}
+
+function migrate_from_fw4(rules) {
+	const out = [];
+	const red = read_redirects();
+	for (let i = 0; i < length(red); i++) {
+		const rd = red[i];
+		const spans = port_spans(rd.ports);
+		if (length(spans) == 0)
+			continue;
+		const ip = first_list(rd.dest_ip);
+		if (ip == '')
+			continue;                       /* zone target: not a fixed forward */
+		const dp = first_span_port(rd.dest_port);
+		const v6 = addr_v6(addr_key(ip));
+		const has_tcp = (trim(rd.proto) == '') || proto_has(rd.proto, 'tcp');
+		const has_udp = (trim(rd.proto) == '') || proto_has(rd.proto, 'udp');
+		const protos = [];
+		if (has_tcp) push(protos, 'tcp');
+		if (has_udp) push(protos, 'udp');
+		if (length(protos) == 0)
+			continue;
+
+		for (let s = 0; s < length(spans) && s < 8; s++) {
+			const lp = span_text(spans[s][0], spans[s][1]);
+			for (let p = 0; p < length(protos); p++) {
+				const proto = protos[p];
+				const c = {
+					source: 'fw4',
+					source_sid: rd.sid,
+					source_name: rd.name || rd.sid,
+					remarks: rd.name || `fw4 ${rd.sid}`,
+					enable: '0',
+					proto,
+					listen_port: lp,
+					dest_proto: `${proto}${v6 ? '6' : '4'}`,
+					dest_ip: addr_key(ip),
+					dest_port: `${dp > 0 ? dp : spans[s][0]}`,
+					family: (lc(trim(rd.family)) == 'ipv4') ? '4'
+						: (lc(trim(rd.family)) == 'ipv6') ? '6' : '',
+					firewall_accept: '1'
+				};
+				c.duplicate = same_rule(rules, c);
+				push(out, c);
+			}
+		}
+	}
+	return out;
+}
+
+/* "host:port" / "[v6]:port" -> { host, port }, or null */
+function split_hostport(s) {
+	let host = '', port = '';
+	if (substr(s, 0, 1) == '[') {
+		const e = index(s, ']');
+		if (e < 0 || substr(s, e + 1, 1) != ':')
+			return null;
+		host = substr(s, 1, e - 1);
+		port = substr(s, e + 2);
+	} else {
+		let i = length(s) - 1;
+		while (i >= 0 && substr(s, i, 1) != ':')
+			i--;
+		if (i < 1)
+			return null;
+		host = substr(s, 0, i);
+		port = substr(s, i + 1);
+	}
+	if (!host_ok(host) || match(port, /^[0-9]+$/) == null)
+		return null;
+	const p = to_int(port);
+	if (p < 1 || p > 65535)
+		return null;
+	return { host, port: p };
+}
+
+/*
+ * The stock socat package stores its instances as `config socat` sections with
+ * a raw SocatOptions line ("TCP4-LISTEN:8000,fork TCP4:192.168.1.20:80"), and
+ * the old Lua app used the same section type with named options.  Both are
+ * candidates for a one-click conversion; anything that cannot be expressed
+ * exactly (TLS without its certificate, a proxy chain, custom options) is left
+ * alone and counted as skipped instead of guessed at.
+ */
+function migrate_from_legacy(rules) {
+	const out = [];
+	const skipped = [];
+	if (!fs.access('/etc/config/' + UCI_CFG))
+		return { out, skipped };
+	try {
+		uci.load(UCI_CFG);
+	} catch (e) {
+		return { out, skipped };
+	}
+
+	uci.foreach(UCI_CFG, 'socat', function(s) {
+		const sid = s['.name'];
+		const opts = s.SocatOptions ?? s.socat_options ?? '';
+
+		if (opts != '') {
+			const toks = split(trim(opts), /\s+/);
+			let lt = '', dt = '';
+			for (let i = 0; i < length(toks); i++) {
+				const up = uc(toks[i]);
+				if (lt == '' && index(up, '-LISTEN:') > 0)
+					lt = toks[i];
+				else if (dt == '' && (index(up, '-CONNECT:') > 0 ||
+				         match(up, /^(TCP4?|UDP4?|TCP6|UDP6):/) != null))
+					dt = toks[i];
+			}
+			if (lt == '' || dt == '') {
+				push(skipped, { source: 'legacy', sid });
+				return;
+			}
+			const c = parse_legacy_pair(lt, dt, sid);
+			if (c == null) {
+				push(skipped, { source: 'legacy', sid });
+				return;
+			}
+			c.remarks = s.remarks ?? s.name ?? sid;
+			c.duplicate = same_rule(rules, c);
+			push(out, c);
+			return;
+		}
+
+		/* the old Lua schema: same option names as ours, section type socat */
+		if ((s.listen_port ?? '') == '' || ((s.dest_ip ?? '') == '' && (s.dest_proto ?? '') != 'unix')) {
+			return;                          /* not something we can convert */
+		}
+		const proto = s.proto ?? 'tcp';
+		if (proto != 'tcp' && proto != 'udp' && proto != 'ssl' && proto != 'unix')
+			return;
+		const c = {
+			source: 'legacy',
+			source_sid: sid,
+			source_name: s.remarks ?? s.name ?? sid,
+			remarks: s.remarks ?? s.name ?? sid,
+			enable: '0',
+			proto,
+			listen_port: s.listen_port ?? '',
+			dest_proto: s.dest_proto ?? 'tcp4',
+			dest_ip: s.dest_ip ?? '',
+			dest_port: s.dest_port ?? '',
+			family: s.family ?? '',
+			firewall_accept: s.firewall_accept ?? '0',
+			unix_path: s.unix_path ?? '',
+			dst_unix_path: s.dst_unix_path ?? '',
+			src_allow: s.src_allow ?? ''
+		};
+		c.duplicate = same_rule(rules, c);
+		push(out, c);
+	});
+
+	uci.unload(UCI_CFG);
+	return { out, skipped };
+}
+
+/* one SocatOptions pair -> candidate, or null when it is not a plain
+ * "listen -> dial" forward we can express as UCI */
+function parse_legacy_pair(lt, dt, sid) {
+	const lup = uc(lt);
+	const c = {
+		source: 'legacy', source_sid: sid, source_name: sid, remarks: sid,
+		enable: '0', family: '', firewall_accept: '0'
+	};
+	let payload = null, fam = '';
+
+	if (index(lup, 'OPENSSL-LISTEN:') >= 0)
+		return null;                         /* needs a cert we cannot know */
+	else if (index(lup, 'UNIX-LISTEN:') == 0) {
+		payload = substr(lt, length('UNIX-LISTEN:') + 1);
+		const comma = index(payload, ',');
+		if (comma > 0) payload = substr(payload, 0, comma);
+		if (!path_ok(payload) ||
+		    !(substr(payload, 0, 9) == '/var/run/' || substr(payload, 0, 5) == '/run/' || substr(payload, 0, 5) == '/tmp/'))
+			return null;
+		c.proto = 'unix';
+		c.unix_path = payload;
+		c.listen_port = '';
+	} else {
+		const kinds = [ 'TCP6-LISTEN:', 'TCP4-LISTEN:', 'TCP-LISTEN:',
+		                'UDP6-LISTEN:', 'UDP4-LISTEN:', 'UDP-LISTEN:' ];
+		let kind = '';
+		for (let i = 0; i < length(kinds); i++) {
+			if (index(lup, kinds[i]) == 0) { kind = kinds[i]; break; }
+		}
+		if (kind == '')
+			return null;
+		payload = substr(lt, length(kind) + 1);
+		const comma = index(payload, ',');
+		if (comma > 0) payload = substr(payload, 0, comma);
+		if (match(payload, /^[0-9]+$/) == null)
+			return null;
+		const port = to_int(payload);
+		if (port < 1 || port > 65535)
+			return null;
+		if (index(kind, 'UDP') == 0) c.proto = 'udp';
+		else c.proto = 'tcp';
+		if (index(kind, '6-') > 0) c.family = '6';
+		else if (index(kind, '4-') > 0) c.family = '4';
+		c.listen_port = `${port}`;
+	}
+
+	const dup = uc(dt);
+	if (index(dup, 'UNIX-CONNECT:') == 0) {
+		const path = substr(dt, length('UNIX-CONNECT:') + 1);
+		const comma = index(path, ',');
+		const p = (comma > 0) ? substr(path, 0, comma) : path;
+		if (!path_ok(p))
+			return null;
+		c.dest_proto = 'unix';
+		c.dst_unix_path = p;
+		c.dest_ip = '';
+		c.dest_port = '';
+		return c;
+	}
+	if (index(dup, 'SOCKS4A:') == 0 || index(dup, 'PROXY:') == 0 ||
+	    index(dup, 'OPENSSL:') == 0 || index(dup, 'SSL:') == 0)
+		return null;
+
+	let hp = null;
+	if (index(dup, 'TCP6:') == 0) { hp = split_hostport(substr(dt, 5)); c.dest_proto = 'tcp6'; }
+	else if (index(dup, 'TCP4:') == 0) { hp = split_hostport(substr(dt, 5)); c.dest_proto = 'tcp4'; }
+	else if (index(dup, 'TCP:') == 0)  { hp = split_hostport(substr(dt, 4)); c.dest_proto = 'tcp4'; }
+	else if (index(dup, 'UDP6:') == 0) { hp = split_hostport(substr(dt, 5)); c.dest_proto = 'udp6'; }
+	else if (index(dup, 'UDP4:') == 0) { hp = split_hostport(substr(dt, 5)); c.dest_proto = 'udp4'; }
+	else if (index(dup, 'UDP:') == 0)  { hp = split_hostport(substr(dt, 4)); c.dest_proto = 'udp4'; }
+	else return null;
+	if (hp == null)
+		return null;
+	c.dest_ip = hp.host;
+	c.dest_port = `${hp.port}`;
+	return c;
+}
+
+function do_migrate_scan() {
+	const rules = read_rules();
+	const fw = migrate_from_fw4(rules);
+	const lg = migrate_from_legacy(rules);
+	const all = [];
+	for (let i = 0; i < length(fw); i++) push(all, fw[i]);
+	for (let i = 0; i < length(lg.out); i++) push(all, lg.out[i]);
+	return { ok: true, candidates: all, skipped: lg.skipped };
+}
+
+function do_pause(args) {	const sid = args?.sid ?? '';
 	if (!sid_ok(sid))
 		return { ok: false, detail: 'bad section id' };
 	let found = false;
@@ -1369,6 +1745,17 @@ return {
 			args: { sid: '' },
 			call: function(request) {
 				return do_peers(request.args);
+			}
+		},
+		rule_log: {
+			args: { sid: '', lines: 0 },
+			call: function(request) {
+				return do_rule_log(request.args);
+			}
+		},
+		migrate_scan: {
+			call: function() {
+				return do_migrate_scan();
 			}
 		},
 		rule_pause: {

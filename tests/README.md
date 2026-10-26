@@ -14,6 +14,7 @@ sh tests/run.sh --gen           # just the generator unit tests
 sh tests/run.sh --zones         # just the zone detection tests
 sh tests/run.sh --keys          # just the engine listener-kind classifier
 sh tests/run.sh --pkg           # just the package layout / executable bits
+sh tests/run.sh --po            # just the translation catalogues
 ```
 
 Exit code is non-zero if any check fails, so this can go straight into CI.
@@ -30,7 +31,8 @@ Exit code is non-zero if any check fails, so this can go straight into CI.
 | `matrix.sh` | every generated command, started for real: one rule per listener kind (TCP/TCP6/UDP/UDP6/TLS/unix/unix/unix/TCP/SOCKS4A/multicast) with every option on — including `nodelay` on the UDP rule, which socat must have been kept away from — then each command is launched and its listener verified in `/proc/net/{tcp,tcp6,udp,udp6}` or as a unix socket file. Catches "socat refuses this option on this address type". |
 | `fuzz.sh` | ~100 hostile values (shell metacharacters, spikes, out-of-range and octal-looking numbers) fed to every option, each in the profile that actually reaches it, asserting the generator never crashes, never starts a listener for a value it should have refused, and that no command/key/firewall line contains a shell metacharacter. Also asserts that a rule which cannot be honoured *says why*. |
 | `engine-keys.sh` | the engine's listener recognition. Derives the address types from the generator (`TCP-LISTEN`, `TCP6-LISTEN`, `OPENSSL-LISTEN`, `UNIX-LISTEN`, `UDP-LISTEN`, `UDP6-LISTEN`, `UDP4-RECVFROM`) and asserts that `scan_workers` admits each one and that `key_kind`/`key_port`/`key_unix_path` classify it. A kind missing from those lists is invisible to the engine (never stopped, restarted or counted) — which is what happened to `OPENSSL-LISTEN`. |
-| `package-layout.sh` | the *installed* package rather than the code: the executable bit on everything a device runs (engine, init script, ctl helper, hotplug, plus the repo's own scripts), the `root/`+`htdocs/` layout `luci.mk` installs (never `files/`), the package metadata (`LUCI_MAINTAINER`/`LUCI_URL`/`LUCI_DESCRIPTION`, numeric `PKG_VERSION`), and the postinst **expanded the way make expands it** and syntax-checked (`sh -n`) — a Makefile `define` turns `$$$(` into `$(` and drops a bare `$'`, which shipped a postinst that was a syntax error and never enabled the service. |
+| `package-layout.sh` | the *installed* package rather than the code: the executable bit on everything a device runs (engine, init script, ctl helper, hotplug, plus the repo's own scripts), the `root/`+`htdocs/` layout `luci.mk` installs (never `files/`), the package metadata (`LUCI_MAINTAINER`/`LUCI_URL`/`LUCI_DESCRIPTION`, numeric `PKG_VERSION`), the ACL grants for every method the view calls, and the postinst **expanded the way make expands it** and syntax-checked (`sh -n`) — a Makefile `define` turns `$$$(` into `$(` and drops a bare `$'`, which shipped a postinst that was a syntax error and never enabled the service. |
+| `po-checks.js` | the translation catalogues: the template has no duplicate/empty entries, every language parses, covers exactly the template's msgids (no missing, extra or fuzzy entry), leaves nothing untranslated, keeps every `%s`/`%d` placeholder intact, and names the right `Language:` in its header. English is the source language, so the seven shipped catalogues are `zh_Hans` + `es`/`fr`/`ar`/`pt`/`ru`/`ja`. |
 
 ### `router/` — needs a router
 

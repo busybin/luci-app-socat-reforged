@@ -69,7 +69,8 @@ const document = {
 	body: E('body', {}, [])
 };
 global.document = document;
-global.window = { setTimeout: (f) => f(), addEventListener: () => {}, location: { href: '' } };
+global.window = { setTimeout: (f) => f(), addEventListener: () => {},
+	location: { href: '', reload: () => { RELOADED++; } } };
 global.E = E;
 global._ = (s) => {
 	const f = (t) => t;
@@ -141,6 +142,13 @@ const STATUS = {
 		status: (r.listen_port === '30000-30002') ? 'partial' : 'listening',
 		conns: 0, error: (r.listen_port === '30000-30002') ? 'address already in use' : null }))
 };
+/* per-rule log + migration scan answers, mutable so a test can vary them */
+const RULE_LOG = {
+	ok: true, conn_log: true, size: 64,
+	lines: [ '[REDACTED] socat[4242] N opening connection to 192.168.1.10:80' ]
+};
+const MIGRATE = { ok: true, candidates: [], skipped: [] };
+
 const store = {};
 for (const r of RULES) store[r['.name']] = Object.assign({}, r);
 /* the internal engine-settings section: the view reads `update_check` from it
@@ -224,6 +232,7 @@ global.poll = { add: () => {} };
 const NOTIFICATIONS = [];
 const WIRED = [];
 const CALLS = [];
+let RELOADED = 0;
 global.ui = {
 	showModal: () => {}, hideModal: () => {},
 	/* not an arrow function: `arguments` has to be the *call's* arguments */
@@ -261,6 +270,8 @@ global.rpc = {
 			lines: [ '2026-10-13 20:00:00 engine started (pid 4242, v3 (deadbee))' ]
 		});
 		if (o.method === 'log_clear') return Promise.resolve({ ok: true });
+		if (o.method === 'rule_log') return Promise.resolve(Object.assign({}, RULE_LOG));
+		if (o.method === 'migrate_scan') return Promise.resolve(Object.assign({}, MIGRATE));
 		if (o.method === 'update_check') return Promise.resolve({
 			ok: true, current: '4-1', latest_tag: 'V5', latest: '5', update_available: true,
 			release_url: 'https://github.com/busybin/luci-app-socat-reforged/releases/tag/V5',
@@ -432,7 +443,7 @@ global.view = { extend: (def) => { function V() {} V.prototype = def; return V; 
 	 * source rather than reaching into the closure */
 	const EXPORT_FIELDS = /var EXPORT_FIELDS = \[([^\]]*)\]/.exec(src)[1]
 		.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
-	ck('the generator really was parsed', 35, genOpts.length);
+	ck('the generator really was parsed', 39, genOpts.length);
 	const missingField = genOpts.filter(n => !optOf(n));
 	ck('every engine option has a form field', genOpts.length + ' fields',
 		missingField.length ? missingField.length + ' missing: ' + missingField.join(',') : genOpts.length + ' fields');
@@ -572,6 +583,173 @@ ck('a user name with a space is refused', true,
 	optOf('user').validate('cfgA1', 'foo bar') !== true);
 ck('proxy_server takes a host name as well as an IPv4 literal',
 	'or(hostname, ip4addr)', optOf('proxy_server').datatype);
+
+	/* ---- per-rule schedule + connection log ------------------------------
+	 * Both are engine options, so the generic options test above already
+	 * proves a form field exists; what it cannot see is whether the value is
+	 * ever usable: the schedule validators and the import parity matter. */
+	ck('the schedule offers "active days"', true, !!optOf('sched_days'));
+	ck('the schedule offers a start time', true, !!optOf('sched_start'));
+	ck('the schedule offers an end time', true, !!optOf('sched_end'));
+	ck('"log connections" is a flag', true, !!optOf('conn_log'));
+	ck('the per-rule log button exists', true, !!optOf('_log'));
+	ck('the log button is a modal-only action', true, !!optOf('_log').modalonly);
+
+	const vDays = optOf('sched_days').validate;
+	ck('sched_days accepts a range', true, vDays('cfg1111', '1-5') === true);
+	ck('sched_days accepts a mixed list', true, vDays('cfg1111', '1,3-5') === true);
+	ck('sched_days accepts empty (every day)', true, vDays('cfg1111', '') === true);
+	ck('sched_days rejects day 0', true, vDays('cfg1111', '0') !== true);
+	ck('sched_days rejects a reversed range', true, vDays('cfg1111', '5-1') !== true);
+	ck('sched_days rejects words', true, vDays('cfg1111', 'mon-fri') !== true);
+	const vTime = optOf('sched_start').validate;
+	ck('sched time accepts 08:00', true, vTime('cfg1111', '08:00') === true);
+	ck('sched time accepts midnight', true, vTime('cfg1111', '00:00') === true);
+	ck('sched time rejects 8:00', true, vTime('cfg1111', '8:00') !== true);
+	ck('sched time rejects hour 24', true, vTime('cfg1111', '24:00') !== true);
+	ck('sched time rejects minute 60', true, vTime('cfg1111', '08:60') !== true);
+
+	/* import parity: a window with one end missing is skipped by the
+	 * generator (fail-closed), so the importer must refuse it up front */
+	ck('import validation accepts a full window', null,
+		imp(Object.assign({}, baseRule, { sched_start: '08:00', sched_end: '18:00' })));
+	ck('import validation accepts days plus a window', null,
+		imp(Object.assign({}, baseRule, { sched_days: '1-5', sched_start: '08:00', sched_end: '18:00' })));
+	ck('import validation rejects days without a window',
+		'schedule needs sched_start and sched_end as HH:MM',
+		imp(Object.assign({}, baseRule, { sched_days: '1-5' })));
+	ck('import validation rejects a bad start time',
+		'schedule needs sched_start and sched_end as HH:MM',
+		imp(Object.assign({}, baseRule, { sched_start: '8:00', sched_end: '18:00' })));
+	ck('import validation rejects bad days', 'bad sched_days',
+		imp(Object.assign({}, baseRule, { sched_days: '9', sched_start: '08:00', sched_end: '18:00' })));
+	ck('import validation rejects a bad conn_log', 'a boolean option must be 0 or 1',
+		imp(Object.assign({}, baseRule, { conn_log: 'yes' })));
+
+	/* ---- a rule outside its schedule is not "down" ----------------------
+	 * The engine skips it on purpose; a red "down" would send the user
+	 * hunting for a fault that does not exist. */
+	const savedRule0 = STATUS.rules[0];
+	STATUS.rules[0] = Object.assign({}, savedRule0,
+		{ status: 'scheduled', sched_start: '08:00', sched_end: '18:00' });
+	STATUS.counts.scheduled = 2;
+	await v.refreshStatus();
+	const schStat = v.statFor('cfg1111');
+	ck('a scheduled-off rule says so', 'scheduled off (08:00–18:00)', String(schStat.label));
+	ck('...and buckets with the disabled rules', 'disabled', schStat.bucket);
+	ck('...and is marked scheduled', true, schStat.scheduled);
+	v.recount();
+	has('the meta line counts scheduled rules', '2 rule(s) scheduled off',
+		byId['socat-t-engine-age'] ? byId['socat-t-engine-age'].textContent : '(none)');
+	STATUS.rules[0] = savedRule0;
+	delete STATUS.counts.scheduled;
+	await v.refreshStatus();
+
+	/* ---- one rule's connection log --------------------------------------- */
+	const captureModal = () => {
+		const box = { title: null, kids: null, orig: global.ui.showModal };
+		global.ui.showModal = (t, k) => { box.title = t; box.kids = k; };
+		box.restore = () => { global.ui.showModal = box.orig; };
+		return box;
+	};
+	const modalText = (box) => flatten(box.kids) +
+		JSON.stringify(box.kids, (k, val) => (typeof val === 'function' ? '[fn]' : val));
+	{
+		const box = captureModal();
+		const before = CALLS.length;
+		await v.handleRuleLog('cfg1111');
+		box.restore();
+		has('the log dialog names the rule', 'web', String(box.title));
+		has('the log dialog shows the recorded lines', 'N opening connection', modalText(box));
+		ck('the log call reaches the backend', true,
+			CALLS.slice(before).indexOf('rule_log') >= 0);
+	}
+	{
+		RULE_LOG.conn_log = false;
+		RULE_LOG.lines = [];
+		const box = captureModal();
+		await v.handleRuleLog('cfg1111');
+		box.restore();
+		has('an empty log says so', '(no output yet)', modalText(box));
+		has('...and points at the "Log connections" toggle', 'Turn on', modalText(box));
+		RULE_LOG.conn_log = true;
+		RULE_LOG.lines = [ '[REDACTED] socat[4242] N opening connection to 192.168.1.10:80' ];
+	}
+
+	/* ---- image diagnose: local verdicts + a live target probe ----------- */
+	STATUS.counts.scheduled = 1;
+	{
+		const box = captureModal();
+		const before = CALLS.length;
+		await v.handleDiagnose();
+		box.restore();
+		const txt = modalText(box);
+		has('diagnose is titled', 'Diagnose', String(box.title));
+		has('diagnose checks the config file', '/etc/config/socat is present', txt);
+		has('diagnose reports the engine heartbeat', 'the engine is running', txt);
+		has('diagnose names the scheduled rules', '1 rule(s) are outside their schedule', txt);
+		ck('diagnose probes the targets through the backend', true,
+			CALLS.slice(before).indexOf('test') >= 0);
+		has('diagnose summarises the checks', 'check(s) passed', txt);
+	}
+	delete STATUS.counts.scheduled;
+
+	/* ---- import old forwards --------------------------------------------
+	 * fw4 redirects and legacy socat instances are converted disabled, so a
+	 * mis-guessed target cannot take over a working forward unnoticed. */
+	MIGRATE.candidates = [
+		{ source: 'fw4', source_sid: 'cfg0abc', source_name: 'old-web', remarks: 'old-web',
+		  enable: '0', proto: 'tcp', listen_port: '8081', dest_proto: 'tcp4',
+		  dest_ip: '192.168.1.20', dest_port: '80', family: '', firewall_accept: '1',
+		  duplicate: false },
+		{ source: 'legacy', source_sid: 'legacy0', source_name: 'old-dns', remarks: 'old-dns',
+		  enable: '0', proto: 'udp', listen_port: '5353', dest_proto: 'udp4',
+		  dest_ip: '192.168.1.21', dest_port: '53', family: '', duplicate: true }
+	];
+	{
+		const box = captureModal();
+		await v.handleMigrate();
+		box.restore();
+		const txt = modalText(box);
+		has('the import dialog lists the fw4 redirect', 'old-web', txt);
+		has('...and where it came from', 'firewall redirect', txt);
+		has('...and marks the duplicate', 'already exists', txt);
+		has('the dialog warns that imports are disabled', 'added disabled', txt);
+
+		/* the import button writes the candidate through uci, then saves */
+		const findBtn = (kids, label) => {
+			for (const k of [].concat(kids || [])) {
+				if (!k || typeof k !== 'object') continue;
+				if (k.tag === 'button' && String(k.textContent).indexOf(label) >= 0) return k;
+				const hit = findBtn(k.children, label);
+				if (hit) return hit;
+			}
+			return null;
+		};
+		const btn = findBtn(box.kids, 'Import selected');
+		ck('the dialog offers "Import selected"', true, !!btn);
+		const mark = added.length;
+		if (btn) btn.attrs.click();
+		for (let i = 0; i < 20; i++) await Promise.resolve();
+		const fresh = added.slice(mark).map((a) => a[1]);
+		ck('one candidate was imported (the duplicate stays unchecked)', 1, fresh.length);
+		const rec = store[fresh[0]] || {};
+		ck('the imported rule is disabled for review', '0', rec.enable);
+		ck('...and keeps the firewall accept', '1', rec.firewall_accept);
+		ck('...with the original listen port', '8081', rec.listen_port);
+		ck('the page reloads after a successful import', 1, RELOADED);
+	}
+	/* nothing convertible: the dialog says so instead of showing an empty list */
+	MIGRATE.candidates = [];
+	MIGRATE.skipped = [ 'cfg0xyz' ];
+	{
+		const box = captureModal();
+		await v.handleMigrate();
+		box.restore();
+		has('an empty scan is reported', 'Nothing to migrate', String(box.title));
+		has('...with the skipped count', '1 section(s) could not be converted',
+			modalText(box));
+	}
 
 	const metaText = byId['socat-t-version'] ? byId['socat-t-version'].textContent : '(none)';
 	has('version text after recount', 'v2', metaText);

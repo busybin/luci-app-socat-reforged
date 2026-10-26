@@ -109,9 +109,14 @@ if [ -f /etc/init.d/socat ] && grep -q 'socat-boot.sh' /etc/init.d/socat 2>/dev/
   /etc/init.d/socat stop >/dev/null 2>&1 || true
   /etc/init.d/socat disable >/dev/null 2>&1 || true
   rm -f /etc/rc.d/S*socat /etc/rc.d/K*socat 2>/dev/null || true
-  cp -p /etc/init.d/socat "/root/init.d.socat.bak.$TS" 2>/dev/null || true
+  # keep the old script out of /etc/init.d (so nothing can restart it) and out
+  # of /root (which filled up with one copy per install); prune to 5 like the
+  # engine backups
+  mkdir -p /etc/socat-reforged-backup 2>/dev/null || true
+  cp -p /etc/init.d/socat "/etc/socat-reforged-backup/init.d.socat.$TS" 2>/dev/null || true
+  ls -1t /etc/socat-reforged-backup/init.d.socat.* 2>/dev/null | tail -n +6 | while read -r b; do rm -f "$b"; done
   rm -f /etc/init.d/socat 2>/dev/null || true
-  echo "removed legacy /etc/init.d/socat (backup: /root/init.d.socat.bak.$TS)"
+  echo "removed legacy /etc/init.d/socat (backup: /etc/socat-reforged-backup/init.d.socat.$TS)"
 fi
 
 # --- (re)start the engine from the freshly installed file ---

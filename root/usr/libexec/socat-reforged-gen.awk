@@ -7,6 +7,9 @@
 # -v warnf=<file>  warnings        : sid \t message
 # -v fwf=<file>    firewall ports  : proto \t port \t src4 \t src6  ("igmp\t-\t-\t-" joins groups)
 # -v pausef=<file> paused rules    : sid \t until   (temporarily stopped)
+# -v schedf=<file> schedule state  : sid \t on|off  (rules with a schedule)
+# -v dow=<1-7>     local day of week (ISO: Monday=1) for the schedules
+# -v hm=<HH:MM>    local time of day for the schedules
 #
 # "key" is the argv of the listener with spaces removed; it is what the shell
 # matches against the NUL-stripped /proc/<pid>/cmdline of a running worker, so
@@ -48,6 +51,54 @@ function ok_secid(v) { return (v ~ /^[A-Za-z0-9_.-]+$/) || (v ~ /^@[A-Za-z0-9_]+
 function ok_flag(v)  { return (v == "" || v == "0" || v == "1") }
 function ipport(v)   { v = plain_num(v); return (v ~ /^[0-9]+$/ && v + 0 >= 1 && v + 0 <= 65535) }
 function ok_uint(v, lo, hi) { v = plain_num(v); return (v ~ /^[0-9]+$/ && v + 0 >= lo && v + 0 <= hi) }
+
+# ---- per-rule schedule ------------------------------------------------------
+# "HH:MM" -> minutes since midnight, or -1.  The engine always passes the
+# current local time (dow/hm); without it a scheduled rule is skipped rather
+# than guessed at (fail-closed: a forward must never run outside its window).
+function sched_time(v,   h, m) {
+	if (v !~ /^[0-9][0-9]:[0-9][0-9]$/) return -1
+	h = substr(v, 1, 2) + 0
+	m = substr(v, 4, 2) + 0
+	if (h > 23 || m > 59) return -1
+	return h * 60 + m
+}
+
+# "1-5", "6,7", "1,3-5"; ISO weekdays, Monday=1.  Empty = every day.  Fills
+# the global SDAY[1..7]; returns 0 when the field is not a valid day list.
+function sched_days(v,   n, i, j, p, a, b, arr) {
+	for (i = 1; i <= 7; i++) SDAY[i] = 0
+	if (v == "") {
+		for (i = 1; i <= 7; i++) SDAY[i] = 1
+		return 1
+	}
+	n = split(v, arr, ",")
+	if (n < 1 || n > 7) return 0
+	for (i = 1; i <= n; i++) {
+		p = arr[i]
+		gsub(/[ \t]/, "", p)
+		if (p ~ /^[1-7]$/) { SDAY[p + 0] = 1; continue }
+		if (p ~ /^[1-7]-[1-7]$/) {
+			a = substr(p, 1, 1) + 0
+			b = substr(p, 3, 1) + 0
+			if (a > b) return 0
+			for (j = a; j <= b; j++) SDAY[j] = 1
+			continue
+		}
+		return 0
+	}
+	return 1
+}
+
+# Inside the window?  start == end means all day; start > end crosses
+# midnight, and the early part then belongs to the previous day's schedule.
+function sched_inside(ss, se, dow, hm,   prev) {
+	if (ss == se) return SDAY[dow + 0]
+	if (ss < se) return (hm >= ss && hm < se && SDAY[dow + 0])
+	prev = dow - 1
+	if (prev < 1) prev = 7
+	return ((hm >= ss && SDAY[dow + 0]) || (hm < se && SDAY[prev]))
+}
 # absolute filesystem path (certificate/key/unix socket), no traversal
 function ok_path(v) {
 	return (v ~ /^\//) && (v ~ /^[A-Za-z0-9._\/-]+$/) && (index(v, "..") == 0)
@@ -181,12 +232,16 @@ function emit(sid, kind, port, cmd,  key) {
 # Global socat options go before the two addresses:
 #   -T<n>   transfer timeout (per rule)
 #   -ls -d  route socat's log through syslog (per rule "system_log")
+#   -d -d   verbose transfer log (per rule "conn_log"; the engine captures
+#           stderr in $RUNDIR/err and the UI tails it)
 function build_cmd(addr,  o) {
 	o = socat
 	if (TMO != "")
 		o = o " -T" TMO
 	if (SYSLOG_ON == "1")
 		o = o " -ls -d"
+	if (CONNLOG == "1")
+		o = o " -d -d"
 	return o " " addr
 }
 
@@ -302,6 +357,11 @@ END {
 		mcloop  = V[sid, "mcast_loop"]
 		# peer allowlist: comma separated CIDRs -> socat range= options
 		srcallow = V[sid, "src_allow"]
+		# per-rule schedule + verbose transfer log
+		sdays    = V[sid, "sched_days"]
+		sstart   = V[sid, "sched_start"]
+		send     = V[sid, "sched_end"]
+		connlog  = V[sid, "conn_log"]
 
 		if (en == "")                      # missing enable == enabled (UI default)
 			en = "1"
@@ -313,6 +373,43 @@ END {
 		if (sid in PAUSED)                 # temporarily stopped from the UI
 			continue
 		if (!ok_secid(sid))                { warn(sid, "bad section id, skip"); continue }
+
+		# ---- schedule: only run inside the window -------------------------
+		# An invalid schedule is fatal for the rule (fail-closed): running a
+		# forward outside the window the user asked for is worse than a
+		# visible "skipped" warning.  The state goes to $schedf so the UI can
+		# say "scheduled off" instead of "down".
+		if (sdays != "" || sstart != "" || send != "") {
+			if (sstart == "" || send == "") {
+				warn(sid, "schedule needs both sched_start and sched_end, skip")
+				continue
+			}
+			ss = sched_time(sstart)
+			se = sched_time(send)
+			if (ss < 0)      { warn(sid, "bad sched_start (HH:MM), skip"); continue }
+			if (se < 0)      { warn(sid, "bad sched_end (HH:MM), skip"); continue }
+			if (!sched_days(sdays)) { warn(sid, "bad sched_days (1-7, e.g. 1-5), skip"); continue }
+			if (dow == "" || hm == "") {
+				warn(sid, "no local clock for the schedule, skip")
+				continue
+			}
+			dw = dow + 0
+			hmi = sched_time(hm)
+			if (dw < 1 || dw > 7 || hmi < 0) {
+				warn(sid, "bad local clock for the schedule, skip")
+				continue
+			}
+			if (sched_inside(ss, se, dw, hmi))
+				SC_STATE = "on"
+			else
+				SC_STATE = "off"
+			if (schedf != "")
+				print sid "\t" SC_STATE > schedf
+			if (SC_STATE == "off")
+				continue
+		}
+		if (!ok_flag(connlog))             { warn(sid, "bad conn_log, skip"); continue }
+		CONNLOG = (connlog == "1") ? "1" : ""
 		if (proto != "tcp" && proto != "udp" && proto != "ssl" && proto != "unix") {
 			warn(sid, "bad proto, skip"); continue
 		}

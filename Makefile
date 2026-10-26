@@ -59,7 +59,9 @@ define Package/luci-app-socat-reforged/postinst
 		/etc/init.d/socat stop >/dev/null 2>&1
 		/etc/init.d/socat disable >/dev/null 2>&1
 		rm -f /etc/rc.d/S*socat /etc/rc.d/K*socat
-		cp -p /etc/init.d/socat /root/init.d.socat.bak.$$(date +%Y%m%d-%H%M%S) 2>/dev/null
+		mkdir -p /etc/socat-reforged-backup 2>/dev/null
+		cp -p /etc/init.d/socat /etc/socat-reforged-backup/init.d.socat.$$(date +%Y%m%d-%H%M%S) 2>/dev/null
+		ls -1t /etc/socat-reforged-backup/init.d.socat.* 2>/dev/null | tail -n +6 | while read -r b; do rm -f "$$b"; done
 		rm -f /etc/init.d/socat
 	fi
 	ubus call service delete '{"name":"socat"}' >/dev/null 2>&1

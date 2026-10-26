@@ -71,6 +71,25 @@ drop-in replacement with a modern, ucode-native view.
 * **Temporary stop**: pause a rule for 1–10080 minutes.  Its listener and WAN
   port are closed at once and the rule comes back on its own; the table shows
   `⏸ paused until HH:MM`.
+* **Per-rule schedule**: keep a forward *closed* outside a daily window
+  (`08:00–18:00`, optionally limited to ISO weekdays such as `1-5`).  The
+  window may cross midnight (`22:00–06:00`); outside it the listener and its WAN
+  port do not exist, and the table shows `◷ scheduled off` instead of a red
+  "down".  An invalid or incomplete window skips the rule with a visible warning
+  rather than running it at the wrong time.
+* **Connection log per rule**: turn on *Log connections* to run that rule's
+  socat with `-d -d` and keep its stderr in RAM; the *Log* button in the rule
+  dialog shows the last lines (and explains how to turn transfer logging on when
+  it is off).  Start-up errors are shown there even without the toggle.
+* **Diagnose**: one button checks the config file, the engine heartbeat, the
+  listener count, port conflicts and firewall redirects, and dials the target of
+  every enabled rule through the same bounded test — so "why does this forward
+  not work" has one answer page.
+* **Import old forwards**: scans `fw4` redirects and legacy socat instances
+  (`/etc/config/socat` `SocatOptions` or the old app's sections) and offers to
+  re-create them as ordinary rules, **disabled** so you can review them first.
+  Duplicates are marked; anything that cannot be represented exactly (TLS
+  without its certificate, proxy chains, custom options) is left alone.
 * **Templates**: *Add from template* creates a disabled, pre-filled rule (RDP,
   SSH, SMB, HTTP(S), RTMP, RTSP, VNC, Minecraft, WireGuard, …), optionally as a
   TCP + UDP pair.  Set the target and enable it.
@@ -251,7 +270,7 @@ The engine is managed as the procd service **`socat-reforged`**:
 /etc/init.d/socat-reforged stop
 ```
 
-### 3. Prebuilt packages
+### 2. Prebuilt packages
 
 CI can produce `luci-app-socat-reforged_*` packages (see `.github/workflows/build.yml`
 and the Releases page). Because the package is `Architecture: all`, **a single
@@ -275,21 +294,21 @@ while the package installs, which interrupts active forwards for a few seconds.
 Downloads are checked against the release's `sha256sums` asset before the package
 manager runs them; a release without that file is refused.
 
-### 4. Translations
+### 3. Translations
 
 Translations ship as **separate language packages** (the LuCI convention):
 `po/<lang>/` in this repository is compiled by `luci.mk` into
 `luci-i18n-socat-reforged-<locale>`, so installing one does not touch the app
-package. Simplified Chinese is included — the catalogue lives in `po/zh_Hans/`
-and the package is `luci-i18n-socat-reforged-zh-cn` (LuCI names the package after
-the locale alias, not the directory). The interface falls back to
-English for anything a catalogue does not cover. The backend's own error strings
-(the `Test` button, the log) are mapped onto translatable messages in the view,
-and `tests/host/view-smoke.js` keeps that mapping and the backend in sync.
+package.  Seven catalogues are included — Simplified Chinese, Spanish, French,
+Arabic (with RTL layout), Brazilian Portuguese, Russian and Japanese — and the
+interface falls back to English for anything a catalogue does not cover.  The
+backend's own error strings (the `Test` button, the log) are mapped onto
+translatable messages in the view, and `tests/host/po-checks.js` keeps every
+catalogue complete and the mapping in sync.
 
-The prebuilt language package is attached to the Releases next to the app
-package (`apk add --allow-untrusted ./luci-i18n-socat-reforged-zh-cn-*.apk`, or
-`opkg install` the `.ipk`). It **depends on the app package**, so install that
+The prebuilt language packages are attached to the Releases next to the app
+package (`apk add --allow-untrusted ./luci-i18n-socat-reforged-*-*.apk`, or
+`opkg install` the `.ipk`). Each **depends on the app package**, so install that
 first — and note that a hand-installed tree (`install.sh`) is not a package, so
 the language package will refuse to install until you install the `.apk`/`.ipk`
 itself. After installing a language, pick it in *System → System → Language and
@@ -338,13 +357,16 @@ Each `config config` section is one forward:
 | `ssl_verify` | `1` (default) verifies a TLS target against the system store or `ssl_cafile` |
 | `firewall_accept` | `1` = keep the WAN port open automatically (default `0`; `src_allow` CIDRs become firewall `src_ip`) |
 | `reuseaddr` | `1`/`0` (default `1`) |
+| `sched_days` | ISO weekdays the schedule applies to: `1-5`, `6,7` (empty = every day) |
+| `sched_start` / `sched_end` | daily window as `HH:MM`, local time (`start == end` = all day; `start > end` crosses midnight) |
+| `conn_log` | `1` = pass `-d -d` and record every transfer in the rule's connection log |
 
 ## Tests
 
 Everything that does not need a router runs anywhere (BusyBox/Linux + `socat`):
 
 ```sh
-sh tests/run.sh                  # 8 suites: view, generator, zones, simulator, matrix, fuzz, engine keys, package layout
+sh tests/run.sh                  # 10 suites: view, generator, zones, simulator, matrix, fuzz, engine keys, package layout, signal handling, translations
 sh tests/run.sh --router <ssh-host>  # also install on a router, test engine/backend/perf
 ```
 

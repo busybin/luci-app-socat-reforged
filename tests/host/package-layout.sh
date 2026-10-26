@@ -105,7 +105,12 @@ if command -v make >/dev/null 2>&1; then
 	check 'the expanded postinst is valid shell' 0 "$rc"
 	has 'the postinst can create a missing config file' \
 		'[ -f /etc/config/socat ] || : > /etc/config/socat' "$(cat "$WORK/postinst.sh")"
-	has 'the backup name keeps its command substitution' '.bak.$(date +' "$(cat "$WORK/postinst.sh")"
+	has 'the backup name keeps its command substitution' \
+		'init.d.socat.$(date +' "$(cat "$WORK/postinst.sh")"
+	has 'the legacy init is backed up outside /etc/init.d' \
+		'/etc/socat-reforged-backup/init.d.socat.' "$(cat "$WORK/postinst.sh")"
+	has 'the legacy init backups are pruned' \
+		'tail -n +6' "$(cat "$WORK/postinst.sh")"
 	has 'the pgrep pattern keeps its anchor and quote' "'^(/bin/)?sh /etc/socat-boot.sh\$'" "$(cat "$WORK/postinst.sh")"
 	# The old pattern ('/etc/socat-boot.sh$') matched *any* command line that
 	# merely ended with the path — it killed the `docker exec ... /etc/
@@ -203,7 +208,7 @@ check 'install.sh installs the self-update helper 755' 1 \
 sh -n "$REPO/root/usr/libexec/socat-reforged-update" 2>/dev/null && rc=0 || rc=1
 check 'the self-update helper is valid shell' 0 "$rc"
 acl=$REPO/root/usr/share/rpcd/acl.d/luci-app-socat-reforged.json
-for m in update_check update_status; do
+for m in update_check update_status rule_log migrate_scan; do
 	check "the ACL grants $m" 1 "$(grep -c "\"$m\"" "$acl")"
 done
 # installing a package needs root: keep it out of the app's ACL entirely
@@ -212,6 +217,10 @@ check 'the ACL grants test only as a write method' 1 \
 	"$(grep -c '"log_clear", "test"' "$acl")"
 check 'the backend implements update_install' 1 \
 	"$(grep -c 'update_install: {' "$REPO/root/usr/share/rpcd/ucode/luci.socat-reforged.uc")"
+for m in rule_log migrate_scan; do
+	check "the backend implements $m" 1 \
+		"$(grep -c "$m: {" "$REPO/root/usr/share/rpcd/ucode/luci.socat-reforged.uc")"
+done
 
 rm -rf "$WORK"
 summary 'package layout'

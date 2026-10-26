@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-socat-reforged 3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-14 22:32+0800\n"
-"PO-Revision-Date: 2026-10-14 22:32+0800\n"
+"POT-Creation-Date: 2026-10-26 12:00+0800\n"
+"PO-Revision-Date: 2026-10-26 12:00+0800\n"
 "Last-Translator: busybin <65460344+busybin@users.noreply.github.com>\n"
 "Language-Team: \n"
 "Language: zh_Hans\n"
@@ -292,8 +292,6 @@ msgstr "在监听端口上加入组播组（IPTV）。224.0.0.0 - 239.255.255.25
 msgid "Join multicast group"
 msgstr "加入组播组"
 
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:1267
-
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:915
 msgid "Later"
 msgstr "稍后"
@@ -341,8 +339,6 @@ msgstr "日志写入 syslog"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1524
 msgid "Look for new versions"
 msgstr "检查新版本"
-
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:1264
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1091
 msgid "Max concurrent children"
@@ -445,8 +441,6 @@ msgstr "更新说明 ↗"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:913
 msgid "Reload now"
 msgstr "立即重新加载"
-
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:1272
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1232
 #, javascript-format
@@ -671,8 +665,6 @@ msgstr "详细引擎日志"
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1165
 msgid "Verify TLS certificate"
 msgstr "校验 TLS 证书"
-
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:1269
 
 #: htdocs/luci-static/resources/view/network/socat-reforged.js:1026
 msgid "Which listen sockets to create. The default binds both IPv4 and IPv6."
@@ -1176,26 +1168,290 @@ msgstr "恢复"
 msgid "Pause / resume this rule"
 msgstr "暂停 / 恢复这条规则"
 
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:198
 msgid "the release has no checksum file"
 msgstr "该 release 没有校验和文件"
 
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:199
 msgid "the checksum file does not come from this project"
 msgstr "校验和文件不是本项目发布的"
 
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:200
 msgid "the release asset does not come from this project"
 msgstr "该 release 资产不是本项目发布的"
 
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:201
 msgid "the update state directory is not writable"
 msgstr "更新状态目录不可写"
 
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:204
 msgid "proxy server contains invalid characters"
 msgstr "代理服务器包含非法字符"
 
-#: htdocs/luci-static/resources/view/network/socat-reforged.js:205
 msgid "proxy port is out of range"
 msgstr "代理端口超出范围"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:309
+msgid "days 1-7, e.g. 1-5 or 6,7"
+msgstr "星期 1-7，例如 1-5 或 6,7"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:315
+msgid "time as HH:MM"
+msgstr "时间格式为 HH:MM"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:321
+msgid "valid port value (1-65535)"
+msgstr "有效端口值（1-65535）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:327
+msgid "valid port or port range (1-65535)"
+msgstr "有效端口或端口范围（1-65535）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:334
+msgid "valid user name (letters, digits, \"_\", \"-\")"
+msgstr "有效用户名（字母、数字、\"_\"、\"-\"）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:408
+msgid "bad proxy_server"
+msgstr "代理服务器无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:411
+msgid "proxy_port must be 1-65535"
+msgstr "代理端口必须为 1-65535"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:418
+msgid "bad sched_days"
+msgstr "生效星期无效"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:420
+msgid "schedule needs sched_start and sched_end as HH:MM"
+msgstr "定时需要以 HH:MM 格式填写开始和结束时间"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:447
+msgid "The configuration file /etc/config/socat is missing. Reinstall luci-app-socat-reforged or create the file before saving rules."
+msgstr "配置文件 /etc/config/socat 不存在。请在保存规则前重装 luci-app-socat-reforged 或创建该文件。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:490
+#, javascript-format
+msgid "scheduled off (%s)"
+msgstr "定时关闭（%s）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:490
+msgid "scheduled off"
+msgstr "定时关闭"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:654
+#, javascript-format
+msgid "%d rule(s) scheduled off"
+msgstr "%d 条规则处于定时关闭时段"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:955
+msgid "could not read the log"
+msgstr "无法读取日志"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:959
+msgid "(no output yet)"
+msgstr "（暂无输出）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:961
+msgid "Turn on “Log connections” for this rule to record every transfer here."
+msgstr "打开该规则的“记录连接”，即可在此记录每次传输。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:967
+msgid "Only start-up errors are recorded. Turn on “Log connections” to log every transfer."
+msgstr "当前只记录启动错误。打开“记录连接”可记录每次传输。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:969
+#, javascript-format
+msgid "could not read the log: %s"
+msgstr "无法读取日志：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:972
+#, javascript-format
+msgid "Connection log: %s"
+msgstr "连接日志：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1003
+msgid "/etc/config/socat is present"
+msgstr "/etc/config/socat 存在"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1005
+#, javascript-format
+msgid "the engine is running (last reconcile %s s ago)"
+msgstr "引擎正在运行（上次同步于 %s 秒前）"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1006
+msgid "the engine is not running: press Start"
+msgstr "引擎未运行：请按“启动”"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1008
+#, javascript-format
+msgid "%d of %d enabled rule(s) are listening"
+msgstr "%d / %d 条已启用规则正在监听"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1010
+#, javascript-format
+msgid "%d rule(s) are down"
+msgstr "%d 条规则未运行"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1013
+#, javascript-format
+msgid "%d rule(s) are paused"
+msgstr "%d 条规则已暂停"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1016
+#, javascript-format
+msgid "%d rule(s) are outside their schedule"
+msgstr "%d 条规则处于定时关闭时段"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1020
+#, javascript-format
+msgid "%d listen port conflict(s): %s"
+msgstr "%d 处监听端口冲突：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1022
+msgid "no two rules fight over the same listen port"
+msgstr "没有规则争用同一监听端口"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1027
+#, javascript-format
+msgid "%d firewall redirect(s) send a listen port elsewhere"
+msgstr "%d 条防火墙重定向把监听端口转到了别处"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1028
+msgid "no firewall redirect steals a listen port"
+msgstr "没有防火墙重定向抢占监听端口"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1032
+#, javascript-format
+msgid "%d rule(s) report a start error: %s"
+msgstr "%d 条规则报告启动错误：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1036
+msgid "Testing the target of every enabled rule…"
+msgstr "正在测试每条已启用规则的目标…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1043
+msgid "Diagnose"
+msgstr "诊断"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1060
+msgid "reachable"
+msgstr "可连接"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1060
+msgid "not reachable"
+msgstr "无法连接"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1070
+msgid "No enabled rule has a testable target."
+msgstr "没有已启用规则带有可测试的目标。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1072
+#, javascript-format
+msgid "%d check(s) passed, %d failed"
+msgstr "%d 项通过，%d 项失败"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1079
+msgid "Looking for old forwards…"
+msgstr "正在查找旧的转发…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1079
+msgid "Reading the firewall and the legacy socat config…"
+msgstr "正在读取防火墙和旧 socat 配置…"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1087
+msgid "Nothing to migrate"
+msgstr "没有可迁移的内容"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1088
+msgid "No fw4 redirect or legacy socat instance can be converted to a forward."
+msgstr "没有可转换为转发的 fw4 重定向或旧 socat 实例。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1090
+#, javascript-format
+msgid "%d section(s) could not be converted automatically."
+msgstr "%d 个配置段无法自动转换。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1107
+#, javascript-format
+msgid "firewall redirect “%s”"
+msgstr "防火墙重定向“%s”"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1108
+#, javascript-format
+msgid "legacy socat “%s”"
+msgstr "旧 socat“%s”"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1113
+msgid "already exists"
+msgstr "已存在"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1118
+msgid "Import old forwards"
+msgstr "导入旧转发"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1119
+msgid "The selected forwards are added disabled, so you can review them. Remove the old redirect or disable the legacy instance afterwards."
+msgstr "选中的转发会以禁用状态添加，便于你先检查。之后请删除旧重定向或停用旧实例。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1142
+msgid "Nothing was imported."
+msgstr "没有导入任何内容。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1146
+#, javascript-format
+msgid "Skipped %d candidate(s) that failed validation."
+msgstr "已跳过 %d 个未通过校验的候选。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1154
+msgid "Import selected"
+msgstr "导入所选"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1159
+#, javascript-format
+msgid "Could not scan the old forwards: %s"
+msgstr "无法扫描旧转发：%s"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1735
+msgid "Migrate old forwards"
+msgstr "迁移旧转发"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1927
+msgid "Log"
+msgstr "日志"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:1928
+msgid "Show connection log"
+msgstr "显示连接日志"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2094
+msgid "Log connections"
+msgstr "记录连接"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2098
+msgid "Record every transfer of this rule (socat -d -d) and show it in the connection log. The output is kept in RAM and capped automatically."
+msgstr "记录此规则的每次传输（socat -d -d），并在连接日志中显示。输出保存在内存中并自动限制大小。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2101
+msgid "Active days"
+msgstr "生效星期"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2102
+msgid "every day"
+msgstr "每天"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2105
+msgid "ISO weekdays with Monday=1: “1-5” for workdays, “6,7” for the weekend. Empty means every day."
+msgstr "ISO 星期，周一为 1：“1-5”为工作日，“6,7”为周末。留空表示每天。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2107
+msgid "Active from"
+msgstr "生效开始"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2111
+msgid "Start of the daily window (HH:MM, local time). Set both times to enable the schedule; the listener and its WAN port are closed outside it."
+msgstr "每日窗口的开始时间（HH:MM，本地时间）。同时填写开始和结束才会启用定时；窗口之外监听及其 WAN 端口都会关闭。"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2113
+msgid "Active until"
+msgstr "生效结束"
+
+#: htdocs/luci-static/resources/view/network/socat-reforged.js:2117
+msgid "End of the window. An end earlier than the start crosses midnight (22:00–06:00). The rule is skipped, not left running, if the times are invalid."
+msgstr "窗口的结束时间。结束早于开始表示跨午夜（22:00–06:00）。时间无效时会跳过该规则，而不是继续运行。"

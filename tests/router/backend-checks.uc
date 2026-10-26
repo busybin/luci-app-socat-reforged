@@ -63,15 +63,30 @@ ck('rules array has entries', true, length(st.rules) > 0);
 ck('every rule has a status', true, (function() {
 	for (let i = 0; i < length(st.rules); i++) {
 		const s = st.rules[i].status;
-		if (s != 'listening' && s != 'down' && s != 'partial' && s != 'disabled' && s != 'paused')
+		if (s != 'listening' && s != 'down' && s != 'partial' && s != 'disabled' &&
+		    s != 'paused' && s != 'scheduled')
+			return false;
+	}
+	return true;
+})());
+/* every rule carries the schedule and connection-log settings, present or
+ * empty, so the view can render them without another call */
+ck('every rule exposes its schedule', true, (function() {
+	for (let i = 0; i < length(st.rules); i++) {
+		const r = st.rules[i];
+		if (r.sched_days == null || r.sched_start == null || r.sched_end == null ||
+		    r.conn_log == null)
 			return false;
 	}
 	return true;
 })());
 /* the counters the page displays must be mutually consistent: an enabled rule
- * is either listening or down, never both and never neither */
-ck('counts: listening + down + paused = enabled', st.counts.enabled,
-   st.counts.listening + st.counts.down + (st.counts.paused ?? 0));
+ * is either listening, down, paused or outside its schedule.  `scheduled` is
+ * counted apart from `down` on purpose (a rule that is off by schedule is not
+ * broken), so it has to be part of the equation. */
+ck('counts: listening + down + paused + scheduled = enabled', st.counts.enabled,
+   st.counts.listening + st.counts.down + (st.counts.paused ?? 0) +
+   (st.counts.scheduled ?? 0));
 ck('counts: enabled <= total', true, st.counts.enabled <= st.counts.total);
 ck('counts: errors <= enabled', true, st.counts.errors <= st.counts.enabled);
 ck('engine age is sane', true, st.engine.age >= 0 && st.engine.age <= 90);
@@ -103,6 +118,40 @@ if (firstSid != null) {
 	ck('rule_pause rejects a zero duration', false, pm.ok);
 	has('rule_pause explains the range', 'minutes must be 1-10080', pm.detail ?? '');
 }
+
+/* ---- per-rule log (read-only: only reads the captured stderr) ---------- */
+const rl0 = obj.rule_log.call({ args: { sid: 'bad sid', lines: 5 } });
+ck('rule_log rejects a bad section id', false, rl0.ok);
+has('rule_log says why', 'bad section id', rl0.detail ?? '');
+const rl1 = obj.rule_log.call({ args: { sid: 'does-not-exist' } });
+ck('rule_log rejects an unknown rule', false, rl1.ok);
+has('rule_log names the missing rule', 'no such rule', rl1.detail ?? '');
+if (firstSid != null) {
+	const rl = obj.rule_log.call({ args: { sid: firstSid, lines: 5 } });
+	ck('rule_log answers for a real rule', true, rl.ok);
+	ck('rule_log returns an array of lines', 'array', type(rl.lines));
+	ck('rule_log honours the line limit', true, length(rl.lines) <= 5);
+	ck('rule_log reports whether transfers are logged', 'bool', type(rl.conn_log));
+	ck('rule_log points at the captured files', 'string', type(rl.dir));
+	ck('rule_log caps an absurd line count', true,
+	   length(obj.rule_log.call({ args: { sid: firstSid, lines: 100000 } }).lines) <= 400);
+}
+
+/* ---- migration scan (read-only) --------------------------------------- */
+const mg = obj.migrate_scan.call();
+ck('migrate_scan answers', true, mg.ok);
+ck('migrate_scan returns candidates', 'array', type(mg.candidates));
+ck('migrate_scan returns skipped sections', 'array', type(mg.skipped));
+ck('every candidate is imported disabled and reviewable', true, (function() {
+	for (let i = 0; i < length(mg.candidates); i++) {
+		const c = mg.candidates[i];
+		if (c.enable != '0' || (c.source != 'fw4' && c.source != 'legacy'))
+			return false;
+		if (type(c.duplicate) != 'bool' || c.listen_port == null || c.dest_proto == null)
+			return false;
+	}
+	return true;
+})());
 
 /* ---- test (reachability) ---------------------------------------------- */
 ck('test: missing host is refused', false, obj.test.call({ args: { dest_ip: '', dest_port: 0, dest_proto: 'tcp4' } }).ok);
@@ -291,12 +340,16 @@ if (up1.ok === true) {
  * live process must refuse the second run.  Skipped if an update is really
  * running, so this cannot stomp on one. */
 if (up0.state != 'running') {
-	writefile('/tmp/socat-reforged-update.state', 'running 1\n');
+	/* the state file lives in the root-owned runtime dir, not /tmp */
+	const STATE = '/var/run/socat-reforged/update.state';
+	const saved = readfile(STATE);
+	system('mkdir -p /var/run/socat-reforged');
+	writefile(STATE, 'running 1\n');
 	const gi = obj.update_install.call();
 	ck('a claimed update run blocks a second one', false, gi.ok);
 	has('...and says why', 'already running', gi.error ?? '');
-	fs.unlink('/tmp/socat-reforged-update.state');
-	ck('the state file was cleaned up', null, fs.access('/tmp/socat-reforged-update.state'));
+	ck('...and leaves the running update alone', 'running 1', trim(readfile(STATE) ?? ''));
+	if (saved != null) writefile(STATE, saved); else fs.unlink(STATE);
 } else {
 	printf('  %-46s skipped (an update is running)\n', 'the update_install guard');
 }
